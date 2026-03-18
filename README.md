@@ -1,41 +1,86 @@
-# Dwellio Final Master Repo
+# Dwellio
 
-This package is the corrected Dwellio repository bundle.
+Dwellio is a Python-first property tax protest platform scaffold for Texas counties.
 
-It includes:
-- preserved source-of-truth docs
-- corrected codex guidance docs
-- final reconciled architecture docs
-- synchronized migrations
-- read-model views
-- typed models and service stubs
-- ETL job stubs
-- API stubs
-- architecture map and state tracker
-- a canonical precedence note
-- a tax-data-pull to repo mapping note
+This repository includes:
+- source-of-truth architecture and product docs
+- ordered SQL migrations and read-model SQL views
+- Python API skeleton (FastAPI)
+- Python ETL/job skeleton
+- county adapter and county config scaffolding
+- optional Next.js frontend in `apps/web`
 
-## Important notes
+## Stage 0 foundation status
 
-### Backend authority
-Dwellio is Python-first for backend and ETL implementation.
-React / Next.js may be used as a frontend layer only unless the source-of-truth docs are explicitly changed.
+Stage 0 focuses on production-grade scaffolding only:
+- runtime and env configuration
+- DB connectivity and migration tooling
+- API route contracts without feature logic
+- ETL/job execution shell
+- linting, formatting, type-checking, and tests
 
-### Full schema file
-The full schema convenience file is located at:
+No quote/valuation business logic is implemented in Stage 0.
 
-`sql/dwellio_full_schema.sql`
+## Canonical architecture reminders
 
-It is a reference/bootstrap artifact and is intentionally kept outside the migrations folder.
+- Backend/API authority: Python
+- ETL authority: Python
+- Frontend may use React/Next.js
+- Public APIs must read precomputed read models
+- Restricted MLS/listing data must remain out of public APIs
+- `defensible_value = min(market_model_output, unequal_appraisal_output)`
 
-### Conflict resolution
-Use:
-- `docs/runbooks/CANONICAL_PRECEDENCE.md`
-- `docs/runbooks/TAX_DATA_PULL_REPO_MAPPING.md`
+## Quick start
 
-before reconciling imported planning docs with the repo implementation.
+1. Install dependencies:
+   ```bash
+   python3 -m pip install -e ".[dev]"
+   ```
+2. Configure environment:
+   ```bash
+   cp .env.example .env
+   ```
+3. Apply migrations:
+   ```bash
+   make migrate
+   ```
+4. Run API:
+   ```bash
+   make run-api
+   ```
 
-### Consolidated Codex prompt file
-The consolidated Codex operator file is located at:
+Detailed instructions:
+- `docs/setup/local-development.md`
 
-`docs/codex/DWELLIO_MASTER_CODEX_PROMPT.md`
+## Repo structure (core)
+
+```text
+app/
+  api/
+  core/
+  county_adapters/
+  db/
+    migrations/
+    views/
+  jobs/
+  models/
+  services/
+  utils/
+apps/
+  web/
+config/
+  counties/
+docs/
+  source_of_truth/
+  runbooks/
+  architecture/
+  setup/
+infra/
+  scripts/
+  supabase/
+tests/
+  unit/
+  integration/
+  fixtures/
+sql/
+```
