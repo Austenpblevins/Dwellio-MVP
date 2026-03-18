@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
+
 def weighted_average(values: list[float], weights: list[float]) -> float:
-    return sum(v * w for v, w in zip(values, weights)) / sum(weights)
+    return sum(v * w for v, w in zip(values, weights, strict=True)) / sum(weights)
 
 @dataclass
 class MarketModelInputs:

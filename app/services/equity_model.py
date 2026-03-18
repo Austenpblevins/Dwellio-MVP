@@ -1,5 +1,6 @@
 from statistics import median
 
+
 class EquityModelService:
     def run(self, subject_living_area_sf: float, adjusted_equity_comp_psf: list[float]) -> dict:
         equity_value_point = median(adjusted_equity_comp_psf) * subject_living_area_sf

@@ -1,15 +1,18 @@
 from __future__ import annotations
-from typing import List, Optional
+
 from uuid import UUID
+
 from pydantic import Field
+
 from app.models.common import DwellioBaseModel, JsonDict
 from app.models.parcel import ParcelSearchResult
+
 
 class SearchRequest(DwellioBaseModel):
     address: str = Field(..., min_length=3)
 
 class SearchResponse(DwellioBaseModel):
-    results: List[ParcelSearchResult]
+    results: list[ParcelSearchResult]
 
 class QuoteResponse(DwellioBaseModel):
     county_id: str
@@ -17,17 +20,17 @@ class QuoteResponse(DwellioBaseModel):
     account_number: str
     parcel_id: UUID
     address: str
-    current_notice_value: Optional[float] = None
-    market_value_point: Optional[float] = None
-    equity_value_point: Optional[float] = None
-    defensible_value_point: Optional[float] = None
-    gross_tax_savings_point: Optional[float] = None
-    expected_tax_savings_point: Optional[float] = None
-    expected_tax_savings_low: Optional[float] = None
-    expected_tax_savings_high: Optional[float] = None
-    estimated_contingency_fee: Optional[float] = None
-    confidence: Optional[str] = None
-    basis: Optional[str] = None
-    protest_recommendation: Optional[str] = None
+    current_notice_value: float | None = None
+    market_value_point: float | None = None
+    equity_value_point: float | None = None
+    defensible_value_point: float | None = None
+    gross_tax_savings_point: float | None = None
+    expected_tax_savings_point: float | None = None
+    expected_tax_savings_low: float | None = None
+    expected_tax_savings_high: float | None = None
+    estimated_contingency_fee: float | None = None
+    confidence: str | None = None
+    basis: str | None = None
+    protest_recommendation: str | None = None
     explanation_json: JsonDict = Field(default_factory=dict)
-    explanation_bullets: List[str] = Field(default_factory=list)
+    explanation_bullets: list[str] = Field(default_factory=list)

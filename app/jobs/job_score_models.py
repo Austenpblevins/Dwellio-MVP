@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)

@@ -1,4 +1,6 @@
 from typing import Any, Protocol
+
+
 class CountyAdapter(Protocol):
     county_id: str
     def fetch(self, *args: Any, **kwargs: Any) -> list[dict]: ...
