@@ -4,7 +4,8 @@
 Build Dwellio as a production-oriented Texas property tax protest platform. Do not optimize for appearance over correctness. Do not turn the project into a toy quote calculator.
 
 ## Source of Truth
-- DWELLIO_MASTER_SPEC.md is the canonical architecture and product specification.
+- DWELLIO_MASTER_SPEC.md is the compatibility entry point for the canonical source-of-truth set.
+- Treat it as a pointer to CANONICAL_CONTEXT.md, PLATFORM_IMPLEMENTATION_SPEC.md, QUOTE_ENGINE_PRODUCT_SPEC.md, DWELLIO_BUILD_PLAN.md, DWELLIO_SCHEMA_REFERENCE.md, AGENT_RULES.md, and DWELLIO_CODEX_CONTEXT.md.
 - DWELLIO_BUILD_PLAN.md is the required execution order.
 - If code conflicts with the spec, update the code to match the spec unless a later explicit decision document overrides it.
 
@@ -84,4 +85,4 @@ A milestone is only complete when:
 - migrations apply
 - tests pass
 - docs are updated
-- the result matches DWELLIO_MASTER_SPEC.md
+- the result matches the canonical source-of-truth set referenced by DWELLIO_MASTER_SPEC.md

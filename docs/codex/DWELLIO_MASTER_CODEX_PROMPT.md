@@ -86,8 +86,8 @@ Codex must use the following precedence order when documents appear to conflict:
 
 If a prompt references a file that does not exist exactly under that name, Codex must not guess silently. It should use the closest matching source-of-truth document already present in the repo and explicitly state the mapping it is using.
 
-Example:
-- If a prompt references `DWELLIO_MASTER_SPEC.md` but that exact file is not present, use the combined authority of:
+Compatibility note:
+- `DWELLIO_MASTER_SPEC.md` is maintained as a compatibility entry point to:
   - `CANONICAL_CONTEXT.md`
   - `PLATFORM_IMPLEMENTATION_SPEC.md`
   - `QUOTE_ENGINE_PRODUCT_SPEC.md`

@@ -175,7 +175,7 @@ Dwellio MVP should be built as a modular monolith with clean separation of conce
 
 Recommended stack:
 - app/frontend: Next.js
-- app/backend: TypeScript-based app/API layer
+- app/backend: Python-based app/API layer
 - ETL/integration: Python
 - database: PostgreSQL + PostGIS
 - jobs/queue: pg-boss or similar

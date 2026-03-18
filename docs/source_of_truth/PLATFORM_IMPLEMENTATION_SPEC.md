@@ -63,7 +63,7 @@ Use a modular monolith for MVP, designed for later service extraction.
 
 Recommended stack:
 - Frontend: Next.js
-- Backend/API: TypeScript app layer
+- Backend/API: Python app layer
 - ETL/integration: Python
 - Database: PostgreSQL
 - GIS: PostGIS

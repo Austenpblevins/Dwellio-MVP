@@ -100,7 +100,9 @@ tests/
 Before doing any work, Codex must read these files:
 
 docs/source_of_truth/AGENT_RULES.md  
-docs/source_of_truth/DWELLIO_MASTER_SPEC.md  
+docs/source_of_truth/CANONICAL_CONTEXT.md  
+docs/source_of_truth/PLATFORM_IMPLEMENTATION_SPEC.md  
+docs/source_of_truth/QUOTE_ENGINE_PRODUCT_SPEC.md  
 docs/source_of_truth/DWELLIO_BUILD_PLAN.md  
 docs/source_of_truth/DWELLIO_CODEX_CONTEXT.md  
 docs/source_of_truth/DWELLIO_SCHEMA_REFERENCE.md  

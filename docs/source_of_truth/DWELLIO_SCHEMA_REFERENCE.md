@@ -1137,7 +1137,7 @@ These are the first indexes that matter most.
 
 This schema reference is a navigation file, not the migration source.
 Use:
-- `DWELLIO_MASTER_SPEC.md` for the full architecture and formulas
+- `DWELLIO_MASTER_SPEC.md` as the compatibility entry point to the canonical source-of-truth set
 - `DWELLIO_BUILD_PLAN.md` for execution order
 - `AGENT_RULES.md` for non-negotiable implementation rules
 - this file for quick schema lookup and table intent

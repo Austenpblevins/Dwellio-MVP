@@ -6,7 +6,7 @@ This file defines the exact execution order for Codex. Execute tasks in sequence
 
 ## Phase 0 — Planning lock
 Deliverables:
-- confirm DWELLIO_MASTER_SPEC.md is present
+- confirm DWELLIO_MASTER_SPEC.md is present as the compatibility map to the canonical source-of-truth set
 - confirm AGENT_RULES.md is present
 - create repo scaffold
 - create roadmap and task tracking markdown inside repo

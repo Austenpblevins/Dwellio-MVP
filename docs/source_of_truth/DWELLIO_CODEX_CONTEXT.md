@@ -3,7 +3,7 @@
 ## Purpose
 
 This is the compact canonical context file for Codex. Use it as the implementation reference alongside:
-- DWELLIO_MASTER_SPEC.md
+- DWELLIO_MASTER_SPEC.md as the compatibility entry point to the canonical source-of-truth set
 - DWELLIO_BUILD_PLAN.md
 - AGENT_RULES.md
 

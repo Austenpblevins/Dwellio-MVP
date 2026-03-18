@@ -1,11 +1,15 @@
 # Dwellio Implementation Specification (Final Reconciled)
 
 ## Canonical precedence
-1. `docs/source_of_truth/DWELLIO_MASTER_SPEC.md`
-2. `docs/source_of_truth/DWELLIO_BUILD_PLAN.md`
-3. `docs/source_of_truth/AGENT_RULES.md`
-4. `docs/source_of_truth/DWELLIO_CODEX_CONTEXT.md`
-5. `docs/source_of_truth/DWELLIO_SCHEMA_REFERENCE.md`
+1. `docs/source_of_truth/CANONICAL_CONTEXT.md`
+2. `docs/source_of_truth/PLATFORM_IMPLEMENTATION_SPEC.md`
+3. `docs/source_of_truth/QUOTE_ENGINE_PRODUCT_SPEC.md`
+4. `docs/source_of_truth/DWELLIO_BUILD_PLAN.md`
+5. `docs/source_of_truth/AGENT_RULES.md`
+6. `docs/source_of_truth/DWELLIO_CODEX_CONTEXT.md`
+7. `docs/source_of_truth/DWELLIO_SCHEMA_REFERENCE.md`
+
+`docs/source_of_truth/DWELLIO_MASTER_SPEC.md` is a compatibility entry point to this source-of-truth set.
 
 ## Core rule
 For each parcel-year:
