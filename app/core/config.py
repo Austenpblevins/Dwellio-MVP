@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         alias="DWELLIO_DATABASE_URL",
     )
     db_connect_timeout_seconds: int = Field(default=5, alias="DWELLIO_DB_CONNECT_TIMEOUT_SECONDS")
+    raw_archive_root: str = Field(default=".dwellio/raw", alias="DWELLIO_RAW_ARCHIVE_ROOT")
 
     default_tax_year: int = Field(default=2026, alias="DWELLIO_DEFAULT_TAX_YEAR")
 
@@ -26,4 +27,3 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-
