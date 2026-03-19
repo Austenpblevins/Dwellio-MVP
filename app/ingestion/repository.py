@@ -368,6 +368,32 @@ class IngestionRepository:
             file_kind=row["file_kind"],
         )
 
+    def find_latest_import_batch_id(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+    ) -> str | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT ib.import_batch_id
+                FROM import_batches ib
+                JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
+                WHERE ib.county_id = %s
+                  AND ib.tax_year = %s
+                  AND rf.file_kind = %s
+                ORDER BY ib.created_at DESC, rf.created_at DESC
+                LIMIT 1
+                """,
+                (county_id, tax_year, dataset_type),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return str(row["import_batch_id"])
+
     def insert_staging_rows(
         self,
         *,
@@ -1156,6 +1182,151 @@ class IngestionRepository:
         if row is None:
             return None
         return dict(row["metadata_json"] or {})
+
+    def inspect_property_roll_import_batch(self, *, import_batch_id: str, tax_year: int) -> dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version,
+                  count(DISTINCT rf.raw_file_id) AS raw_file_count,
+                  count(DISTINCT jr.job_run_id) AS job_run_count
+                FROM import_batches ib
+                LEFT JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
+                LEFT JOIN job_runs jr ON jr.import_batch_id = ib.import_batch_id
+                WHERE ib.import_batch_id = %s
+                GROUP BY
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version
+                """,
+                (import_batch_id,),
+            )
+            batch_row = cursor.fetchone()
+            if batch_row is None:
+                raise ValueError(f"Missing import batch {import_batch_id}.")
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM stg_county_property_raw
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            staging_row_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM lineage_records
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            lineage_record_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT
+                  count(*) AS total_count,
+                  count(*) FILTER (WHERE severity = 'error') AS error_count
+                FROM validation_results
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            validation_counts = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM parcel_year_snapshots
+                WHERE import_batch_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            parcel_year_snapshot_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM parcel_assessments pa
+                JOIN parcel_year_snapshots pys
+                  ON pys.parcel_id = pa.parcel_id
+                 AND pys.tax_year = pa.tax_year
+                WHERE pys.import_batch_id = %s
+                  AND pa.tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            parcel_assessment_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM parcel_exemptions pe
+                JOIN parcel_year_snapshots pys
+                  ON pys.parcel_id = pe.parcel_id
+                 AND pys.tax_year = pe.tax_year
+                WHERE pys.import_batch_id = %s
+                  AND pe.tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            parcel_exemption_count = cursor.fetchone()["count"]
+
+        return {
+            "import_batch_id": import_batch_id,
+            "county_id": batch_row["county_id"],
+            "tax_year": batch_row["tax_year"],
+            "status": batch_row["status"],
+            "row_count": batch_row["row_count"],
+            "error_count": batch_row["error_count"],
+            "publish_state": batch_row["publish_state"],
+            "publish_version": batch_row["publish_version"],
+            "raw_file_count": batch_row["raw_file_count"],
+            "job_run_count": batch_row["job_run_count"],
+            "staging_row_count": staging_row_count,
+            "lineage_record_count": lineage_record_count,
+            "validation_result_count": validation_counts["total_count"],
+            "validation_error_count": validation_counts["error_count"],
+            "parcel_year_snapshot_count": parcel_year_snapshot_count,
+            "parcel_assessment_count": parcel_assessment_count,
+            "parcel_exemption_count": parcel_exemption_count,
+        }
+
+    def fetch_validation_failures(self, *, import_batch_id: str, limit: int = 25) -> list[dict[str, Any]]:
+        return self._fetch_rows(
+            """
+            SELECT
+              validation_result_id,
+              validation_code,
+              message,
+              severity,
+              validation_scope,
+              entity_table,
+              details_json,
+              created_at
+            FROM validation_results
+            WHERE import_batch_id = %s
+              AND severity = 'error'
+            ORDER BY created_at ASC, validation_result_id ASC
+            LIMIT %s
+            """,
+            (import_batch_id, limit),
+        )
 
     def rollback_property_roll_records(
         self,

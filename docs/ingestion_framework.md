@@ -11,6 +11,11 @@ The ingestion flow is intentionally stage-based:
 3. `job_normalize`
 4. `job_rollback_publish`
 
+Stage 4 adds two operator-facing entrypoints on top of the same framework:
+
+5. `job_run_ingestion`
+6. `job_inspect_ingestion`
+
 These stages are centered on:
 
 - `job_runs`
@@ -61,7 +66,7 @@ All county adapters implement the same contract in [base.py](/Users/nblevins/Des
 ## Current county support
 
 `HarrisCountyAdapter` is the first concrete Stage 2 adapter.
-It uses fixture-driven `property_roll` data to prove the lifecycle without pretending to parse real Harris source files yet.
+Stage 4 extends it into a complete Harris `property_roll` workflow with config-backed source registry entries, fixture acquisition hooks, staging parsing, validation rules, canonical normalization, rerun support, and import-batch inspection.
 
 `FortBendCountyAdapter` is kept as a contract-complete scaffold and intentionally raises for county-specific acquisition/parsing work that belongs in a later stage.
 
@@ -74,3 +79,11 @@ python -m infra.scripts.verify_stage2_ingestion --database-url postgresql://post
 ```
 
 The verifier applies pending migrations if needed, runs dry-run and committed fetch/staging/normalize passes for the Harris fixture dataset, then executes rollback and asserts that raw, staging, validation, lineage, canonical, dry-run, and rollback behavior all work as expected.
+
+For the Stage 4 Harris-specific verifier, use:
+
+```bash
+python -m infra.scripts.verify_stage4_harris --database-url postgresql://postgres:postgres@localhost:55436/postgres
+```
+
+That verifier runs the full Harris lifecycle twice on a clean PostGIS database, confirms rerun behavior creates a new import batch, inspects persisted row counts and validation state, and checks that invalid Harris rows surface failed-record details through adapter validation.

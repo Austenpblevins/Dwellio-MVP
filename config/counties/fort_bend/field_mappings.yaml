@@ -1,0 +1,44 @@
+county_id: fort_bend
+# Stage 3 scaffold-only field mapping file. Canonical section targets are declared now,
+# while actual county field names will be filled in during the Fort Bend implementation stage.
+datasets:
+  property_roll:
+    mapping_version: 1
+    description: Scaffold-only Fort Bend property roll mapping contract.
+    transformation_notes:
+      - Keep Fort Bend source names in this file once they are known.
+      - Do not move Fort Bend-specific field names into shared core logic.
+    sections:
+      parcel:
+        mode: object
+        notes:
+          - TODO: map Fort Bend account and parcel identity fields here during the county-specific stage.
+      address:
+        mode: object
+        notes:
+          - TODO: map Fort Bend situs address fields here during the county-specific stage.
+      characteristics:
+        mode: object
+        notes:
+          - TODO: map Fort Bend classification and neighborhood fields here during the county-specific stage.
+      improvements:
+        mode: singleton_list
+        notes:
+          - TODO: map Fort Bend improvement fields here during the county-specific stage.
+      land_segments:
+        mode: singleton_list
+        notes:
+          - TODO: map Fort Bend land fields here during the county-specific stage.
+      value_components:
+        mode: template_list
+        notes:
+          - TODO: map Fort Bend component values here during the county-specific stage.
+      assessment:
+        mode: object
+        notes:
+          - TODO: map Fort Bend assessment totals here during the county-specific stage.
+      exemptions:
+        mode: source_list
+        source_field: exemptions
+        notes:
+          - TODO: map Fort Bend exemption items here during the county-specific stage.
