@@ -7,12 +7,14 @@ from app.jobs import (
     job_comp_candidates,
     job_features,
     job_fetch_sources,
+    job_inspect_ingestion,
     job_geocode_repair,
     job_load_staging,
     job_normalize,
     job_packet_refresh,
     job_refresh_quote_cache,
     job_rollback_publish,
+    job_run_ingestion,
     job_sales_ingestion,
     job_score_models,
     job_score_savings,
@@ -23,6 +25,8 @@ JobCallable = Callable[..., None]
 
 JOB_REGISTRY: dict[str, JobCallable] = {
     "job_fetch_sources": job_fetch_sources.run,
+    "job_run_ingestion": job_run_ingestion.run,
+    "job_inspect_ingestion": job_inspect_ingestion.run,
     "job_load_staging": job_load_staging.run,
     "job_normalize": job_normalize.run,
     "job_rollback_publish": job_rollback_publish.run,

@@ -1,0 +1,47 @@
+county_id: harris
+# Stage 3 dataset registry for Harris County. Keep county-specific source details here,
+# not in shared ingestion services.
+datasets:
+  property_roll:
+    source_system_code: HCAD_BULK
+    source_name: Harris CAD Property Roll
+    source_type: county_appraisal_roll
+    description: Fixture-backed Harris property roll feed used to prove the Stage 4 end-to-end Harris ingestion lifecycle.
+    source_url: https://hcad.org
+    file_format: json
+    staging_table: stg_county_property_raw
+    access_method: fixture_json
+    cadence: annual
+    reliability_tier: development_fixture
+    auth_required: false
+    manual_fallback_supported: true
+    legal_notes: Fixture data is development-safe and does not contain restricted MLS or listing content.
+    entity_coverage:
+      - parcel
+      - assessment
+      - exemption
+    supported_years:
+      - 2026
+    dependencies: []
+    ingestion_ready: true
+    null_handling:
+      required_source_fields:
+        - account_number
+        - situs_address
+        - situs_city
+        - situs_zip
+      default_values:
+        property_type_code: sfr
+        primary_use_code: residential
+        building_label: Main
+        land_type_code: site
+    transformation_notes:
+      - Source field names remain county-specific here so adapters can stay config-driven.
+      - Exemption arrays drive homestead flags, exemption totals, and taxable market calculations.
+      - The acquisition hook is fixture-backed in Stage 4; live Harris download automation remains deferred.
+    metadata:
+      fixture_backed: true
+      source_family: appraisal_roll
+      fixture_path: app/county_adapters/harris/fixtures/property_roll_2026.json
+      parser_name: property_roll_json
+      validation_profile: harris_property_roll_v1

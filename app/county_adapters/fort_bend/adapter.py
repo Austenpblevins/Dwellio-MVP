@@ -26,12 +26,13 @@ class FortBendCountyAdapter(CountyAdapter):
             raise ValueError(f"Adapter for {self.county_id} cannot serve county {county_id}.")
         return [
             AdapterDataset(
-                dataset_type="property_roll",
-                source_system_code="FBCAD_EXPORT",
+                dataset_type=dataset_config.dataset_type,
+                source_system_code=dataset_config.source_system_code,
                 tax_year=tax_year,
-                description="Stage 2 placeholder dataset contract for Fort Bend.",
-                source_url="https://www.fbcad.org",
+                description=dataset_config.description,
+                source_url=dataset_config.source_url,
             )
+            for dataset_config in self.config.dataset_configs.values()
         ]
 
     def acquire_dataset(self, dataset_type: str, tax_year: int) -> AcquiredDataset:
@@ -82,7 +83,7 @@ class FortBendCountyAdapter(CountyAdapter):
             county_name="Fort Bend County",
             appraisal_district_name=self.config.appraisal_district,
             supported_years=[2026],
-            supported_dataset_types=["property_roll"],
+            supported_dataset_types=self.config.datasets,
             known_limitations=["Stage 2 keeps Fort Bend as a contract-only adapter scaffold."],
             primary_keys_used=["account_number"],
             special_parsing_notes="No real parsing implemented yet.",

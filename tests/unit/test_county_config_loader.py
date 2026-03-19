@@ -7,10 +7,16 @@ def test_load_harris_county_adapter_config() -> None:
     config = load_county_adapter_config("harris")
     assert config.county_id == "harris"
     assert "property_roll" in config.datasets
+    assert config.dataset_configs["property_roll"].staging_table == "stg_county_property_raw"
+    assert config.dataset_configs["property_roll"].source_name == "Harris CAD Property Roll"
+    assert config.dataset_configs["property_roll"].access_method == "fixture_json"
+    assert config.field_mappings["property_roll"].sections["parcel"].mode == "object"
 
 
 def test_load_fort_bend_county_adapter_config() -> None:
     config = load_county_adapter_config("fort_bend")
     assert config.county_id == "fort_bend"
     assert config.parser_module == "app.county_adapters.fort_bend.parse"
-
+    assert config.dataset_configs["property_roll"].ingestion_ready is False
+    assert config.dataset_configs["property_roll"].source_type == "county_appraisal_roll"
+    assert "TODO" in config.field_mappings["property_roll"].sections["parcel"].notes[0]

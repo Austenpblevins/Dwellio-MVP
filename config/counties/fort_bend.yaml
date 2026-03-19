@@ -3,11 +3,8 @@ appraisal_district: Fort Bend Central Appraisal District
 timezone: America/Chicago
 datasets:
   - property_roll
-  - tax_rates
-  - sales
-  - gis
 parser_module: app.county_adapters.fort_bend.parse
-notes: Stage 0 scaffold only. Dataset acquisition contracts are wired in later phases.
+notes: Config-driven Fort Bend metadata bootstrap. Detailed dataset registry and field mappings live under config/counties/fort_bend/.
 metadata:
   cad_short_name: FBCAD
-  source_mode: configured_registry
+  source_mode: config_driven

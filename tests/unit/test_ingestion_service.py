@@ -1,7 +1,26 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from app.county_adapters.common.base import AcquiredDataset
-from app.ingestion.service import IngestionLifecycleService
+from app.ingestion.service import IngestionLifecycleService, PipelineStepResult
+
+
+class DummyConnection:
+    pass
+
+
+@contextmanager
+def dummy_connection():
+    yield DummyConnection()
+
+
+class StubRepository:
+    def __init__(self, connection: object) -> None:
+        self.connection = connection
+
+    def find_latest_import_batch_id(self, *, county_id: str, tax_year: int, dataset_type: str) -> str | None:
+        return "prior-batch"
 
 
 class RecordingConnection:
@@ -62,3 +81,62 @@ def test_finalize_connection_rolls_back_for_dry_run() -> None:
 
     assert connection.commit_calls == 0
     assert connection.rollback_calls == 1
+
+
+def test_run_dataset_lifecycle_chains_fetch_staging_and_normalize(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", dummy_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(
+        service,
+        "fetch_sources",
+        lambda **kwargs: [
+            PipelineStepResult(
+                county_id="harris",
+                tax_year=2026,
+                dataset_type="property_roll",
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                job_run_id="job-fetch",
+                row_count=2,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        service,
+        "load_staging",
+        lambda **kwargs: PipelineStepResult(
+            county_id="harris",
+            tax_year=2026,
+            dataset_type="property_roll",
+            import_batch_id="batch-1",
+            raw_file_id="raw-1",
+            job_run_id="job-stage",
+            row_count=2,
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "normalize",
+        lambda **kwargs: PipelineStepResult(
+            county_id="harris",
+            tax_year=2026,
+            dataset_type="property_roll",
+            import_batch_id="batch-1",
+            raw_file_id="raw-1",
+            job_run_id="job-normalize",
+            row_count=2,
+            publish_version="harris-2026-property_roll-abcd1234",
+        ),
+    )
+
+    result = service.run_dataset_lifecycle(
+        county_id="harris",
+        tax_year=2026,
+        dataset_type="property_roll",
+    )
+
+    assert result.import_batch_id == "batch-1"
+    assert result.rerun_of_import_batch_id == "prior-batch"
+    assert result.normalize_result.publish_version == "harris-2026-property_roll-abcd1234"

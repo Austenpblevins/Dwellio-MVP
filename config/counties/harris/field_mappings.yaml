@@ -1,0 +1,319 @@
+county_id: harris
+# Stage 3 field mappings translate Harris source fields into canonical parcel-year sections.
+datasets:
+  property_roll:
+    mapping_version: 1
+    description: Config-driven Harris property roll mapping for the fixture-backed Stage 2 adapter.
+    transformation_notes:
+      - Canonical field codes must exist in canonical_field_dictionary before adapters consume them.
+      - The shared field-mapping utility applies transforms like normalized_address and exemption aggregation.
+    sections:
+      parcel:
+        mode: object
+        fields:
+          - target_field: account_number
+            canonical_field_code: property_roll.parcel.account_number
+            source_field: account_number
+            null_handling: reject_row
+          - target_field: cad_property_id
+            canonical_field_code: property_roll.parcel.cad_property_id
+            source_field: cad_property_id
+          - target_field: situs_address
+            canonical_field_code: property_roll.parcel.situs_address
+            source_field: situs_address
+            null_handling: reject_row
+          - target_field: situs_city
+            canonical_field_code: property_roll.parcel.situs_city
+            source_field: situs_city
+            null_handling: reject_row
+          - target_field: situs_zip
+            canonical_field_code: property_roll.parcel.situs_zip
+            source_field: situs_zip
+            null_handling: reject_row
+          - target_field: owner_name
+            canonical_field_code: property_roll.parcel.owner_name
+            source_field: owner_name
+          - target_field: property_type_code
+            canonical_field_code: property_roll.parcel.property_type_code
+            source_field: property_type_code
+            null_handling: use_default
+            default_value: sfr
+          - target_field: property_class_code
+            canonical_field_code: property_roll.parcel.property_class_code
+            source_field: property_class_code
+          - target_field: neighborhood_code
+            canonical_field_code: property_roll.parcel.neighborhood_code
+            source_field: neighborhood_code
+          - target_field: subdivision_name
+            canonical_field_code: property_roll.parcel.subdivision_name
+            source_field: subdivision_name
+          - target_field: school_district_name
+            canonical_field_code: property_roll.parcel.school_district_name
+            source_field: school_district_name
+          - target_field: source_record_hash
+            canonical_field_code: property_roll.parcel.source_record_hash
+            transform: source_record_hash
+      address:
+        mode: object
+        fields:
+          - target_field: situs_address
+            canonical_field_code: property_roll.address.situs_address
+            source_field: situs_address
+            null_handling: reject_row
+          - target_field: situs_city
+            canonical_field_code: property_roll.address.situs_city
+            source_field: situs_city
+            null_handling: reject_row
+          - target_field: situs_zip
+            canonical_field_code: property_roll.address.situs_zip
+            source_field: situs_zip
+            null_handling: reject_row
+          - target_field: normalized_address
+            canonical_field_code: property_roll.address.normalized_address
+            source_fields:
+              - situs_address
+              - situs_city
+              - situs_zip
+            transform: normalized_address
+            null_handling: reject_row
+      characteristics:
+        mode: object
+        fields:
+          - target_field: property_type_code
+            canonical_field_code: property_roll.characteristics.property_type_code
+            source_field: property_type_code
+            null_handling: use_default
+            default_value: sfr
+          - target_field: property_class_code
+            canonical_field_code: property_roll.characteristics.property_class_code
+            source_field: property_class_code
+          - target_field: neighborhood_code
+            canonical_field_code: property_roll.characteristics.neighborhood_code
+            source_field: neighborhood_code
+          - target_field: subdivision_name
+            canonical_field_code: property_roll.characteristics.subdivision_name
+            source_field: subdivision_name
+          - target_field: school_district_name
+            canonical_field_code: property_roll.characteristics.school_district_name
+            source_field: school_district_name
+          - target_field: homestead_flag
+            canonical_field_code: property_roll.characteristics.homestead_flag
+            source_field: exemptions
+            transform: exemption_flag
+            transform_options:
+              exemption_type_code: homestead
+          - target_field: owner_occupied_flag
+            canonical_field_code: property_roll.characteristics.owner_occupied_flag
+            source_field: exemptions
+            transform: exemption_flag
+            transform_options:
+              exemption_type_code: homestead
+          - target_field: primary_use_code
+            canonical_field_code: property_roll.characteristics.primary_use_code
+            transform: constant
+            default_value: residential
+          - target_field: neighborhood_group
+            canonical_field_code: property_roll.characteristics.neighborhood_group
+            source_field: neighborhood_code
+          - target_field: effective_age
+            canonical_field_code: property_roll.characteristics.effective_age
+            source_field: effective_age
+      improvements:
+        mode: singleton_list
+        entry_defaults:
+          building_label: Main
+        fields:
+          - target_field: building_label
+            canonical_field_code: property_roll.improvements.building_label
+            transform: constant
+            default_value: Main
+          - target_field: living_area_sf
+            canonical_field_code: property_roll.improvements.living_area_sf
+            source_field: living_area_sf
+          - target_field: year_built
+            canonical_field_code: property_roll.improvements.year_built
+            source_field: year_built
+          - target_field: effective_year_built
+            canonical_field_code: property_roll.improvements.effective_year_built
+            source_field: effective_year_built
+          - target_field: effective_age
+            canonical_field_code: property_roll.improvements.effective_age
+            source_field: effective_age
+          - target_field: bedrooms
+            canonical_field_code: property_roll.improvements.bedrooms
+            source_field: bedrooms
+          - target_field: full_baths
+            canonical_field_code: property_roll.improvements.full_baths
+            source_field: full_baths
+          - target_field: half_baths
+            canonical_field_code: property_roll.improvements.half_baths
+            source_field: half_baths
+          - target_field: stories
+            canonical_field_code: property_roll.improvements.stories
+            source_field: stories
+          - target_field: quality_code
+            canonical_field_code: property_roll.improvements.quality_code
+            source_field: quality_code
+          - target_field: condition_code
+            canonical_field_code: property_roll.improvements.condition_code
+            source_field: condition_code
+          - target_field: garage_spaces
+            canonical_field_code: property_roll.improvements.garage_spaces
+            source_field: garage_spaces
+          - target_field: pool_flag
+            canonical_field_code: property_roll.improvements.pool_flag
+            source_field: pool_flag
+      land_segments:
+        mode: singleton_list
+        entry_defaults:
+          segment_num: 1
+          land_type_code: site
+        fields:
+          - target_field: segment_num
+            canonical_field_code: property_roll.land_segments.segment_num
+            transform: constant
+            default_value: 1
+          - target_field: land_type_code
+            canonical_field_code: property_roll.land_segments.land_type_code
+            transform: constant
+            default_value: site
+          - target_field: land_sf
+            canonical_field_code: property_roll.land_segments.land_sf
+            source_field: land_sf
+          - target_field: land_acres
+            canonical_field_code: property_roll.land_segments.land_acres
+            source_field: land_acres
+          - target_field: market_value
+            canonical_field_code: property_roll.land_segments.market_value
+            source_field: land_value
+      value_components:
+        mode: template_list
+        entries:
+          - entry_defaults:
+              component_code: land
+              component_label: Land Value
+              component_category: market
+            fields:
+              - target_field: component_code
+                canonical_field_code: property_roll.value_components.component_code
+                transform: constant
+                default_value: land
+              - target_field: component_label
+                canonical_field_code: property_roll.value_components.component_label
+                transform: constant
+                default_value: Land Value
+              - target_field: component_category
+                canonical_field_code: property_roll.value_components.component_category
+                transform: constant
+                default_value: market
+              - target_field: market_value
+                canonical_field_code: property_roll.value_components.market_value
+                source_field: land_value
+              - target_field: assessed_value
+                canonical_field_code: property_roll.value_components.assessed_value
+                source_field: land_value
+              - target_field: taxable_value
+                canonical_field_code: property_roll.value_components.taxable_value
+                source_field: land_value
+          - entry_defaults:
+              component_code: improvement
+              component_label: Improvement Value
+              component_category: market
+            fields:
+              - target_field: component_code
+                canonical_field_code: property_roll.value_components.component_code
+                transform: constant
+                default_value: improvement
+              - target_field: component_label
+                canonical_field_code: property_roll.value_components.component_label
+                transform: constant
+                default_value: Improvement Value
+              - target_field: component_category
+                canonical_field_code: property_roll.value_components.component_category
+                transform: constant
+                default_value: market
+              - target_field: market_value
+                canonical_field_code: property_roll.value_components.market_value
+                source_field: improvement_value
+              - target_field: assessed_value
+                canonical_field_code: property_roll.value_components.assessed_value
+                source_field: improvement_value
+              - target_field: taxable_value
+                canonical_field_code: property_roll.value_components.taxable_value
+                source_field: improvement_value
+          - entry_defaults:
+              component_code: market_total
+              component_label: Market Total
+              component_category: market
+            fields:
+              - target_field: component_code
+                canonical_field_code: property_roll.value_components.component_code
+                transform: constant
+                default_value: market_total
+              - target_field: component_label
+                canonical_field_code: property_roll.value_components.component_label
+                transform: constant
+                default_value: Market Total
+              - target_field: component_category
+                canonical_field_code: property_roll.value_components.component_category
+                transform: constant
+                default_value: market
+              - target_field: market_value
+                canonical_field_code: property_roll.value_components.market_value
+                source_field: market_value
+              - target_field: assessed_value
+                canonical_field_code: property_roll.value_components.assessed_value
+                source_field: assessed_value
+              - target_field: taxable_value
+                canonical_field_code: property_roll.value_components.taxable_value
+                source_fields:
+                  - assessed_value
+                  - exemptions
+                transform: assessed_minus_exemptions
+      assessment:
+        mode: object
+        fields:
+          - target_field: land_value
+            canonical_field_code: property_roll.assessment.land_value
+            source_field: land_value
+          - target_field: improvement_value
+            canonical_field_code: property_roll.assessment.improvement_value
+            source_field: improvement_value
+          - target_field: market_value
+            canonical_field_code: property_roll.assessment.market_value
+            source_field: market_value
+          - target_field: assessed_value
+            canonical_field_code: property_roll.assessment.assessed_value
+            source_field: assessed_value
+          - target_field: capped_value
+            canonical_field_code: property_roll.assessment.capped_value
+            source_field: assessed_value
+          - target_field: appraised_value
+            canonical_field_code: property_roll.assessment.appraised_value
+            source_field: appraised_value
+          - target_field: exemption_value_total
+            canonical_field_code: property_roll.assessment.exemption_value_total
+            source_field: exemptions
+            transform: sum_exemption_amounts
+          - target_field: notice_value
+            canonical_field_code: property_roll.assessment.notice_value
+            source_field: notice_value
+          - target_field: certified_value
+            canonical_field_code: property_roll.assessment.certified_value
+            source_field: certified_value
+          - target_field: prior_year_market_value
+            canonical_field_code: property_roll.assessment.prior_year_market_value
+            source_field: prior_year_market_value
+          - target_field: prior_year_assessed_value
+            canonical_field_code: property_roll.assessment.prior_year_assessed_value
+            source_field: prior_year_assessed_value
+      exemptions:
+        mode: source_list
+        source_field: exemptions
+        item_fields:
+          - target_field: exemption_type_code
+            canonical_field_code: property_roll.exemptions.exemption_type_code
+            source_field: exemption_type_code
+          - target_field: exemption_amount
+            canonical_field_code: property_roll.exemptions.exemption_amount
+            source_field: exemption_amount

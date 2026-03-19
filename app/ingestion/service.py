@@ -28,6 +28,41 @@ class PipelineStepResult:
     publish_version: str | None = None
 
 
+@dataclass(frozen=True)
+class PipelineRunResult:
+    county_id: str
+    tax_year: int
+    dataset_type: str
+    import_batch_id: str
+    rerun_of_import_batch_id: str | None
+    fetch_result: PipelineStepResult
+    staging_result: PipelineStepResult
+    normalize_result: PipelineStepResult
+
+
+@dataclass(frozen=True)
+class ImportBatchInspection:
+    county_id: str
+    tax_year: int
+    dataset_type: str
+    import_batch_id: str
+    status: str
+    publish_state: str | None
+    publish_version: str | None
+    row_count: int | None
+    error_count: int | None
+    raw_file_count: int
+    job_run_count: int
+    staging_row_count: int
+    lineage_record_count: int
+    validation_result_count: int
+    validation_error_count: int
+    parcel_year_snapshot_count: int
+    parcel_assessment_count: int
+    parcel_exemption_count: int
+    failed_records: list[dict[str, Any]]
+
+
 class IngestionLifecycleService:
     def __init__(self, adapter: CountyAdapter | None = None) -> None:
         self.adapter = adapter
@@ -508,6 +543,106 @@ class IngestionLifecycleService:
                     "rows_rolled_back": rolled_back_count,
                 },
             )
+
+    def run_dataset_lifecycle(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+        dry_run: bool = False,
+    ) -> PipelineRunResult:
+        with get_connection() as connection:
+            repository = IngestionRepository(connection)
+            rerun_of_import_batch_id = repository.find_latest_import_batch_id(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+            )
+
+        fetch_results = self.fetch_sources(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            dry_run=dry_run,
+        )
+        if len(fetch_results) != 1:
+            raise ValueError(f"Expected one fetched dataset for {county_id}/{dataset_type}, got {len(fetch_results)}.")
+        fetch_result = fetch_results[0]
+
+        staging_result = self.load_staging(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            import_batch_id=fetch_result.import_batch_id,
+            dry_run=dry_run,
+        )
+        normalize_result = self.normalize(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            import_batch_id=fetch_result.import_batch_id,
+            dry_run=dry_run,
+        )
+        return PipelineRunResult(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            import_batch_id=fetch_result.import_batch_id,
+            rerun_of_import_batch_id=rerun_of_import_batch_id,
+            fetch_result=fetch_result,
+            staging_result=staging_result,
+            normalize_result=normalize_result,
+        )
+
+    def inspect_import_batch(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+        import_batch_id: str | None = None,
+        validation_limit: int = 25,
+    ) -> ImportBatchInspection:
+        with get_connection() as connection:
+            repository = IngestionRepository(connection)
+            batch = repository.find_import_batch(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                import_batch_id=import_batch_id,
+            )
+            if dataset_type != "property_roll":
+                raise ValueError(f"Import inspection currently supports property_roll only, not {dataset_type}.")
+            summary = repository.inspect_property_roll_import_batch(
+                import_batch_id=batch.import_batch_id,
+                tax_year=tax_year,
+            )
+            failed_records = repository.fetch_validation_failures(
+                import_batch_id=batch.import_batch_id,
+                limit=validation_limit,
+            )
+        return ImportBatchInspection(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            import_batch_id=batch.import_batch_id,
+            status=summary["status"],
+            publish_state=summary["publish_state"],
+            publish_version=summary["publish_version"],
+            row_count=summary["row_count"],
+            error_count=summary["error_count"],
+            raw_file_count=summary["raw_file_count"],
+            job_run_count=summary["job_run_count"],
+            staging_row_count=summary["staging_row_count"],
+            lineage_record_count=summary["lineage_record_count"],
+            validation_result_count=summary["validation_result_count"],
+            validation_error_count=summary["validation_error_count"],
+            parcel_year_snapshot_count=summary["parcel_year_snapshot_count"],
+            parcel_assessment_count=summary["parcel_assessment_count"],
+            parcel_exemption_count=summary["parcel_exemption_count"],
+            failed_records=failed_records,
+        )
 
     def _resolve_adapter(self, county_id: str) -> CountyAdapter:
         return self.adapter if self.adapter is not None else get_adapter(county_id)

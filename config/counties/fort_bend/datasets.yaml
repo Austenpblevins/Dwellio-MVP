@@ -1,0 +1,36 @@
+county_id: fort_bend
+# Stage 3 dataset registry for Fort Bend County. The scaffold is explicit so future
+# county-specific implementation does not require redesign of shared ingestion services.
+datasets:
+  property_roll:
+    source_system_code: FBCAD_EXPORT
+    source_name: Fort Bend CAD Property Roll
+    source_type: county_appraisal_roll
+    description: Scaffold-only Fort Bend property roll definition for the config-driven ingestion framework.
+    source_url: https://www.fbcad.org
+    file_format: csv
+    staging_table: stg_county_property_raw
+    access_method: bulk_download
+    cadence: annual
+    reliability_tier: scaffold_only
+    auth_required: false
+    manual_fallback_supported: true
+    legal_notes: Live Fort Bend acquisition and parser specifics are intentionally deferred.
+    entity_coverage:
+      - parcel
+      - assessment
+      - exemption
+    supported_years:
+      - 2026
+    dependencies: []
+    ingestion_ready: false
+    null_handling:
+      required_source_fields: []
+      default_values:
+        property_type_code: sfr
+    transformation_notes:
+      - Fort Bend field names and parser details are intentionally deferred until the county-specific implementation stage.
+      - This file exists now so the framework can consume the same config shape without redesign.
+    metadata:
+      fixture_backed: false
+      scaffold_only: true
