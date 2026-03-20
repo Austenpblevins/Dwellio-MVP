@@ -1,6 +1,6 @@
 # Ingestion Framework
 
-This document describes the current Stage 2 ingestion framework built on the approved Stage 1 schema.
+This document describes the shared ingestion framework established in Stage 2 and extended through Stage 5 on top of the approved Stage 1 schema.
 
 ## Lifecycle
 
@@ -11,7 +11,7 @@ The ingestion flow is intentionally stage-based:
 3. `job_normalize`
 4. `job_rollback_publish`
 
-Stage 4 adds two operator-facing entrypoints on top of the same framework:
+Stage 4-5 add two operator-facing entrypoints on top of the same framework:
 
 5. `job_run_ingestion`
 6. `job_inspect_ingestion`
@@ -26,8 +26,8 @@ These stages are centered on:
 
 ## Raw archive behavior
 
-Stage 2 uses a filesystem-backed raw archive rooted at `DWELLIO_RAW_ARCHIVE_ROOT`.
-`raw_files.storage_path` stores the relative archive path, while the raw payload itself is written to disk.
+The framework uses a filesystem-backed raw archive rooted at `DWELLIO_RAW_ARCHIVE_ROOT`.
+`raw_files.storage_path` stores the relative archive path, while the raw payload itself is written to disk and later reconstructed with the stored file metadata needed by county parsers.
 
 This keeps the Stage 1 schema intact and avoids inventing a temporary blob table just to move fixture data between jobs.
 
@@ -44,10 +44,10 @@ Dry-runs execute the adapter logic, validation, and structured stage logging, bu
 
 ## Rollback semantics
 
-Stage 2 rollback is implemented for the Harris `property_roll` dataset through `job_rollback_publish`.
+Rollback is implemented for the shared `property_roll` publish path through `job_rollback_publish`.
 Normalization captures a rollback manifest in the normalize `job_runs.metadata_json`, and rollback uses that manifest to remove the batch's canonical parcel-year effects and restore any prior canonical state that existed before the publish.
 
-This keeps rollback bounded to the current Stage 2 canonical targets without introducing duplicate history tables or alternate publish systems.
+This keeps rollback bounded to the current parcel-year canonical targets without introducing duplicate history tables or alternate publish systems.
 
 ## Adapter contract
 
@@ -65,10 +65,11 @@ All county adapters implement the same contract in [base.py](/Users/nblevins/Des
 
 ## Current county support
 
-`HarrisCountyAdapter` is the first concrete Stage 2 adapter.
+`HarrisCountyAdapter` is the first complete adapter on the framework.
 Stage 4 extends it into a complete Harris `property_roll` workflow with config-backed source registry entries, fixture acquisition hooks, staging parsing, validation rules, canonical normalization, rerun support, and import-batch inspection.
 
-`FortBendCountyAdapter` is kept as a contract-complete scaffold and intentionally raises for county-specific acquisition/parsing work that belongs in a later stage.
+`FortBendCountyAdapter` becomes the second complete county implementation in Stage 5.
+It uses the same ingestion framework, but handles county-specific CSV parsing and exemption column expansion entirely inside Fort Bend adapter/config files.
 
 ## Verification
 
@@ -87,3 +88,11 @@ python -m infra.scripts.verify_stage4_harris --database-url postgresql://postgre
 ```
 
 That verifier runs the full Harris lifecycle twice on a clean PostGIS database, confirms rerun behavior creates a new import batch, inspects persisted row counts and validation state, and checks that invalid Harris rows surface failed-record details through adapter validation.
+
+For the Stage 5 Fort Bend verifier, use:
+
+```bash
+python -m infra.scripts.verify_stage5_fort_bend --database-url postgresql://postgres:postgres@localhost:55439/postgres
+```
+
+That verifier runs the full Fort Bend lifecycle twice on a clean PostGIS database, confirms rerun behavior creates a new import batch, inspects persisted row counts and validation state, checks invalid Fort Bend rows for failed-record details, and confirms Harris and Fort Bend can both publish through the shared framework without schema redesign.

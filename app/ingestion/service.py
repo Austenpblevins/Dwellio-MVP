@@ -211,7 +211,7 @@ class IngestionLifecycleService:
                 tax_year=tax_year,
                 original_filename=batch.original_filename,
                 content=raw_content,
-                media_type="application/json",
+                media_type=batch.mime_type or self._media_type_for_file_format(batch.file_format),
             )
             job_run_id = repository.create_job_run(
                 county_id=county_id,
@@ -676,6 +676,13 @@ class IngestionLifecycleService:
         if row is None:
             raise ValueError(f"Missing source_systems code for id {source_system_id}.")
         return row["source_system_code"]
+
+    def _media_type_for_file_format(self, file_format: str | None) -> str:
+        media_types = {
+            "json": "application/json",
+            "csv": "text/csv",
+        }
+        return media_types.get((file_format or "").lower(), "application/octet-stream")
 
     def _finalize_connection(self, connection: Any, *, dry_run: bool) -> None:
         if dry_run:

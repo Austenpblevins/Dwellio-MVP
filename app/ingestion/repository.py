@@ -19,6 +19,8 @@ class ImportBatchRecord:
     storage_path: str
     original_filename: str
     file_kind: str
+    mime_type: str | None
+    file_format: str | None
 
 
 @dataclass(frozen=True)
@@ -325,7 +327,9 @@ class IngestionRepository:
                       rf.source_system_id,
                       rf.storage_path,
                       rf.original_filename,
-                      rf.file_kind
+                      rf.file_kind,
+                      rf.mime_type,
+                      rf.file_format
                     FROM import_batches ib
                     JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
                     WHERE ib.import_batch_id = %s
@@ -343,7 +347,9 @@ class IngestionRepository:
                       rf.source_system_id,
                       rf.storage_path,
                       rf.original_filename,
-                      rf.file_kind
+                      rf.file_kind,
+                      rf.mime_type,
+                      rf.file_format
                     FROM import_batches ib
                     JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
                     WHERE ib.county_id = %s
@@ -366,6 +372,8 @@ class IngestionRepository:
             storage_path=row["storage_path"],
             original_filename=row["original_filename"],
             file_kind=row["file_kind"],
+            mime_type=row["mime_type"],
+            file_format=row["file_format"],
         )
 
     def find_latest_import_batch_id(

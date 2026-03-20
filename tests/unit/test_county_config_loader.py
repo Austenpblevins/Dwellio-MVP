@@ -17,6 +17,8 @@ def test_load_fort_bend_county_adapter_config() -> None:
     config = load_county_adapter_config("fort_bend")
     assert config.county_id == "fort_bend"
     assert config.parser_module == "app.county_adapters.fort_bend.parse"
-    assert config.dataset_configs["property_roll"].ingestion_ready is False
+    assert config.dataset_configs["property_roll"].ingestion_ready is True
     assert config.dataset_configs["property_roll"].source_type == "county_appraisal_roll"
-    assert "TODO" in config.field_mappings["property_roll"].sections["parcel"].notes[0]
+    assert config.dataset_configs["property_roll"].access_method == "fixture_csv"
+    assert "CSV-backed" in config.dataset_configs["property_roll"].transformation_notes[0]
+    assert config.field_mappings["property_roll"].mapping_version == 1
