@@ -153,3 +153,96 @@ def validate_property_roll(
         )
     )
     return findings
+
+
+def validate_tax_rates(
+    *,
+    config: CountyAdapterConfig,
+    job_id: str,
+    tax_year: int,
+    dataset_type: str,
+    staging_rows: list[dict[str, Any]],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    dataset_config = config.dataset_configs[dataset_type]
+    required_fields = required_source_fields(config=config, dataset_type=dataset_type)
+
+    findings.append(
+        ValidationFinding(
+            validation_code="ROW_COUNT_OK",
+            message=f"Validated {len(staging_rows)} staging rows for {dataset_type}.",
+            validation_scope="staging_row",
+            entity_table=dataset_config.staging_table,
+            details_json={"job_id": job_id, "tax_year": tax_year, "row_count": len(staging_rows)},
+        )
+    )
+
+    seen_keys: set[tuple[str, str]] = set()
+    for index, row in enumerate(staging_rows, start=1):
+        missing_fields = [field_name for field_name in required_fields if row.get(field_name) in (None, "", [])]
+        for field_name in missing_fields:
+            findings.append(
+                ValidationFinding(
+                    validation_code=f"MISSING_{field_name.upper()}",
+                    message=f"{field_name} is required.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "field_name": field_name, "failed_record": row},
+                )
+            )
+
+        row_key = (str(row.get("unit_code") or ""), str(row.get("rate_component") or "ad_valorem"))
+        if row_key in seen_keys:
+            findings.append(
+                ValidationFinding(
+                    validation_code="DUPLICATE_UNIT_RATE_COMPONENT",
+                    message=f"Duplicate tax-rate row detected for unit_code={row_key[0]} rate_component={row_key[1]}.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+        seen_keys.add(row_key)
+
+        if row.get("unit_type_code") not in {"county", "city", "school", "mud", "special"}:
+            findings.append(
+                ValidationFinding(
+                    validation_code="INVALID_UNIT_TYPE_CODE",
+                    message="unit_type_code must be county, city, school, mud, or special.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+
+        if (row.get("rate_value") or 0) <= 0:
+            findings.append(
+                ValidationFinding(
+                    validation_code="INVALID_RATE_VALUE",
+                    message="rate_value must be greater than zero.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+
+    error_count = sum(1 for finding in findings if finding.severity == "error")
+    findings.append(
+        ValidationFinding(
+            validation_code="VALIDATION_SUMMARY",
+            message="Validation completed for Harris tax_rates staging rows.",
+            validation_scope="file_schema",
+            entity_table=dataset_config.staging_table,
+            details_json={
+                "job_id": job_id,
+                "tax_year": tax_year,
+                "row_count": len(staging_rows),
+                "error_count": error_count,
+            },
+        )
+    )
+    return findings

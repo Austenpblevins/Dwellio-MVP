@@ -39,6 +39,14 @@ EXEMPTION_COLUMNS = {
     "hs_amt": "homestead",
     "ov65_amt": "over65",
 }
+TAX_RATE_LIST_FIELDS = {
+    "cities",
+    "school_district_names",
+    "subdivisions",
+    "zip_codes",
+    "account_numbers",
+    "aliases",
+}
 
 
 @dataclass(frozen=True)
@@ -71,7 +79,7 @@ def parse_raw_to_staging(*, config: CountyAdapterConfig, acquired: AcquiredDatas
         if not any(value not in (None, "") for value in row.values()):
             continue
         try:
-            normalized_row = _normalize_row(row)
+            normalized_row = _normalize_row(raw_row=row, dataset_type=acquired.dataset_type)
         except ValueError as exc:
             issues.append(
                 ParseIssue(
@@ -106,7 +114,15 @@ def parse(raw_records: list[dict[str, Any]] | None = None) -> list[dict[str, Any
     return [row.raw_payload for row in result.staging_rows]
 
 
-def _normalize_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
+def _normalize_row(*, raw_row: dict[str, str | None], dataset_type: str) -> dict[str, Any]:
+    if dataset_type == "property_roll":
+        return _normalize_property_roll_row(raw_row)
+    if dataset_type == "tax_rates":
+        return _normalize_tax_rate_row(raw_row)
+    raise ValueError(f"Unsupported Fort Bend dataset_type={dataset_type}.")
+
+
+def _normalize_property_roll_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     for key, value in raw_row.items():
         cleaned = value.strip() if isinstance(value, str) else value
@@ -123,6 +139,51 @@ def _normalize_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
 
     normalized["exemptions"] = _build_exemptions(normalized)
     return normalized
+
+
+def _normalize_tax_rate_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in raw_row.items():
+        cleaned = value.strip() if isinstance(value, str) else value
+        if cleaned == "":
+            cleaned = None
+        if key in {"rate_value", "rate_per_100"}:
+            normalized[key] = _coerce_float(cleaned, field_name=key)
+        elif key in {"priority"}:
+            normalized[key] = _coerce_int(cleaned, field_name=key)
+        elif key in {"allow_multiple"}:
+            normalized[key] = _coerce_bool(cleaned)
+        elif key in TAX_RATE_LIST_FIELDS:
+            normalized[key] = _split_pipe_list(cleaned)
+        else:
+            normalized[key] = cleaned
+
+    assignment_hints = {
+        "county_ids": [normalized["cities"][0].lower().replace(" ", "_")] if normalized.get("unit_type_code") == "county" and normalized.get("cities") else [],
+        "cities": normalized.get("cities", []),
+        "school_district_names": normalized.get("school_district_names", []),
+        "subdivisions": normalized.get("subdivisions", []),
+        "zip_codes": normalized.get("zip_codes", []),
+        "account_numbers": normalized.get("account_numbers", []),
+        "priority": normalized.get("priority"),
+        "allow_multiple": normalized.get("allow_multiple", False),
+    }
+    if normalized.get("unit_type_code") == "county":
+        assignment_hints["county_ids"] = ["fort_bend"]
+
+    return {
+        "unit_type_code": normalized["unit_type_code"],
+        "unit_code": normalized["unit_code"],
+        "unit_name": normalized["unit_name"],
+        "rate_component": normalized.get("rate_component") or "ad_valorem",
+        "rate_value": normalized["rate_value"],
+        "rate_per_100": normalized.get("rate_per_100"),
+        "effective_from": normalized.get("effective_from"),
+        "effective_to": normalized.get("effective_to"),
+        "aliases": normalized.get("aliases", []),
+        "assignment_hints": assignment_hints,
+        "metadata_json": {"source_family": "tax_rates_fixture"},
+    }
 
 
 def _build_exemptions(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -166,3 +227,9 @@ def _coerce_bool(value: str | None) -> bool | None:
     if normalized_value in {"n", "no", "false", "0"}:
         return False
     raise ValueError(f"Invalid boolean flag: {value}")
+
+
+def _split_pipe_list(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    return [item.strip() for item in value.split("|") if item.strip()]

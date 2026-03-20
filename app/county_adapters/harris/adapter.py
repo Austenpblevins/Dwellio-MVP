@@ -11,9 +11,9 @@ from app.county_adapters.common.base import (
 )
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.county_adapters.harris.fetch import acquire_dataset, list_available_datasets
-from app.county_adapters.harris.normalize import normalize_property_roll
+from app.county_adapters.harris.normalize import normalize_property_roll, normalize_tax_rates
 from app.county_adapters.harris.parse import parse_raw_to_staging
-from app.county_adapters.harris.validation import validate_property_roll
+from app.county_adapters.harris.validation import validate_property_roll, validate_tax_rates
 from app.ingestion.source_registry import get_source_registry_entry
 from app.utils.logging import get_logger
 
@@ -55,10 +55,13 @@ class HarrisCountyAdapter(CountyAdapter):
         dataset_type: str,
         staging_rows: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        if dataset_type != "property_roll":
-            raise ValueError(f"Harris adapter only supports property_roll, not {dataset_type}.")
-        result = normalize_property_roll(config=self.config, staging_rows=staging_rows)
-        return {"property_roll": result.normalized_records}
+        if dataset_type == "property_roll":
+            result = normalize_property_roll(config=self.config, staging_rows=staging_rows)
+            return {"property_roll": result.normalized_records}
+        if dataset_type == "tax_rates":
+            result = normalize_tax_rates(staging_rows=staging_rows)
+            return {"tax_rates": result.normalized_records}
+        raise ValueError(f"Harris adapter does not support dataset_type={dataset_type}.")
 
     def validate_dataset(
         self,
@@ -67,15 +70,23 @@ class HarrisCountyAdapter(CountyAdapter):
         dataset_type: str,
         staging_rows: list[dict[str, Any]],
     ) -> list[ValidationFinding]:
-        if dataset_type != "property_roll":
-            raise ValueError(f"Harris adapter only supports property_roll, not {dataset_type}.")
-        return validate_property_roll(
-            config=self.config,
-            job_id=job_id,
-            tax_year=tax_year,
-            dataset_type=dataset_type,
-            staging_rows=staging_rows,
-        )
+        if dataset_type == "property_roll":
+            return validate_property_roll(
+                config=self.config,
+                job_id=job_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                staging_rows=staging_rows,
+            )
+        if dataset_type == "tax_rates":
+            return validate_tax_rates(
+                config=self.config,
+                job_id=job_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                staging_rows=staging_rows,
+            )
+        raise ValueError(f"Harris adapter does not support dataset_type={dataset_type}.")
 
     def publish_dataset(self, job_id: str, tax_year: int, dataset_type: str) -> PublishResult:
         registry_entry = get_source_registry_entry(county_id=self.county_id, dataset_type=dataset_type)
@@ -106,13 +117,13 @@ class HarrisCountyAdapter(CountyAdapter):
             ),
             supported_dataset_types=self.config.datasets,
             known_limitations=[
-                "Stage 4 Harris ingestion is fixture-backed for property_roll only.",
+                "Stage 6 Harris ingestion is fixture-backed for property_roll and tax_rates.",
                 "Live Harris download automation remains deferred until a later county acquisition stage.",
             ],
             primary_keys_used=["account_number", "cad_property_id"],
             special_parsing_notes=(
-                "Harris property_roll uses config-driven JSON parsing, validation, and canonical normalization with "
-                "lineage-safe parcel-year upserts."
+                "Harris property_roll and tax_rates use config-driven JSON acquisition on the shared ingestion "
+                "framework, with tax-rate normalization feeding the Stage 6 assignment engine."
             ),
             manual_fallback_instructions=(
                 "Use the Harris fixture-backed workflow locally or register a manual upload under HCAD_BULK when "

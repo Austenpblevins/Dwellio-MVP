@@ -1,0 +1,9 @@
+unit_type_code,unit_code,unit_name,rate_component,rate_value,rate_per_100,effective_from,effective_to,cities,school_district_names,subdivisions,zip_codes,account_numbers,aliases,priority,allow_multiple
+county,FB-COUNTY,Fort Bend County,ad_valorem,0.0042,0.42,2026-01-01,,fort_bend,,,,,Fort Bend County,110,false
+city,SL-CITY,Sugar Land,ad_valorem,0.0031,0.31,2026-01-01,,Sugar Land,,,,,City of Sugar Land,90,false
+city,RCH-CITY,Richmond,ad_valorem,0.003,0.30,2026-01-01,,Richmond,,,,,City of Richmond,90,false
+school,FBISD,Fort Bend ISD,ad_valorem,0.0104,1.04,2026-01-01,,,Fort Bend ISD,,,,Fort Bend Independent School District,100,false
+school,LCISD,Lamar CISD,ad_valorem,0.0101,1.01,2026-01-01,,,Lamar CISD,,,,Lamar Consolidated ISD,100,false
+mud,LP-MUD,Lake Pointe Utility District,ad_valorem,0.0012,0.12,2026-01-01,,,,Lake Pointe,,,Lake Pointe,80,false
+mud,PG-MUD,Pecan Grove Utility District,ad_valorem,0.00115,0.115,2026-01-01,,,,Pecan Grove,,,Pecan Grove,80,false
+special,FB-DD1,Fort Bend Drainage District 1,ad_valorem,0.00045,0.045,2026-01-01,,,,,77479|77406,,Drainage District 1,60,true
