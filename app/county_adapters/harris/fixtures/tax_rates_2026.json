@@ -1,0 +1,111 @@
+[
+  {
+    "unit_type_code": "county",
+    "unit_code": "HAR-COUNTY",
+    "unit_name": "Harris County",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.0034,
+    "rate_per_100": 0.34,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["Harris County"],
+    "assignment_hints": {
+      "county_ids": ["harris"],
+      "priority": 110
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  },
+  {
+    "unit_type_code": "city",
+    "unit_code": "HOU-CITY",
+    "unit_name": "Houston",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.0051,
+    "rate_per_100": 0.51,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["City of Houston"],
+    "assignment_hints": {
+      "cities": ["Houston"],
+      "priority": 90
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  },
+  {
+    "unit_type_code": "school",
+    "unit_code": "HISD",
+    "unit_name": "Houston ISD",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.0102,
+    "rate_per_100": 1.02,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["Houston Independent School District"],
+    "assignment_hints": {
+      "school_district_names": ["Houston ISD", "Houston Independent School District"],
+      "priority": 100
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  },
+  {
+    "unit_type_code": "mud",
+    "unit_code": "DT-MUD",
+    "unit_name": "Downtown Utility District",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.0011,
+    "rate_per_100": 0.11,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["Downtown"],
+    "assignment_hints": {
+      "subdivisions": ["Downtown"],
+      "priority": 80
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  },
+  {
+    "unit_type_code": "mud",
+    "unit_code": "HTS-MUD",
+    "unit_name": "Heights Utility District",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.001,
+    "rate_per_100": 0.1,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["Heights"],
+    "assignment_hints": {
+      "subdivisions": ["Heights"],
+      "priority": 80
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  },
+  {
+    "unit_type_code": "special",
+    "unit_code": "HAR-FCD",
+    "unit_name": "Harris Flood Control",
+    "rate_component": "ad_valorem",
+    "rate_value": 0.0003,
+    "rate_per_100": 0.03,
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "aliases": ["Flood Control"],
+    "assignment_hints": {
+      "zip_codes": ["77002", "77008"],
+      "priority": 60,
+      "allow_multiple": true
+    },
+    "metadata_json": {
+      "source_family": "tax_rates_fixture"
+    }
+  }
+]

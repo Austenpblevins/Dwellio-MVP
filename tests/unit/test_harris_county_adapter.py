@@ -6,10 +6,27 @@ from app.county_adapters.harris.adapter import HarrisCountyAdapter
 def test_harris_adapter_lists_property_roll_dataset() -> None:
     adapter = HarrisCountyAdapter()
     datasets = adapter.list_available_datasets("harris", 2026)
-    assert len(datasets) == 1
-    assert datasets[0].dataset_type == "property_roll"
-    assert datasets[0].source_system_code == "HCAD_BULK"
-    assert "[fixture_json]" in datasets[0].description
+    dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
+    assert set(dataset_lookup) == {"property_roll", "tax_rates"}
+    assert dataset_lookup["property_roll"].source_system_code == "HCAD_BULK"
+    assert dataset_lookup["tax_rates"].source_system_code == "HCAD_TAX_RATES"
+    assert "[fixture_json]" in dataset_lookup["property_roll"].description
+
+
+def test_harris_adapter_parse_and_normalize_tax_rate_fixture() -> None:
+    adapter = HarrisCountyAdapter()
+    acquired = adapter.acquire_dataset("tax_rates", 2026)
+    staging_rows = adapter.parse_raw_to_staging(acquired)
+    assert len(staging_rows) == 6
+
+    normalized = adapter.normalize_staging_to_canonical(
+        "tax_rates",
+        [row.raw_payload for row in staging_rows],
+    )
+    tax_rates = normalized["tax_rates"]
+    assert tax_rates[0]["taxing_unit"]["unit_type_code"] == "county"
+    assert tax_rates[2]["taxing_unit"]["unit_name"] == "Houston ISD"
+    assert tax_rates[5]["tax_rate"]["rate_value"] == 0.0003
 
 
 def test_harris_adapter_parse_and_normalize_fixture() -> None:

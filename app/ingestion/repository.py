@@ -10,6 +10,8 @@ from psycopg import Connection
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from app.services.tax_assignment import ParcelTaxAssignment, ParcelTaxContext, TaxingUnitContext
+
 
 @dataclass(frozen=True)
 class ImportBatchRecord:
@@ -1046,6 +1048,550 @@ class IngestionRepository:
 
         return lineage_records
 
+    def upsert_tax_rate_records(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+        normalized_records: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        appraisal_district_id = self.fetch_appraisal_district_id(county_id)
+        lineage_records: list[dict[str, str]] = []
+
+        for record in normalized_records:
+            taxing_unit = record["taxing_unit"]
+            tax_rate = record["tax_rate"]
+            source_record_hash = record["source_record_hash"]
+            with self.connection.cursor() as cursor:
+                parent_taxing_unit_id = None
+                if taxing_unit.get("parent_unit_code"):
+                    cursor.execute(
+                        """
+                        SELECT taxing_unit_id
+                        FROM taxing_units
+                        WHERE county_id = %s
+                          AND tax_year = %s
+                          AND unit_code = %s
+                        LIMIT 1
+                        """,
+                        (county_id, tax_year, taxing_unit["parent_unit_code"]),
+                    )
+                    parent_row = cursor.fetchone()
+                    if parent_row is not None:
+                        parent_taxing_unit_id = str(parent_row["taxing_unit_id"])
+
+                cursor.execute(
+                    """
+                    INSERT INTO taxing_units (
+                      county_id,
+                      tax_year,
+                      appraisal_district_id,
+                      unit_type_code,
+                      unit_code,
+                      unit_name,
+                      parent_taxing_unit_id,
+                      state_geoid,
+                      active_flag,
+                      source_system_id,
+                      import_batch_id,
+                      source_record_hash,
+                      metadata_json
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (county_id, tax_year, unit_code)
+                    DO UPDATE SET
+                      appraisal_district_id = EXCLUDED.appraisal_district_id,
+                      unit_type_code = EXCLUDED.unit_type_code,
+                      unit_name = EXCLUDED.unit_name,
+                      parent_taxing_unit_id = EXCLUDED.parent_taxing_unit_id,
+                      state_geoid = EXCLUDED.state_geoid,
+                      active_flag = EXCLUDED.active_flag,
+                      source_system_id = EXCLUDED.source_system_id,
+                      import_batch_id = EXCLUDED.import_batch_id,
+                      source_record_hash = EXCLUDED.source_record_hash,
+                      metadata_json = EXCLUDED.metadata_json,
+                      updated_at = now()
+                    RETURNING taxing_unit_id
+                    """,
+                    (
+                        county_id,
+                        tax_year,
+                        appraisal_district_id,
+                        taxing_unit["unit_type_code"],
+                        taxing_unit["unit_code"],
+                        taxing_unit["unit_name"],
+                        parent_taxing_unit_id,
+                        taxing_unit.get("state_geoid"),
+                        taxing_unit.get("active_flag", True),
+                        source_system_id,
+                        import_batch_id,
+                        source_record_hash,
+                        Jsonb(taxing_unit.get("metadata_json", {})),
+                    ),
+                )
+                taxing_unit_id = str(cursor.fetchone()["taxing_unit_id"])
+
+                cursor.execute(
+                    """
+                    INSERT INTO tax_rates (
+                      taxing_unit_id,
+                      county_id,
+                      tax_year,
+                      rate_component,
+                      rate_value,
+                      rate_per_100,
+                      effective_from,
+                      effective_to,
+                      is_current,
+                      source_system_id,
+                      import_batch_id,
+                      source_record_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (taxing_unit_id, tax_year, rate_component)
+                    DO UPDATE SET
+                      county_id = EXCLUDED.county_id,
+                      rate_value = EXCLUDED.rate_value,
+                      rate_per_100 = EXCLUDED.rate_per_100,
+                      effective_from = EXCLUDED.effective_from,
+                      effective_to = EXCLUDED.effective_to,
+                      is_current = EXCLUDED.is_current,
+                      source_system_id = EXCLUDED.source_system_id,
+                      import_batch_id = EXCLUDED.import_batch_id,
+                      source_record_hash = EXCLUDED.source_record_hash,
+                      updated_at = now()
+                    RETURNING tax_rate_id
+                    """,
+                    (
+                        taxing_unit_id,
+                        county_id,
+                        tax_year,
+                        tax_rate.get("rate_component", "ad_valorem"),
+                        tax_rate["rate_value"],
+                        tax_rate.get("rate_per_100"),
+                        tax_rate.get("effective_from"),
+                        tax_rate.get("effective_to"),
+                        tax_rate.get("is_current", True),
+                        source_system_id,
+                        import_batch_id,
+                        source_record_hash,
+                    ),
+                )
+                tax_rate_id = str(cursor.fetchone()["tax_rate_id"])
+            lineage_records.append(
+                {
+                    "target_table": "tax_rates",
+                    "target_id": tax_rate_id,
+                    "taxing_unit_id": taxing_unit_id,
+                }
+            )
+
+        return lineage_records
+
+    def capture_tax_rate_rollback_manifest(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        unit_codes: Iterable[str],
+    ) -> dict[str, Any]:
+        entries: list[dict[str, Any]] = []
+        for unit_code in unit_codes:
+            unit_row = self._fetch_optional_row(
+                """
+                SELECT *
+                FROM taxing_units
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND unit_code = %s
+                """,
+                (county_id, tax_year, unit_code),
+            )
+            if unit_row is None:
+                entries.append({"unit_code": unit_code, "prior_state": None})
+                continue
+
+            prior_state = {
+                "taxing_unit": unit_row,
+                "tax_rates": self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM tax_rates
+                    WHERE taxing_unit_id = %s
+                      AND tax_year = %s
+                    ORDER BY rate_component ASC, tax_rate_id ASC
+                    """,
+                    (unit_row["taxing_unit_id"], tax_year),
+                ),
+            }
+            entries.append({"unit_code": unit_code, "prior_state": prior_state})
+        return {"dataset_type": "tax_rates", "entries": entries}
+
+    def fetch_parcel_tax_contexts(self, *, county_id: str, tax_year: int) -> list[ParcelTaxContext]:
+        rows = self._fetch_rows(
+            """
+            SELECT
+              p.parcel_id,
+              p.county_id,
+              pys.tax_year,
+              p.account_number,
+              COALESCE(pa.situs_city, p.situs_city) AS situs_city,
+              COALESCE(pa.situs_zip, p.situs_zip) AS situs_zip,
+              COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
+              COALESCE(pc.subdivision_name, p.subdivision_name) AS subdivision_name,
+              COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code
+            FROM parcel_year_snapshots pys
+            JOIN parcels p
+              ON p.parcel_id = pys.parcel_id
+            LEFT JOIN parcel_addresses pa
+              ON pa.parcel_id = p.parcel_id
+             AND pa.is_current = true
+            LEFT JOIN property_characteristics pc
+              ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+            WHERE p.county_id = %s
+              AND pys.tax_year = %s
+              AND pys.is_current = true
+            ORDER BY p.account_number ASC
+            """,
+            (county_id, tax_year),
+        )
+        return [
+            ParcelTaxContext(
+                parcel_id=str(row["parcel_id"]),
+                county_id=row["county_id"],
+                tax_year=row["tax_year"],
+                account_number=row["account_number"],
+                situs_city=row["situs_city"],
+                situs_zip=row["situs_zip"],
+                school_district_name=row["school_district_name"],
+                subdivision_name=row["subdivision_name"],
+                neighborhood_code=row["neighborhood_code"],
+            )
+            for row in rows
+        ]
+
+    def fetch_taxing_unit_contexts(self, *, county_id: str, tax_year: int) -> list[TaxingUnitContext]:
+        rows = self._fetch_rows(
+            """
+            SELECT DISTINCT
+              tu.taxing_unit_id,
+              tu.county_id,
+              tu.tax_year,
+              tu.unit_type_code,
+              tu.unit_code,
+              tu.unit_name,
+              tu.metadata_json
+            FROM taxing_units tu
+            JOIN tax_rates tr
+              ON tr.taxing_unit_id = tu.taxing_unit_id
+             AND tr.tax_year = tu.tax_year
+             AND tr.is_current = true
+            WHERE tu.county_id = %s
+              AND tu.tax_year = %s
+              AND tu.active_flag = true
+            ORDER BY tu.unit_type_code ASC, tu.unit_code ASC
+            """,
+            (county_id, tax_year),
+        )
+        return [
+            TaxingUnitContext(
+                taxing_unit_id=str(row["taxing_unit_id"]),
+                county_id=row["county_id"],
+                tax_year=row["tax_year"],
+                unit_type_code=row["unit_type_code"],
+                unit_code=row["unit_code"],
+                unit_name=row["unit_name"],
+                metadata_json=dict(row["metadata_json"] or {}),
+            )
+            for row in rows
+        ]
+
+    def has_current_tax_rate_records(self, *, county_id: str, tax_year: int) -> bool:
+        row = self._fetch_optional_row(
+            """
+            SELECT 1 AS present
+            FROM tax_rates
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND is_current = true
+            LIMIT 1
+            """,
+            (county_id, tax_year),
+        )
+        return row is not None
+
+    def replace_parcel_tax_assignments(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+        assignments: list[ParcelTaxAssignment],
+    ) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM parcel_taxing_units ptu
+                USING parcels p
+                WHERE ptu.parcel_id = p.parcel_id
+                  AND p.county_id = %s
+                  AND ptu.tax_year = %s
+                  AND ptu.assignment_method <> 'manual'
+                """,
+                (county_id, tax_year),
+            )
+
+            for assignment in assignments:
+                cursor.execute(
+                    """
+                    INSERT INTO parcel_taxing_units (
+                      parcel_id,
+                      tax_year,
+                      taxing_unit_id,
+                      assignment_method,
+                      assignment_confidence,
+                      is_primary,
+                      source_system_id,
+                      import_batch_id,
+                      job_run_id,
+                      assignment_reason_code,
+                      match_basis_json
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (parcel_id, tax_year, taxing_unit_id)
+                    DO UPDATE SET
+                      assignment_method = EXCLUDED.assignment_method,
+                      assignment_confidence = EXCLUDED.assignment_confidence,
+                      is_primary = EXCLUDED.is_primary,
+                      source_system_id = EXCLUDED.source_system_id,
+                      import_batch_id = EXCLUDED.import_batch_id,
+                      job_run_id = EXCLUDED.job_run_id,
+                      assignment_reason_code = EXCLUDED.assignment_reason_code,
+                      match_basis_json = EXCLUDED.match_basis_json,
+                      updated_at = now()
+                    """,
+                    (
+                        assignment.parcel_id,
+                        assignment.tax_year,
+                        assignment.taxing_unit_id,
+                        assignment.assignment_method,
+                        assignment.assignment_confidence,
+                        assignment.is_primary,
+                        source_system_id,
+                        import_batch_id,
+                        job_run_id,
+                        assignment.assignment_reason_code,
+                        Jsonb(assignment.match_basis_json),
+                    ),
+                )
+        return len(assignments)
+
+    def refresh_effective_tax_rates(self, *, county_id: str, tax_year: int) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM effective_tax_rates etr
+                USING parcels p
+                WHERE etr.parcel_id = p.parcel_id
+                  AND p.county_id = %s
+                  AND etr.tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                SELECT
+                  ptu.parcel_id,
+                  ptu.tax_year,
+                  SUM(COALESCE(tr.rate_value, tr.rate_per_100 / 100.0)) AS effective_tax_rate,
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'taxing_unit_id', tu.taxing_unit_id,
+                      'unit_type_code', tu.unit_type_code,
+                      'unit_code', tu.unit_code,
+                      'unit_name', tu.unit_name,
+                      'rate_component', tr.rate_component,
+                      'rate_value', COALESCE(tr.rate_value, tr.rate_per_100 / 100.0),
+                      'rate_per_100', tr.rate_per_100,
+                      'assignment_method', ptu.assignment_method,
+                      'assignment_confidence', ptu.assignment_confidence,
+                      'assignment_reason_code', ptu.assignment_reason_code
+                    )
+                    ORDER BY tu.unit_type_code, tu.unit_name, tr.rate_component
+                  ) AS component_breakdown_json
+                FROM parcel_taxing_units ptu
+                JOIN parcels p
+                  ON p.parcel_id = ptu.parcel_id
+                JOIN taxing_units tu
+                  ON tu.taxing_unit_id = ptu.taxing_unit_id
+                JOIN tax_rates tr
+                  ON tr.taxing_unit_id = ptu.taxing_unit_id
+                 AND tr.tax_year = ptu.tax_year
+                 AND tr.is_current = true
+                WHERE p.county_id = %s
+                  AND ptu.tax_year = %s
+                GROUP BY ptu.parcel_id, ptu.tax_year
+                ORDER BY ptu.parcel_id ASC
+                """,
+                (county_id, tax_year),
+            )
+            rows = cursor.fetchall()
+            for row in rows:
+                cursor.execute(
+                    """
+                    INSERT INTO effective_tax_rates (
+                      parcel_id,
+                      tax_year,
+                      effective_tax_rate,
+                      source_method,
+                      calculation_basis_json
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (parcel_id, tax_year)
+                    DO UPDATE SET
+                      effective_tax_rate = EXCLUDED.effective_tax_rate,
+                      source_method = EXCLUDED.source_method,
+                      calculation_basis_json = EXCLUDED.calculation_basis_json,
+                      updated_at = now()
+                    """,
+                    (
+                        row["parcel_id"],
+                        row["tax_year"],
+                        row["effective_tax_rate"],
+                        "parcel_taxing_units_rollup",
+                        Jsonb(
+                            {
+                                "refreshed_from": "parcel_taxing_units_rollup",
+                                "components": row["component_breakdown_json"] or [],
+                            }
+                        ),
+                    ),
+                )
+        return len(rows)
+
+    def inspect_tax_rates_import_batch(self, *, import_batch_id: str, tax_year: int) -> dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version,
+                  count(DISTINCT rf.raw_file_id) AS raw_file_count,
+                  count(DISTINCT jr.job_run_id) AS job_run_count
+                FROM import_batches ib
+                LEFT JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
+                LEFT JOIN job_runs jr ON jr.import_batch_id = ib.import_batch_id
+                WHERE ib.import_batch_id = %s
+                GROUP BY
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version
+                """,
+                (import_batch_id,),
+            )
+            batch_row = cursor.fetchone()
+            if batch_row is None:
+                raise ValueError(f"Missing import batch {import_batch_id}.")
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM stg_county_tax_rates_raw
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            staging_row_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM lineage_records
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            lineage_record_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT
+                  count(*) AS total_count,
+                  count(*) FILTER (WHERE severity = 'error') AS error_count
+                FROM validation_results
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            validation_counts = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM taxing_units
+                WHERE import_batch_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            taxing_unit_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM tax_rates
+                WHERE import_batch_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            tax_rate_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM parcel_taxing_units
+                WHERE import_batch_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            parcel_tax_assignment_count = cursor.fetchone()["count"]
+
+        return {
+            "import_batch_id": import_batch_id,
+            "county_id": batch_row["county_id"],
+            "tax_year": batch_row["tax_year"],
+            "status": batch_row["status"],
+            "row_count": batch_row["row_count"],
+            "error_count": batch_row["error_count"],
+            "publish_state": batch_row["publish_state"],
+            "publish_version": batch_row["publish_version"],
+            "raw_file_count": batch_row["raw_file_count"],
+            "job_run_count": batch_row["job_run_count"],
+            "staging_row_count": staging_row_count,
+            "lineage_record_count": lineage_record_count,
+            "validation_result_count": validation_counts["total_count"],
+            "validation_error_count": validation_counts["error_count"],
+            "taxing_unit_count": taxing_unit_count,
+            "tax_rate_count": tax_rate_count,
+            "parcel_tax_assignment_count": parcel_tax_assignment_count,
+        }
+
     def capture_property_roll_rollback_manifest(
         self,
         *,
@@ -1369,6 +1915,80 @@ class IngestionRepository:
                 self._delete_orphan_parcel(parcel_id)
                 continue
             self._restore_property_roll_state(prior_state)
+
+        return len(affected_rows)
+
+    def rollback_tax_rate_records(
+        self,
+        *,
+        county_id: str,
+        import_batch_id: str,
+        tax_year: int,
+        rollback_manifest: dict[str, Any] | None,
+    ) -> int:
+        manifest_entries = {
+            entry["unit_code"]: entry.get("prior_state")
+            for entry in (rollback_manifest or {}).get("entries", [])
+        }
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT unit_code
+                FROM (
+                  SELECT tu.unit_code
+                  FROM taxing_units tu
+                  WHERE tu.import_batch_id = %s
+                    AND tu.county_id = %s
+                    AND tu.tax_year = %s
+                  UNION
+                  SELECT tu.unit_code
+                  FROM tax_rates tr
+                  JOIN taxing_units tu ON tu.taxing_unit_id = tr.taxing_unit_id
+                  WHERE tr.import_batch_id = %s
+                    AND tu.county_id = %s
+                    AND tr.tax_year = %s
+                ) affected_units
+                ORDER BY unit_code ASC
+                """,
+                (import_batch_id, county_id, tax_year, import_batch_id, county_id, tax_year),
+            )
+            affected_rows = cursor.fetchall()
+
+        for affected_row in affected_rows:
+            unit_code = affected_row["unit_code"]
+            current_unit = self._fetch_optional_row(
+                """
+                SELECT *
+                FROM taxing_units
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND unit_code = %s
+                """,
+                (county_id, tax_year, unit_code),
+            )
+            if current_unit is not None:
+                taxing_unit_id = current_unit["taxing_unit_id"]
+                with self.connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM tax_rates WHERE taxing_unit_id = %s AND tax_year = %s",
+                        (taxing_unit_id, tax_year),
+                    )
+                    cursor.execute(
+                        "DELETE FROM parcel_taxing_units WHERE taxing_unit_id = %s AND tax_year = %s AND assignment_method <> 'manual'",
+                        (taxing_unit_id, tax_year),
+                    )
+                    cursor.execute(
+                        "DELETE FROM taxing_unit_boundaries WHERE taxing_unit_id = %s AND tax_year = %s",
+                        (taxing_unit_id, tax_year),
+                    )
+                    cursor.execute("DELETE FROM taxing_units WHERE taxing_unit_id = %s", (taxing_unit_id,))
+
+            prior_state = manifest_entries.get(unit_code)
+            if prior_state is None:
+                continue
+            if prior_state.get("taxing_unit") is not None:
+                self._insert_rows("taxing_units", [prior_state["taxing_unit"]])
+            self._insert_rows("tax_rates", prior_state.get("tax_rates", []))
 
         return len(affected_rows)
 

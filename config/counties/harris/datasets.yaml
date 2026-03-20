@@ -45,3 +45,42 @@ datasets:
       fixture_path: app/county_adapters/harris/fixtures/property_roll_2026.json
       parser_name: property_roll_json
       validation_profile: harris_property_roll_v1
+  tax_rates:
+    source_system_code: HCAD_TAX_RATES
+    source_name: Harris CAD Tax Rate Extract
+    source_type: county_tax_rates
+    description: Fixture-backed Harris tax unit and rate extract used to prove Stage 6 dataset-dispatched tax-rate ingestion and assignment workflows.
+    source_url: https://hcad.org
+    file_format: json
+    staging_table: stg_county_tax_rates_raw
+    access_method: fixture_json
+    cadence: annual
+    reliability_tier: development_fixture
+    auth_required: false
+    manual_fallback_supported: true
+    legal_notes: Fixture data is development-safe and contains only public-safe tax unit and rate information.
+    entity_coverage:
+      - tax_unit
+      - tax_rate
+      - parcel_tax_assignment_hint
+    supported_years:
+      - 2026
+    dependencies:
+      - property_roll
+    ingestion_ready: true
+    null_handling:
+      required_source_fields:
+        - unit_type_code
+        - unit_code
+        - unit_name
+        - rate_component
+        - rate_value
+    transformation_notes:
+      - Harris tax-rate fixtures stay JSON-backed so the shared Harris parser can remain dataset-dispatched without a second transport path.
+      - Assignment hints stay in the dataset payload so county-specific tax unit matching rules remain reviewable data, not shared service constants.
+    metadata:
+      fixture_backed: true
+      source_family: tax_rates
+      fixture_path: app/county_adapters/harris/fixtures/tax_rates_2026.json
+      parser_name: tax_rates_json
+      validation_profile: harris_tax_rates_v1

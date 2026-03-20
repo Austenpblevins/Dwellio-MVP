@@ -6,10 +6,29 @@ from app.county_adapters.fort_bend.adapter import FortBendCountyAdapter
 def test_fort_bend_adapter_lists_property_roll_dataset() -> None:
     adapter = FortBendCountyAdapter()
     datasets = adapter.list_available_datasets("fort_bend", 2026)
-    assert len(datasets) == 1
-    assert datasets[0].dataset_type == "property_roll"
-    assert datasets[0].source_system_code == "FBCAD_EXPORT"
-    assert "[fixture_csv]" in datasets[0].description
+    dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
+    assert set(dataset_lookup) == {"property_roll", "tax_rates"}
+    assert dataset_lookup["property_roll"].source_system_code == "FBCAD_EXPORT"
+    assert dataset_lookup["tax_rates"].source_system_code == "FBCAD_TAX_RATES"
+    assert "[fixture_csv]" in dataset_lookup["property_roll"].description
+
+
+def test_fort_bend_adapter_parse_and_normalize_tax_rate_fixture() -> None:
+    adapter = FortBendCountyAdapter()
+    acquired = adapter.acquire_dataset("tax_rates", 2026)
+    staging_rows = adapter.parse_raw_to_staging(acquired)
+    assert len(staging_rows) == 8
+    assert staging_rows[0].raw_payload["assignment_hints"]["county_ids"] == ["fort_bend"]
+    assert staging_rows[7].raw_payload["assignment_hints"]["zip_codes"] == ["77479", "77406"]
+
+    normalized = adapter.normalize_staging_to_canonical(
+        "tax_rates",
+        [row.raw_payload for row in staging_rows],
+    )
+    tax_rates = normalized["tax_rates"]
+    assert tax_rates[0]["taxing_unit"]["unit_name"] == "Fort Bend County"
+    assert tax_rates[4]["taxing_unit"]["unit_code"] == "LCISD"
+    assert tax_rates[7]["tax_rate"]["rate_per_100"] == 0.045
 
 
 def test_fort_bend_adapter_parse_and_normalize_fixture() -> None:
