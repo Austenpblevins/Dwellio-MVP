@@ -4,7 +4,8 @@ timezone: America/Chicago
 datasets:
   - property_roll
 parser_module: app.county_adapters.fort_bend.parse
-notes: Config-driven Fort Bend metadata bootstrap. Detailed dataset registry and field mappings live under config/counties/fort_bend/.
+notes: Config-driven Fort Bend metadata and field mapping authority for the Stage 5 fixture-backed property_roll workflow.
 metadata:
   cad_short_name: FBCAD
   source_mode: config_driven
+  stage_status: stage5_fixture_backed

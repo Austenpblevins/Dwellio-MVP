@@ -66,7 +66,7 @@ Why it exists:
 - stable target list for county mapping files
 - future support for loading config-backed mappings into `county_field_mappings`
 
-The current seed covers the `property_roll` dataset sections used by the Harris fixture-backed adapter.
+The current seed covers the generic `property_roll` dataset sections used by both the Harris and Fort Bend fixture-backed adapters.
 
 ## How adapters consume mappings
 
@@ -75,9 +75,10 @@ The current seed covers the `property_roll` dataset sections used by the Harris 
 3. `parse_raw_to_staging()` reads the configured `staging_table`.
 4. `normalize_staging_to_canonical()` calls [field_mapping.py](/Users/nblevins/Desktop/Dwellio/app/county_adapters/common/field_mapping.py) to build canonical section payloads from config.
 5. Validation reads required source fields from config instead of hardcoding county field names in shared logic.
+6. County parsers can add adapter-specific derived fields, such as Fort Bend converting separate exemption amount columns into the shared `exemptions` list before normalization.
 
 ## Current status
 
 - Harris `property_roll` is config-driven and fixture-backed.
-- Fort Bend uses the same file structure but remains scaffold-only.
-- Real Harris/Fort Bend county acquisition and parser details are intentionally deferred to the county-specific implementation stages.
+- Fort Bend `property_roll` is also config-driven and fixture-backed, using county-specific CSV headers without changing shared normalization code.
+- Live Harris and Fort Bend acquisition remains intentionally deferred to later county acquisition stages.

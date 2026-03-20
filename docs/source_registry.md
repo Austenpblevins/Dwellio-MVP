@@ -50,12 +50,16 @@ Harris currently exposes one active registry entry:
 
 This is intentionally fixture-backed for the first end-to-end county implementation. It proves the acquisition and normalization contract without claiming live HCAD automation yet.
 
-## Fort Bend status
+## Fort Bend Stage 5 entry
 
-Fort Bend also has a registry-shaped config entry, but it remains scaffold-only:
+Fort Bend now also exposes one active registry entry:
 
 - county: `fort_bend`
 - dataset: `property_roll`
-- active flag: `false`
+- source system: `FBCAD_EXPORT`
+- access method: `fixture_csv`
+- file format: `csv`
+- cadence: `annual`
+- reliability tier: `development_fixture`
 
-That keeps the framework extensible without pretending the county-specific parser exists yet.
+This proves the shared source registry and ingestion framework can support multiple counties without adding county-specific hacks to shared services or canonical tables.

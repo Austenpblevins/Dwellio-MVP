@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from typing import Any
 
@@ -125,7 +124,8 @@ class HarrisCountyAdapter(CountyAdapter):
 def build_harris_fixture_rows() -> list[dict[str, Any]]:
     adapter = HarrisCountyAdapter()
     acquired = adapter.acquire_dataset("property_roll", 2026)
-    return json.loads(acquired.content.decode("utf-8"))
+    staging_rows = adapter.parse_raw_to_staging(acquired)
+    return [row.raw_payload for row in staging_rows]
 
 
 def harris_metadata_dict() -> dict[str, Any]:

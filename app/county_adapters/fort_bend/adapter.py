@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+from typing import Any
+
 from app.county_adapters.common.base import (
     AcquiredDataset,
-    AdapterDataset,
     AdapterMetadata,
     CountyAdapter,
     PublishResult,
-    StagingRow,
     ValidationFinding,
 )
 from app.county_adapters.common.config_loader import load_county_adapter_config
+from app.county_adapters.fort_bend.fetch import acquire_dataset, list_available_datasets
+from app.county_adapters.fort_bend.normalize import normalize_property_roll
+from app.county_adapters.fort_bend.parse import parse_raw_to_staging
+from app.county_adapters.fort_bend.validation import validate_property_roll
+from app.ingestion.source_registry import get_source_registry_entry
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -21,53 +27,67 @@ class FortBendCountyAdapter(CountyAdapter):
     def __init__(self) -> None:
         self.config = load_county_adapter_config(self.county_id)
 
-    def list_available_datasets(self, county_id: str, tax_year: int) -> list[AdapterDataset]:
-        if county_id != self.county_id:
-            raise ValueError(f"Adapter for {self.county_id} cannot serve county {county_id}.")
-        return [
-            AdapterDataset(
-                dataset_type=dataset_config.dataset_type,
-                source_system_code=dataset_config.source_system_code,
-                tax_year=tax_year,
-                description=dataset_config.description,
-                source_url=dataset_config.source_url,
-            )
-            for dataset_config in self.config.dataset_configs.values()
-        ]
+    def list_available_datasets(self, county_id: str, tax_year: int):
+        return list_available_datasets(config=self.config, county_id=county_id, tax_year=tax_year)
 
-    def acquire_dataset(self, dataset_type: str, tax_year: int) -> AcquiredDataset:
-        raise NotImplementedError("Fort Bend acquisition is deferred until the next county-specific stage.")
+    def acquire_dataset(self, dataset_type: str, tax_year: int):
+        return acquire_dataset(config=self.config, dataset_type=dataset_type, tax_year=tax_year)
 
     def detect_file_format(self, file: AcquiredDataset) -> str:
-        raise NotImplementedError("Fort Bend parsing is deferred until the next county-specific stage.")
+        if file.original_filename.endswith(".csv"):
+            return "csv"
+        raise ValueError(f"Unsupported file format for {file.original_filename}.")
 
-    def parse_raw_to_staging(self, file: AcquiredDataset) -> list[StagingRow]:
-        raise NotImplementedError("Fort Bend staging is deferred until the next county-specific stage.")
+    def parse_raw_to_staging(self, file):
+        result = parse_raw_to_staging(config=self.config, acquired=file)
+        if result.issues:
+            logger.warning(
+                "fort_bend parse issues detected",
+                extra={
+                    "county_id": self.county_id,
+                    "dataset_type": file.dataset_type,
+                    "issue_count": len(result.issues),
+                },
+            )
+        return result.staging_rows
 
-    def normalize_staging_to_canonical(self, dataset_type: str, staging_rows: list[dict[str, object]]) -> dict[str, object]:
-        raise NotImplementedError("Fort Bend normalization is deferred until the next county-specific stage.")
+    def normalize_staging_to_canonical(
+        self,
+        dataset_type: str,
+        staging_rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if dataset_type != "property_roll":
+            raise ValueError(f"Fort Bend adapter only supports property_roll, not {dataset_type}.")
+        result = normalize_property_roll(config=self.config, staging_rows=staging_rows)
+        return {"property_roll": result.normalized_records}
 
     def validate_dataset(
         self,
         job_id: str,
         tax_year: int,
         dataset_type: str,
-        staging_rows: list[dict[str, object]],
+        staging_rows: list[dict[str, Any]],
     ) -> list[ValidationFinding]:
-        return [
-            ValidationFinding(
-                validation_code="FORT_BEND_DEFERRED",
-                message="Fort Bend ingestion is intentionally deferred in Stage 2.",
-                severity="warning",
-                validation_scope="publish",
-                details_json={"job_id": job_id, "tax_year": tax_year, "dataset_type": dataset_type},
-            )
-        ]
+        if dataset_type != "property_roll":
+            raise ValueError(f"Fort Bend adapter only supports property_roll, not {dataset_type}.")
+        return validate_property_roll(
+            config=self.config,
+            job_id=job_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            staging_rows=staging_rows,
+        )
 
     def publish_dataset(self, job_id: str, tax_year: int, dataset_type: str) -> PublishResult:
+        registry_entry = get_source_registry_entry(county_id=self.county_id, dataset_type=dataset_type)
         return PublishResult(
             publish_version=f"fort_bend-{tax_year}-{dataset_type}-{job_id[:8]}",
-            details_json={"county_id": self.county_id, "dataset_type": dataset_type},
+            details_json={
+                "county_id": self.county_id,
+                "dataset_type": dataset_type,
+                "source_system_code": registry_entry.source_system_code,
+                "access_method": registry_entry.access_method,
+            },
         )
 
     def rollback_publish(self, job_id: str) -> None:
@@ -82,10 +102,32 @@ class FortBendCountyAdapter(CountyAdapter):
             county_id=self.config.county_id,
             county_name="Fort Bend County",
             appraisal_district_name=self.config.appraisal_district,
-            supported_years=[2026],
+            supported_years=sorted(
+                {year for dataset_config in self.config.dataset_configs.values() for year in dataset_config.supported_years}
+            ),
             supported_dataset_types=self.config.datasets,
-            known_limitations=["Stage 2 keeps Fort Bend as a contract-only adapter scaffold."],
-            primary_keys_used=["account_number"],
-            special_parsing_notes="No real parsing implemented yet.",
-            manual_fallback_instructions="Defer to a future Fort Bend stage or use manual upload after the county-specific adapter is implemented.",
+            known_limitations=[
+                "Stage 5 Fort Bend ingestion is fixture-backed for property_roll only.",
+                "Live FBCAD download automation remains deferred until a later county acquisition stage.",
+            ],
+            primary_keys_used=["account_id", "property_id"],
+            special_parsing_notes=(
+                "Fort Bend property_roll uses config-driven CSV parsing, county-specific exemption column expansion, "
+                "and canonical parcel-year normalization on the shared ingestion framework."
+            ),
+            manual_fallback_instructions=(
+                "Use the Fort Bend fixture-backed workflow locally or register a manual upload under FBCAD_EXPORT "
+                "when live acquisition is not available."
+            ),
         )
+
+
+def build_fort_bend_fixture_rows() -> list[dict[str, Any]]:
+    adapter = FortBendCountyAdapter()
+    acquired = adapter.acquire_dataset("property_roll", 2026)
+    staging_rows = adapter.parse_raw_to_staging(acquired)
+    return [row.raw_payload for row in staging_rows]
+
+
+def fort_bend_metadata_dict() -> dict[str, Any]:
+    return asdict(FortBendCountyAdapter().get_adapter_metadata())

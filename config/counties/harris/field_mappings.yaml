@@ -3,7 +3,7 @@ county_id: harris
 datasets:
   property_roll:
     mapping_version: 1
-    description: Config-driven Harris property roll mapping for the fixture-backed Stage 2 adapter.
+    description: Config-driven Harris property roll mapping for the fixture-backed Harris adapter on the shared Stage 5 ingestion framework.
     transformation_notes:
       - Canonical field codes must exist in canonical_field_dictionary before adapters consume them.
       - The shared field-mapping utility applies transforms like normalized_address and exemption aggregation.

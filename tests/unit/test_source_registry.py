@@ -12,8 +12,11 @@ def test_get_harris_source_registry_entry() -> None:
     assert entry.supported_years == [2026]
 
 
-def test_list_source_registry_entries_includes_fort_bend_scaffold() -> None:
+def test_list_source_registry_entries_includes_active_fort_bend_dataset() -> None:
     entries = {(entry.county_id, entry.dataset_type): entry for entry in list_source_registry_entries()}
     assert ("harris", "property_roll") in entries
     assert ("fort_bend", "property_roll") in entries
-    assert entries[("fort_bend", "property_roll")].active_flag is False
+    fort_bend_entry = entries[("fort_bend", "property_roll")]
+    assert fort_bend_entry.active_flag is True
+    assert fort_bend_entry.access_method == "fixture_csv"
+    assert fort_bend_entry.file_format == "csv"
