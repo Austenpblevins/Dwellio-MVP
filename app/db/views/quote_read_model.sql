@@ -33,12 +33,11 @@ LEFT JOIN protest_recommendations pr ON pr.valuation_run_id = vr.valuation_run_i
 
 CREATE OR REPLACE VIEW v_search_read_model AS
 SELECT
-    p.county_id,
-    p.account_number,
-    p.parcel_id,
-    COALESCE(pa.situs_address, p.situs_address) AS situs_address,
-    COALESCE(pa.situs_zip, p.situs_zip) AS situs_zip,
-    COALESCE(pa.normalized_address, upper(regexp_replace(COALESCE(pa.situs_address, p.situs_address, ''), '[^A-Za-z0-9 ]', '', 'g'))) AS normalized_address,
-    p.owner_name
-FROM parcels p
-LEFT JOIN parcel_addresses pa ON pa.parcel_id = p.parcel_id AND pa.is_current = true;
+    county_id,
+    account_number,
+    parcel_id,
+    situs_address,
+    situs_zip,
+    normalized_address,
+    owner_name
+FROM parcel_search_view;
