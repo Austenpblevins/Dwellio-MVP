@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "parcel-1001001001001",
+      "properties": {
+        "account_number": "1001001001001",
+        "geometry_role": "parcel_polygon"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-95.3705, 29.7600],
+            [-95.3705, 29.7645],
+            [-95.3660, 29.7645],
+            [-95.3660, 29.7600],
+            [-95.3705, 29.7600]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "school-boundary-hou-isd",
+      "properties": {
+        "unit_code": "SCH-001",
+        "unit_type_code": "school_district",
+        "unit_name": "Fixture ISD",
+        "boundary_scope": "school_attendance"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-95.3720, 29.7580],
+            [-95.3720, 29.7665],
+            [-95.3640, 29.7665],
+            [-95.3640, 29.7580],
+            [-95.3720, 29.7580]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mud-boundary-17",
+      "properties": {
+        "unit_code": "MUD-017",
+        "unit_type_code": "mud",
+        "unit_name": "Fixture MUD 17",
+        "boundary_scope": "service_area"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-95.3695, 29.7595],
+            [-95.3695, 29.7630],
+            [-95.3650, 29.7630],
+            [-95.3650, 29.7595],
+            [-95.3695, 29.7595]
+          ]
+        ]
+      }
+    }
+  ]
+}
