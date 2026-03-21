@@ -35,7 +35,7 @@
     "prior_year_market_value": 340000,
     "prior_year_assessed_value": 320000,
     "exemptions": [
-      {"exemption_type_code": "homestead", "exemption_amount": 100000}
+      {"exemption_type_code": "homestead", "raw_exemption_code": "HS", "exemption_amount": 100000}
     ]
   },
   {
@@ -74,8 +74,8 @@
     "prior_year_market_value": 281000,
     "prior_year_assessed_value": 266000,
     "exemptions": [
-      {"exemption_type_code": "homestead", "exemption_amount": 100000},
-      {"exemption_type_code": "over65", "exemption_amount": 10000}
+      {"exemption_type_code": "homestead", "raw_exemption_code": "HS", "exemption_amount": 100000},
+      {"exemption_type_code": "over65", "raw_exemption_code": "OV65", "exemption_amount": 10000}
     ]
   }
 ]

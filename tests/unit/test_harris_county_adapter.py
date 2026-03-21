@@ -43,6 +43,7 @@ def test_harris_adapter_parse_and_normalize_fixture() -> None:
     assert len(property_roll) == 2
     assert property_roll[0]["parcel"]["account_number"] == "1001001001001"
     assert property_roll[0]["characteristics"]["homestead_flag"] is True
+    assert property_roll[0]["exemptions"][0]["raw_exemption_code"] == "HS"
     assert property_roll[1]["exemptions"][1]["exemption_type_code"] == "over65"
 
 
@@ -67,7 +68,9 @@ def test_harris_adapter_validation_surfaces_failed_record_details() -> None:
     assert "MISSING_ACCOUNT_NUMBER" in error_codes
     assert "NEGATIVE_EXEMPTION_AMOUNT" in error_codes
     assert "MISSING_MARKET_VALUE" in error_codes
-    missing_account = next(finding for finding in findings if finding.validation_code == "MISSING_ACCOUNT_NUMBER")
+    missing_account = next(
+        finding for finding in findings if finding.validation_code == "MISSING_ACCOUNT_NUMBER"
+    )
     assert missing_account.details_json["failed_record"]["situs_address"] == "101 Main St"
 
 
