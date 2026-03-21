@@ -4,6 +4,7 @@ timezone: America/Chicago
 datasets:
   - property_roll
   - tax_rates
+  - deeds
 parser_module: app.county_adapters.harris.parse
 notes: Stage 4 Harris metadata bootstrap. Detailed dataset registry and field mappings live under config/counties/harris/.
 metadata:

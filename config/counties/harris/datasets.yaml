@@ -84,3 +84,38 @@ datasets:
       fixture_path: app/county_adapters/harris/fixtures/tax_rates_2026.json
       parser_name: tax_rates_json
       validation_profile: harris_tax_rates_v1
+  deeds:
+    source_system_code: DEED_FEED
+    source_name: Harris Deed Feed
+    source_type: county_deed_feed
+    description: Fixture-backed Harris deed extract used to prove Stage 9 deed ingestion and ownership reconciliation.
+    source_url: https://hcad.org
+    file_format: json
+    staging_table: stg_sales_raw
+    access_method: fixture_json
+    cadence: ad_hoc
+    reliability_tier: development_fixture
+    auth_required: false
+    manual_fallback_supported: true
+    legal_notes: Fixture data is development-safe and contains only deed-style ownership evidence needed for reconciliation testing.
+    entity_coverage:
+      - deed
+      - ownership
+    supported_years:
+      - 2026
+    dependencies:
+      - property_roll
+    ingestion_ready: true
+    null_handling:
+      required_source_fields:
+        - instrument_number
+        - recording_date
+    transformation_notes:
+      - Harris deed fixtures are JSON-backed and preserve grantor/grantee party arrays for downstream party extraction.
+      - Parcel linking uses county identifiers carried in the raw deed payload and resolves into canonical parcel IDs during publish.
+    metadata:
+      fixture_backed: true
+      source_family: deeds
+      fixture_path: app/county_adapters/harris/fixtures/deeds_2026.json
+      parser_name: deeds_json
+      validation_profile: harris_deeds_v1
