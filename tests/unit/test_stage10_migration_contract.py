@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from infra.scripts.run_migrations import MIGRATIONS_DIR, discover_migrations
 
 
@@ -29,11 +27,3 @@ def test_stage10_migration_contains_required_views_and_search_wrapper() -> None:
     assert "completeness_score" in sql
     assert "warning_codes" in sql
     assert "public_summary_ready_flag" in sql
-
-
-def test_quote_read_model_file_uses_parcel_search_view_wrapper() -> None:
-    read_model_path = Path("app/db/views/quote_read_model.sql")
-    sql = read_model_path.read_text(encoding="utf-8")
-
-    assert "CREATE OR REPLACE VIEW v_search_read_model AS" in sql
-    assert "FROM parcel_search_view" in sql

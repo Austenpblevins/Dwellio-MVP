@@ -5,14 +5,20 @@ from uuid import UUID
 from pydantic import Field
 
 from app.models.common import DwellioBaseModel, JsonDict
-from app.models.parcel import ParcelSearchResult
+from app.models.parcel import ParcelAutocompleteResponse, ParcelSearchResult
 
 
 class SearchRequest(DwellioBaseModel):
     address: str = Field(..., min_length=3)
 
+
 class SearchResponse(DwellioBaseModel):
     results: list[ParcelSearchResult]
+
+
+class AutocompleteResponse(ParcelAutocompleteResponse):
+    pass
+
 
 class QuoteResponse(DwellioBaseModel):
     county_id: str

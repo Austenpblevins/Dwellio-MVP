@@ -456,6 +456,11 @@ class IngestionLifecycleService:
                         if target.get("parcel_id") is not None
                     ],
                 )
+                self._refresh_search_documents(
+                    repository=repository,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
             publish_result = adapter.publish_dataset(job_run_id, tax_year, dataset_type)
             repository.insert_validation_results(
                 job_run_id=job_run_id,
@@ -872,4 +877,16 @@ class IngestionLifecycleService:
             county_id=county_id,
             tax_year=tax_year,
             parcel_ids=parcel_ids,
+        )
+
+    def _refresh_search_documents(
+        self,
+        *,
+        repository: IngestionRepository,
+        county_id: str,
+        tax_year: int,
+    ) -> None:
+        repository.refresh_search_documents(
+            county_id=county_id,
+            tax_year=tax_year,
         )
