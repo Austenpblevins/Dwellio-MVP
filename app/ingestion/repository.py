@@ -2756,6 +2756,18 @@ class IngestionRepository:
 
         return refreshed_count
 
+    def refresh_search_documents(self, *, county_id: str, tax_year: int) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT dwellio_refresh_search_documents(%s, %s) AS refreshed_count",
+                (county_id, tax_year),
+            )
+            row = cursor.fetchone()
+
+        if row is None:
+            return 0
+        return int(row["refreshed_count"] or 0)
+
     def _delete_property_roll_state(self, *, parcel_id: str, tax_year: int) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(

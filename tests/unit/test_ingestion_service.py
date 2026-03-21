@@ -324,6 +324,7 @@ def test_normalize_supports_deeds_and_refreshes_owner_reconciliation(monkeypatch
     monkeypatch.setattr(
         service, "_refresh_owner_reconciliation", lambda **kwargs: refresh_calls.append(kwargs)
     )
+    monkeypatch.setattr(service, "_refresh_search_documents", lambda **kwargs: None)
 
     result = service.normalize(
         county_id="harris",

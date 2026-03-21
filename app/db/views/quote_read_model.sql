@@ -36,8 +36,8 @@ SELECT
     county_id,
     account_number,
     parcel_id,
-    situs_address,
-    situs_zip,
+    COALESCE(NULLIF(document_json ->> 'situs_address', ''), display_address) AS situs_address,
+    NULLIF(document_json ->> 'situs_zip', '') AS situs_zip,
     normalized_address,
-    owner_name
-FROM parcel_search_view;
+    NULLIF(document_json ->> 'owner_name', '') AS owner_name
+FROM search_documents;
