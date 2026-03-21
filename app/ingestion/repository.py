@@ -6,10 +6,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from psycopg import Connection
-from psycopg import sql
+from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
+from app.services.exemption_normalization import normalize_parcel_exemptions
 from app.services.tax_assignment import ParcelTaxAssignment, ParcelTaxContext, TaxingUnitContext
 
 
@@ -444,7 +444,9 @@ class IngestionRepository:
                 )
         return inserted_rows
 
-    def fetch_staging_rows(self, *, import_batch_id: str, dataset_type: str) -> list[dict[str, Any]]:
+    def fetch_staging_rows(
+        self, *, import_batch_id: str, dataset_type: str
+    ) -> list[dict[str, Any]]:
         table_name, id_column = self.resolve_staging_table(dataset_type)
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -625,7 +627,10 @@ class IngestionRepository:
                 )
                 parcel_id = str(cursor.fetchone()["parcel_id"])
 
-                cursor.execute("UPDATE parcel_addresses SET is_current = false WHERE parcel_id = %s", (parcel_id,))
+                cursor.execute(
+                    "UPDATE parcel_addresses SET is_current = false WHERE parcel_id = %s",
+                    (parcel_id,),
+                )
                 address = record["address"]
                 cursor.execute(
                     """
@@ -739,7 +744,9 @@ class IngestionRepository:
                     ),
                 )
 
-                cursor.execute("DELETE FROM improvements WHERE parcel_year_snapshot_id = %s", (snapshot_id,))
+                cursor.execute(
+                    "DELETE FROM improvements WHERE parcel_year_snapshot_id = %s", (snapshot_id,)
+                )
                 for improvement in record["improvements"]:
                     cursor.execute(
                         """
@@ -845,7 +852,9 @@ class IngestionRepository:
                     ),
                 )
 
-                cursor.execute("DELETE FROM land_segments WHERE parcel_year_snapshot_id = %s", (snapshot_id,))
+                cursor.execute(
+                    "DELETE FROM land_segments WHERE parcel_year_snapshot_id = %s", (snapshot_id,)
+                )
                 for segment in record["land_segments"]:
                     cursor.execute(
                         """
@@ -915,7 +924,10 @@ class IngestionRepository:
                     ),
                 )
 
-                cursor.execute("DELETE FROM value_components WHERE parcel_year_snapshot_id = %s", (snapshot_id,))
+                cursor.execute(
+                    "DELETE FROM value_components WHERE parcel_year_snapshot_id = %s",
+                    (snapshot_id,),
+                )
                 for component in record["value_components"]:
                     cursor.execute(
                         """
@@ -1009,7 +1021,7 @@ class IngestionRepository:
                     "DELETE FROM parcel_exemptions WHERE parcel_id = %s AND tax_year = %s",
                     (parcel_id, tax_year),
                 )
-                for exemption in record["exemptions"]:
+                for exemption in normalize_parcel_exemptions(record.get("exemptions", [])):
                     cursor.execute(
                         """
                         INSERT INTO parcel_exemptions (
@@ -1017,13 +1029,21 @@ class IngestionRepository:
                           tax_year,
                           exemption_type_code,
                           exemption_amount,
+                          raw_exemption_codes,
+                          source_entry_count,
+                          amount_missing_flag,
+                          granted_flag,
                           source_system_id,
                           source_record_hash
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (parcel_id, tax_year, exemption_type_code)
                         DO UPDATE SET
                           exemption_amount = EXCLUDED.exemption_amount,
+                          raw_exemption_codes = EXCLUDED.raw_exemption_codes,
+                          source_entry_count = EXCLUDED.source_entry_count,
+                          amount_missing_flag = EXCLUDED.amount_missing_flag,
+                          granted_flag = EXCLUDED.granted_flag,
                           source_system_id = EXCLUDED.source_system_id,
                           source_record_hash = EXCLUDED.source_record_hash,
                           updated_at = now()
@@ -1033,6 +1053,10 @@ class IngestionRepository:
                             tax_year,
                             exemption["exemption_type_code"],
                             exemption["exemption_amount"],
+                            exemption.get("raw_exemption_codes", []),
+                            exemption.get("source_entry_count", 1),
+                            exemption.get("amount_missing_flag", False),
+                            exemption.get("granted_flag", True),
                             source_system_id,
                             parcel["source_record_hash"],
                         ),
@@ -1273,7 +1297,9 @@ class IngestionRepository:
             for row in rows
         ]
 
-    def fetch_taxing_unit_contexts(self, *, county_id: str, tax_year: int) -> list[TaxingUnitContext]:
+    def fetch_taxing_unit_contexts(
+        self, *, county_id: str, tax_year: int
+    ) -> list[TaxingUnitContext]:
         rows = self._fetch_rows(
             """
             SELECT DISTINCT
@@ -1474,7 +1500,9 @@ class IngestionRepository:
                 )
         return len(rows)
 
-    def inspect_tax_rates_import_batch(self, *, import_batch_id: str, tax_year: int) -> dict[str, Any]:
+    def inspect_tax_rates_import_batch(
+        self, *, import_batch_id: str, tax_year: int
+    ) -> dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -1719,7 +1747,9 @@ class IngestionRepository:
 
         return {"dataset_type": "property_roll", "entries": entries}
 
-    def fetch_job_run_metadata(self, *, import_batch_id: str, job_stage: str) -> dict[str, Any] | None:
+    def fetch_job_run_metadata(
+        self, *, import_batch_id: str, job_stage: str
+    ) -> dict[str, Any] | None:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -1737,7 +1767,9 @@ class IngestionRepository:
             return None
         return dict(row["metadata_json"] or {})
 
-    def inspect_property_roll_import_batch(self, *, import_batch_id: str, tax_year: int) -> dict[str, Any]:
+    def inspect_property_roll_import_batch(
+        self, *, import_batch_id: str, tax_year: int
+    ) -> dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -1861,7 +1893,9 @@ class IngestionRepository:
             "parcel_exemption_count": parcel_exemption_count,
         }
 
-    def fetch_validation_failures(self, *, import_batch_id: str, limit: int = 25) -> list[dict[str, Any]]:
+    def fetch_validation_failures(
+        self, *, import_batch_id: str, limit: int = 25
+    ) -> list[dict[str, Any]]:
         return self._fetch_rows(
             """
             SELECT
@@ -1981,7 +2015,9 @@ class IngestionRepository:
                         "DELETE FROM taxing_unit_boundaries WHERE taxing_unit_id = %s AND tax_year = %s",
                         (taxing_unit_id, tax_year),
                     )
-                    cursor.execute("DELETE FROM taxing_units WHERE taxing_unit_id = %s", (taxing_unit_id,))
+                    cursor.execute(
+                        "DELETE FROM taxing_units WHERE taxing_unit_id = %s", (taxing_unit_id,)
+                    )
 
             prior_state = manifest_entries.get(unit_code)
             if prior_state is None:
@@ -1994,10 +2030,22 @@ class IngestionRepository:
 
     def _delete_property_roll_state(self, *, parcel_id: str, tax_year: int) -> None:
         with self.connection.cursor() as cursor:
-            cursor.execute("DELETE FROM parcel_exemptions WHERE parcel_id = %s AND tax_year = %s", (parcel_id, tax_year))
-            cursor.execute("DELETE FROM parcel_assessments WHERE parcel_id = %s AND tax_year = %s", (parcel_id, tax_year))
-            cursor.execute("DELETE FROM parcel_lands WHERE parcel_id = %s AND tax_year = %s", (parcel_id, tax_year))
-            cursor.execute("DELETE FROM parcel_improvements WHERE parcel_id = %s AND tax_year = %s", (parcel_id, tax_year))
+            cursor.execute(
+                "DELETE FROM parcel_exemptions WHERE parcel_id = %s AND tax_year = %s",
+                (parcel_id, tax_year),
+            )
+            cursor.execute(
+                "DELETE FROM parcel_assessments WHERE parcel_id = %s AND tax_year = %s",
+                (parcel_id, tax_year),
+            )
+            cursor.execute(
+                "DELETE FROM parcel_lands WHERE parcel_id = %s AND tax_year = %s",
+                (parcel_id, tax_year),
+            )
+            cursor.execute(
+                "DELETE FROM parcel_improvements WHERE parcel_id = %s AND tax_year = %s",
+                (parcel_id, tax_year),
+            )
             cursor.execute("DELETE FROM parcel_addresses WHERE parcel_id = %s", (parcel_id,))
             cursor.execute(
                 "DELETE FROM parcel_year_snapshots WHERE parcel_id = %s AND tax_year = %s",
@@ -2019,7 +2067,9 @@ class IngestionRepository:
         if snapshot_row is not None:
             self._insert_rows("parcel_year_snapshots", [snapshot_row])
             if prior_state.get("property_characteristics") is not None:
-                self._insert_rows("property_characteristics", [prior_state["property_characteristics"]])
+                self._insert_rows(
+                    "property_characteristics", [prior_state["property_characteristics"]]
+                )
             self._insert_rows("improvements", prior_state.get("improvements", []))
             self._insert_rows("land_segments", prior_state.get("land_segments", []))
             self._insert_rows("value_components", prior_state.get("value_components", []))

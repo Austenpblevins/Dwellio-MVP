@@ -314,6 +314,9 @@ datasets:
           - target_field: exemption_type_code
             canonical_field_code: property_roll.exemptions.exemption_type_code
             source_field: exemption_type_code
+          - target_field: raw_exemption_code
+            canonical_field_code: property_roll.exemptions.raw_exemption_code
+            source_field: raw_exemption_code
           - target_field: exemption_amount
             canonical_field_code: property_roll.exemptions.exemption_amount
             source_field: exemption_amount

@@ -159,7 +159,11 @@ def _normalize_tax_rate_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
             normalized[key] = cleaned
 
     assignment_hints = {
-        "county_ids": [normalized["cities"][0].lower().replace(" ", "_")] if normalized.get("unit_type_code") == "county" and normalized.get("cities") else [],
+        "county_ids": (
+            [normalized["cities"][0].lower().replace(" ", "_")]
+            if normalized.get("unit_type_code") == "county" and normalized.get("cities")
+            else []
+        ),
         "cities": normalized.get("cities", []),
         "school_district_names": normalized.get("school_district_names", []),
         "subdivisions": normalized.get("subdivisions", []),
@@ -194,6 +198,7 @@ def _build_exemptions(row: dict[str, Any]) -> list[dict[str, Any]]:
             exemptions.append(
                 {
                     "exemption_type_code": exemption_type_code,
+                    "raw_exemption_code": source_field,
                     "exemption_amount": exemption_amount,
                 }
             )
