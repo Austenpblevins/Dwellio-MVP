@@ -18,7 +18,7 @@ This keeps parcel-year identity, provenance, and validation aligned with the res
 
 ## Database helpers
 
-Migration `0031_stage7_gis_support.sql` adds these PostGIS helpers:
+Migration `0032_stage7_gis_support.sql` adds these PostGIS helpers:
 
 - `dwellio_normalize_geometry`: coerces geometry to SRID 4326 and the expected role.
 - `dwellio_geometry_anchor_point`: creates a stable point-on-surface anchor.
