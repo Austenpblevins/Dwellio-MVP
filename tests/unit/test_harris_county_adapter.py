@@ -7,9 +7,10 @@ def test_harris_adapter_lists_property_roll_dataset() -> None:
     adapter = HarrisCountyAdapter()
     datasets = adapter.list_available_datasets("harris", 2026)
     dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
-    assert set(dataset_lookup) == {"property_roll", "tax_rates"}
+    assert set(dataset_lookup) == {"property_roll", "tax_rates", "deeds"}
     assert dataset_lookup["property_roll"].source_system_code == "HCAD_BULK"
     assert dataset_lookup["tax_rates"].source_system_code == "HCAD_TAX_RATES"
+    assert dataset_lookup["deeds"].source_system_code == "DEED_FEED"
     assert "[fixture_json]" in dataset_lookup["property_roll"].description
 
 
@@ -27,6 +28,25 @@ def test_harris_adapter_parse_and_normalize_tax_rate_fixture() -> None:
     assert tax_rates[0]["taxing_unit"]["unit_type_code"] == "county"
     assert tax_rates[2]["taxing_unit"]["unit_name"] == "Houston ISD"
     assert tax_rates[5]["tax_rate"]["rate_value"] == 0.0003
+
+
+def test_harris_adapter_parse_and_normalize_deed_fixture() -> None:
+    adapter = HarrisCountyAdapter()
+    acquired = adapter.acquire_dataset("deeds", 2026)
+    staging_rows = adapter.parse_raw_to_staging(acquired)
+    assert len(staging_rows) == 2
+
+    normalized = adapter.normalize_staging_to_canonical(
+        "deeds",
+        [row.raw_payload for row in staging_rows],
+    )
+    deeds = normalized["deeds"]
+    assert deeds[0]["deed_record"]["instrument_number"] == "HCAD-DEED-2026-0001"
+    assert deeds[0]["linked_account_number"] == "1001001001001"
+    assert deeds[0]["linked_cad_property_id"] == "HCAD-1001"
+    assert deeds[0]["deed_parties"][0]["party_role"] == "grantor"
+    assert deeds[1]["deed_record"]["grantee_summary"] == "Casey Purchaser & Morgan Purchaser"
+    assert len(deeds[1]["deed_parties"]) == 3
 
 
 def test_harris_adapter_parse_and_normalize_fixture() -> None:
@@ -74,8 +94,22 @@ def test_harris_adapter_validation_surfaces_failed_record_details() -> None:
     assert missing_account.details_json["failed_record"]["situs_address"] == "101 Main St"
 
 
+def test_harris_adapter_deed_validation_surfaces_missing_grantee() -> None:
+    adapter = HarrisCountyAdapter()
+    findings = adapter.validate_dataset(
+        "job-test",
+        2026,
+        "deeds",
+        [{"instrument_number": "INST-1", "recording_date": "2026-01-01", "grantees": []}],
+    )
+
+    error_codes = {finding.validation_code for finding in findings if finding.severity == "error"}
+    assert "MISSING_GRANTEE_PARTY" in error_codes
+
+
 def test_harris_adapter_metadata_reflects_stage4_scope() -> None:
     metadata = HarrisCountyAdapter().get_adapter_metadata()
     assert metadata.county_id == "harris"
     assert metadata.supported_years == [2026]
     assert "fixture-backed" in metadata.known_limitations[0]
+    assert "deeds" in metadata.supported_dataset_types

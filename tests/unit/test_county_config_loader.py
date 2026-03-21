@@ -8,10 +8,13 @@ def test_load_harris_county_adapter_config() -> None:
     assert config.county_id == "harris"
     assert "property_roll" in config.datasets
     assert "tax_rates" in config.datasets
+    assert "deeds" in config.datasets
     assert config.dataset_configs["property_roll"].staging_table == "stg_county_property_raw"
     assert config.dataset_configs["tax_rates"].staging_table == "stg_county_tax_rates_raw"
+    assert config.dataset_configs["deeds"].staging_table == "stg_sales_raw"
     assert config.dataset_configs["property_roll"].source_name == "Harris CAD Property Roll"
     assert config.dataset_configs["property_roll"].access_method == "fixture_json"
+    assert config.dataset_configs["deeds"].source_system_code == "DEED_FEED"
     assert config.field_mappings["property_roll"].sections["parcel"].mode == "object"
 
 
@@ -21,9 +24,12 @@ def test_load_fort_bend_county_adapter_config() -> None:
     assert config.parser_module == "app.county_adapters.fort_bend.parse"
     assert config.dataset_configs["property_roll"].ingestion_ready is True
     assert config.dataset_configs["tax_rates"].ingestion_ready is True
+    assert config.dataset_configs["deeds"].ingestion_ready is True
     assert config.dataset_configs["property_roll"].source_type == "county_appraisal_roll"
     assert config.dataset_configs["tax_rates"].source_type == "county_tax_rates"
+    assert config.dataset_configs["deeds"].source_type == "county_deed_feed"
     assert config.dataset_configs["property_roll"].access_method == "fixture_csv"
     assert config.dataset_configs["tax_rates"].access_method == "fixture_csv"
+    assert config.dataset_configs["deeds"].access_method == "fixture_csv"
     assert "CSV-backed" in config.dataset_configs["property_roll"].transformation_notes[0]
     assert config.field_mappings["property_roll"].mapping_version == 1

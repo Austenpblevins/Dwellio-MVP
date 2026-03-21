@@ -8,7 +8,7 @@ from app.county_adapters.common.base import AcquiredDataset, CountyAdapter
 from app.db.connection import get_connection
 from app.ingestion.archive import read_raw_archive, write_raw_archive
 from app.ingestion.registry import get_adapter
-from app.ingestion.repository import ImportBatchRecord, IngestionRepository
+from app.ingestion.repository import IngestionRepository
 from app.services.tax_assignment import build_tax_assignments
 from app.utils.hashing import sha256_text
 from app.utils.logging import get_logger
@@ -65,6 +65,10 @@ class ImportBatchInspection:
     tax_rate_count: int = 0
     parcel_tax_assignment_count: int = 0
     effective_tax_rate_count: int = 0
+    deed_record_count: int = 0
+    deed_party_count: int = 0
+    parcel_owner_period_count: int = 0
+    current_owner_rollup_count: int = 0
     failed_records: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -212,7 +216,9 @@ class IngestionLifecycleService:
             raw_content = read_raw_archive(batch.storage_path)
             acquired = AcquiredDataset(
                 dataset_type=dataset_type,
-                source_system_code=self._lookup_source_system_code(repository, batch.source_system_id),
+                source_system_code=self._lookup_source_system_code(
+                    repository, batch.source_system_id
+                ),
                 tax_year=tax_year,
                 original_filename=batch.original_filename,
                 content=raw_content,
@@ -288,7 +294,9 @@ class IngestionLifecycleService:
                 job_run_id,
                 status="succeeded" if error_count == 0 else "failed",
                 row_count=len(inserted),
-                error_message=None if error_count == 0 else "Validation failed during staging load.",
+                error_message=(
+                    None if error_count == 0 else "Validation failed during staging load."
+                ),
                 metadata_json={"dataset_type": dataset_type, "dry_run": dry_run},
             )
             self._finalize_connection(connection, dry_run=dry_run)
@@ -393,6 +401,20 @@ class IngestionLifecycleService:
                     source_system_id=batch.source_system_id,
                     normalized_records=normalized["tax_rates"],
                 )
+            elif dataset_type == "deeds":
+                rollback_manifest = repository.capture_deed_rollback_manifest(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    normalized_records=normalized["deeds"],
+                )
+                canonical_targets = repository.upsert_deed_records(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    import_batch_id=batch.import_batch_id,
+                    job_run_id=job_run_id,
+                    source_system_id=batch.source_system_id,
+                    normalized_records=normalized["deeds"],
+                )
             else:
                 raise ValueError(f"Unsupported normalize dataset_type={dataset_type}.")
             repository.insert_lineage_records(
@@ -423,6 +445,17 @@ class IngestionLifecycleService:
                 source_system_id=batch.source_system_id,
                 force=dataset_type == "tax_rates",
             )
+            if dataset_type in {"property_roll", "deeds"}:
+                self._refresh_owner_reconciliation(
+                    repository=repository,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    parcel_ids=[
+                        target["parcel_id"]
+                        for target in canonical_targets
+                        if target.get("parcel_id") is not None
+                    ],
+                )
             publish_result = adapter.publish_dataset(job_run_id, tax_year, dataset_type)
             repository.insert_validation_results(
                 job_run_id=job_run_id,
@@ -436,7 +469,11 @@ class IngestionLifecycleService:
                         "message": "Dataset published to canonical tables.",
                         "severity": "info",
                         "validation_scope": "publish",
-                        "entity_table": "parcel_year_snapshots" if dataset_type == "property_roll" else "tax_rates",
+                        "entity_table": (
+                            "parcel_year_snapshots"
+                            if dataset_type == "property_roll"
+                            else "tax_rates" if dataset_type == "tax_rates" else "deed_records"
+                        ),
                         "details_json": publish_result.details_json,
                     }
                 ],
@@ -515,7 +552,9 @@ class IngestionLifecycleService:
                 import_batch_id=batch.import_batch_id,
                 job_stage="normalize",
             )
-            rollback_manifest = None if normalize_metadata is None else normalize_metadata.get("rollback_manifest")
+            rollback_manifest = (
+                None if normalize_metadata is None else normalize_metadata.get("rollback_manifest")
+            )
             if rollback_manifest is None:
                 raise ValueError(
                     "Rollback manifest unavailable for this import batch. "
@@ -544,6 +583,13 @@ class IngestionLifecycleService:
                     tax_year=tax_year,
                     rollback_manifest=rollback_manifest,
                 )
+            elif dataset_type == "deeds":
+                rolled_back_count = repository.rollback_deed_records(
+                    county_id=county_id,
+                    import_batch_id=batch.import_batch_id,
+                    tax_year=tax_year,
+                    rollback_manifest=rollback_manifest,
+                )
             else:
                 raise ValueError(f"Unsupported rollback dataset_type={dataset_type}.")
             adapter.rollback_publish(job_run_id)
@@ -556,6 +602,13 @@ class IngestionLifecycleService:
                 source_system_id=batch.source_system_id,
                 force=dataset_type == "tax_rates",
             )
+            if dataset_type in {"property_roll", "deeds"}:
+                self._refresh_owner_reconciliation(
+                    repository=repository,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    parcel_ids=None,
+                )
             repository.insert_validation_results(
                 job_run_id=job_run_id,
                 import_batch_id=batch.import_batch_id,
@@ -565,11 +618,18 @@ class IngestionLifecycleService:
                 findings=[
                     {
                         "validation_code": "ROLLBACK_OK",
-                        "message": "Rolled back canonical parcel-year publish state.",
+                        "message": "Rolled back canonical publish state.",
                         "severity": "info",
                         "validation_scope": "publish",
-                        "entity_table": "parcel_year_snapshots",
-                        "details_json": {"dataset_type": dataset_type, "rows_rolled_back": rolled_back_count},
+                        "entity_table": (
+                            "parcel_year_snapshots"
+                            if dataset_type == "property_roll"
+                            else "tax_rates" if dataset_type == "tax_rates" else "deed_records"
+                        ),
+                        "details_json": {
+                            "dataset_type": dataset_type,
+                            "rows_rolled_back": rolled_back_count,
+                        },
                     }
                 ],
             )
@@ -619,7 +679,9 @@ class IngestionLifecycleService:
             dry_run=dry_run,
         )
         if len(fetch_results) != 1:
-            raise ValueError(f"Expected one fetched dataset for {county_id}/{dataset_type}, got {len(fetch_results)}.")
+            raise ValueError(
+                f"Expected one fetched dataset for {county_id}/{dataset_type}, got {len(fetch_results)}."
+            )
         fetch_result = fetch_results[0]
 
         staging_result = self.load_staging(
@@ -674,6 +736,11 @@ class IngestionLifecycleService:
                     import_batch_id=batch.import_batch_id,
                     tax_year=tax_year,
                 )
+            elif dataset_type == "deeds":
+                summary = repository.inspect_deeds_import_batch(
+                    import_batch_id=batch.import_batch_id,
+                    tax_year=tax_year,
+                )
             else:
                 raise ValueError(f"Unsupported inspect dataset_type={dataset_type}.")
             failed_records = repository.fetch_validation_failures(
@@ -703,6 +770,10 @@ class IngestionLifecycleService:
             tax_rate_count=summary.get("tax_rate_count", 0),
             parcel_tax_assignment_count=summary.get("parcel_tax_assignment_count", 0),
             effective_tax_rate_count=summary.get("effective_tax_rate_count", 0),
+            deed_record_count=summary.get("deed_record_count", 0),
+            deed_party_count=summary.get("deed_party_count", 0),
+            parcel_owner_period_count=summary.get("parcel_owner_period_count", 0),
+            current_owner_rollup_count=summary.get("current_owner_rollup_count", 0),
             failed_records=failed_records,
         )
 
@@ -724,7 +795,9 @@ class IngestionLifecycleService:
             return len(parsed)
         return 1
 
-    def _lookup_source_system_code(self, repository: IngestionRepository, source_system_id: str) -> str:
+    def _lookup_source_system_code(
+        self, repository: IngestionRepository, source_system_id: str
+    ) -> str:
         with repository.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -763,12 +836,20 @@ class IngestionLifecycleService:
         source_system_id: str,
         force: bool,
     ) -> None:
-        if not force and not repository.has_current_tax_rate_records(county_id=county_id, tax_year=tax_year):
+        if not force and not repository.has_current_tax_rate_records(
+            county_id=county_id, tax_year=tax_year
+        ):
             return
 
-        parcel_contexts = repository.fetch_parcel_tax_contexts(county_id=county_id, tax_year=tax_year)
-        taxing_unit_contexts = repository.fetch_taxing_unit_contexts(county_id=county_id, tax_year=tax_year)
-        assignments = build_tax_assignments(parcels=parcel_contexts, taxing_units=taxing_unit_contexts)
+        parcel_contexts = repository.fetch_parcel_tax_contexts(
+            county_id=county_id, tax_year=tax_year
+        )
+        taxing_unit_contexts = repository.fetch_taxing_unit_contexts(
+            county_id=county_id, tax_year=tax_year
+        )
+        assignments = build_tax_assignments(
+            parcels=parcel_contexts, taxing_units=taxing_unit_contexts
+        )
         repository.replace_parcel_tax_assignments(
             county_id=county_id,
             tax_year=tax_year,
@@ -778,3 +859,17 @@ class IngestionLifecycleService:
             assignments=assignments,
         )
         repository.refresh_effective_tax_rates(county_id=county_id, tax_year=tax_year)
+
+    def _refresh_owner_reconciliation(
+        self,
+        *,
+        repository: IngestionRepository,
+        county_id: str,
+        tax_year: int,
+        parcel_ids: list[str] | None,
+    ) -> None:
+        repository.refresh_owner_reconciliation(
+            county_id=county_id,
+            tax_year=tax_year,
+            parcel_ids=parcel_ids,
+        )

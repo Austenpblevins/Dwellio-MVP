@@ -6,6 +6,7 @@ from typing import Any
 
 from app.county_adapters.common.config_loader import CountyAdapterConfig
 from app.county_adapters.common.field_mapping import build_normalized_record
+from app.services.ownership_reconciliation import build_normalized_deed_record
 from app.utils.hashing import sha256_text
 
 
@@ -57,6 +58,18 @@ def normalize_tax_rates(*, staging_rows: list[dict[str, Any]]) -> NormalizeResul
                 "source_record_hash": source_record_hash,
             }
         )
+    return NormalizeResult(
+        normalized_records=normalized_records,
+        row_count=len(normalized_records),
+        failed_row_count=max(len(staging_rows) - len(normalized_records), 0),
+    )
+
+
+def normalize_deeds(*, county_id: str, staging_rows: list[dict[str, Any]]) -> NormalizeResult:
+    normalized_records = [
+        build_normalized_deed_record(county_id=county_id, row=row)
+        for row in staging_rows
+    ]
     return NormalizeResult(
         normalized_records=normalized_records,
         row_count=len(normalized_records),

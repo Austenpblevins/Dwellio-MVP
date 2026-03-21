@@ -119,6 +119,8 @@ def _normalize_row(*, raw_row: dict[str, str | None], dataset_type: str) -> dict
         return _normalize_property_roll_row(raw_row)
     if dataset_type == "tax_rates":
         return _normalize_tax_rate_row(raw_row)
+    if dataset_type == "deeds":
+        return _normalize_deed_row(raw_row)
     raise ValueError(f"Unsupported Fort Bend dataset_type={dataset_type}.")
 
 
@@ -203,6 +205,45 @@ def _build_exemptions(row: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
     return exemptions
+
+
+def _normalize_deed_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in raw_row.items():
+        cleaned = value.strip() if isinstance(value, str) else value
+        if cleaned == "":
+            cleaned = None
+        normalized[key] = cleaned
+
+    grantors = _split_pipe_list(normalized.get("grantors"))
+    grantees = [
+        {
+            "name": grantee_name,
+            "mailing_address": normalized.get("mailing_address"),
+        }
+        for grantee_name in _split_pipe_list(normalized.get("grantees"))
+    ]
+    consideration_amount = _coerce_int(
+        normalized.get("consideration_amount"), field_name="consideration_amount"
+    )
+    alias_values = [
+        value for value in [normalized.get("account_id"), normalized.get("property_id")] if value
+    ]
+
+    return {
+        "instrument_number": normalized.get("instrument_number"),
+        "recording_date": normalized.get("recording_date"),
+        "execution_date": normalized.get("execution_date"),
+        "consideration_amount": consideration_amount,
+        "document_type": normalized.get("document_type"),
+        "transfer_type": normalized.get("transfer_type"),
+        "account_number": normalized.get("account_id"),
+        "cad_property_id": normalized.get("property_id"),
+        "alias_values": alias_values,
+        "grantors": grantors,
+        "grantees": grantees,
+        "metadata_json": {"source_family": "deeds_fixture"},
+    }
 
 
 def _coerce_int(value: str | None, *, field_name: str) -> int | None:

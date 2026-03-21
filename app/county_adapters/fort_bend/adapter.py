@@ -12,9 +12,9 @@ from app.county_adapters.common.base import (
 )
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.county_adapters.fort_bend.fetch import acquire_dataset, list_available_datasets
-from app.county_adapters.fort_bend.normalize import normalize_property_roll, normalize_tax_rates
+from app.county_adapters.fort_bend.normalize import normalize_deeds, normalize_property_roll, normalize_tax_rates
 from app.county_adapters.fort_bend.parse import parse_raw_to_staging
-from app.county_adapters.fort_bend.validation import validate_property_roll, validate_tax_rates
+from app.county_adapters.fort_bend.validation import validate_deeds, validate_property_roll, validate_tax_rates
 from app.ingestion.source_registry import get_source_registry_entry
 from app.utils.logging import get_logger
 
@@ -62,6 +62,9 @@ class FortBendCountyAdapter(CountyAdapter):
         if dataset_type == "tax_rates":
             result = normalize_tax_rates(staging_rows=staging_rows)
             return {"tax_rates": result.normalized_records}
+        if dataset_type == "deeds":
+            result = normalize_deeds(county_id=self.county_id, staging_rows=staging_rows)
+            return {"deeds": result.normalized_records}
         raise ValueError(f"Fort Bend adapter does not support dataset_type={dataset_type}.")
 
     def validate_dataset(
@@ -81,6 +84,14 @@ class FortBendCountyAdapter(CountyAdapter):
             )
         if dataset_type == "tax_rates":
             return validate_tax_rates(
+                config=self.config,
+                job_id=job_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                staging_rows=staging_rows,
+            )
+        if dataset_type == "deeds":
+            return validate_deeds(
                 config=self.config,
                 job_id=job_id,
                 tax_year=tax_year,

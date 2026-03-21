@@ -10,6 +10,11 @@ from psycopg import Connection, sql
 from psycopg.types.json import Jsonb
 
 from app.services.exemption_normalization import normalize_parcel_exemptions
+from app.services.ownership_reconciliation import (
+    build_current_owner_rollup,
+    build_owner_periods,
+    normalize_owner_name,
+)
 from app.services.tax_assignment import ParcelTaxAssignment, ParcelTaxContext, TaxingUnitContext
 
 
@@ -36,6 +41,7 @@ STAGING_TABLES: dict[str, tuple[str, str]] = {
     "property_roll": ("stg_county_property_raw", "stg_county_property_raw_id"),
     "tax_rates": ("stg_county_tax_rates_raw", "stg_county_tax_rates_raw_id"),
     "sales": ("stg_sales_raw", "stg_sales_raw_id"),
+    "deeds": ("stg_sales_raw", "stg_sales_raw_id"),
     "gis": ("stg_gis_raw", "stg_gis_raw_id"),
 }
 
@@ -669,9 +675,11 @@ class IngestionRepository:
                       source_system_id,
                       import_batch_id,
                       job_run_id,
+                      cad_owner_name,
+                      cad_owner_name_normalized,
                       source_record_hash
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (parcel_id, tax_year)
                     DO UPDATE SET
                       county_id = EXCLUDED.county_id,
@@ -680,6 +688,8 @@ class IngestionRepository:
                       source_system_id = EXCLUDED.source_system_id,
                       import_batch_id = EXCLUDED.import_batch_id,
                       job_run_id = EXCLUDED.job_run_id,
+                      cad_owner_name = EXCLUDED.cad_owner_name,
+                      cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
                       source_record_hash = EXCLUDED.source_record_hash,
                       updated_at = now()
                     RETURNING parcel_year_snapshot_id
@@ -693,6 +703,8 @@ class IngestionRepository:
                         source_system_id,
                         import_batch_id,
                         job_run_id,
+                        parcel.get("owner_name"),
+                        normalize_owner_name(parcel.get("owner_name")),
                         parcel["source_record_hash"],
                     ),
                 )
@@ -1066,6 +1078,148 @@ class IngestionRepository:
                 {
                     "target_table": "parcel_year_snapshots",
                     "target_id": snapshot_id,
+                    "parcel_id": parcel_id,
+                }
+            )
+
+        return lineage_records
+
+    def upsert_deed_records(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+        normalized_records: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        lineage_records: list[dict[str, str]] = []
+
+        for record in normalized_records:
+            linked_account_number = record.get("linked_account_number")
+            linked_cad_property_id = record.get("linked_cad_property_id")
+            linked_alias_values = list(record.get("linked_alias_values") or [])
+            parcel_link = self._find_parcel_for_deed(
+                county_id=county_id,
+                linked_account_number=linked_account_number,
+                linked_cad_property_id=linked_cad_property_id,
+                linked_alias_values=linked_alias_values,
+            )
+            parcel_id = None if parcel_link is None else str(parcel_link["parcel_id"])
+
+            deed_record = dict(record["deed_record"])
+            metadata_json = dict(deed_record.get("metadata_json") or {})
+            metadata_json.update(
+                {
+                    "linked_account_number": linked_account_number,
+                    "linked_cad_property_id": linked_cad_property_id,
+                    "linked_alias_values": linked_alias_values,
+                    "parcel_link_status": "matched" if parcel_id is not None else "unmatched",
+                    "parcel_link_basis": (
+                        None if parcel_link is None else parcel_link["match_basis"]
+                    ),
+                }
+            )
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO deed_records (
+                      county_id,
+                      parcel_id,
+                      tax_year,
+                      source_system_id,
+                      import_batch_id,
+                      job_run_id,
+                      instrument_number,
+                      volume_page,
+                      recording_date,
+                      execution_date,
+                      consideration_amount,
+                      document_type,
+                      transfer_type,
+                      grantor_summary,
+                      grantee_summary,
+                      source_record_hash,
+                      metadata_json
+                    )
+                    VALUES (
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (county_id, instrument_number)
+                    DO UPDATE SET
+                      parcel_id = EXCLUDED.parcel_id,
+                      tax_year = EXCLUDED.tax_year,
+                      source_system_id = EXCLUDED.source_system_id,
+                      import_batch_id = EXCLUDED.import_batch_id,
+                      job_run_id = EXCLUDED.job_run_id,
+                      volume_page = EXCLUDED.volume_page,
+                      recording_date = EXCLUDED.recording_date,
+                      execution_date = EXCLUDED.execution_date,
+                      consideration_amount = EXCLUDED.consideration_amount,
+                      document_type = EXCLUDED.document_type,
+                      transfer_type = EXCLUDED.transfer_type,
+                      grantor_summary = EXCLUDED.grantor_summary,
+                      grantee_summary = EXCLUDED.grantee_summary,
+                      source_record_hash = EXCLUDED.source_record_hash,
+                      metadata_json = EXCLUDED.metadata_json,
+                      updated_at = now()
+                    RETURNING deed_record_id
+                    """,
+                    (
+                        county_id,
+                        parcel_id,
+                        tax_year,
+                        source_system_id,
+                        import_batch_id,
+                        job_run_id,
+                        deed_record.get("instrument_number"),
+                        deed_record.get("volume_page"),
+                        deed_record.get("recording_date"),
+                        deed_record.get("execution_date"),
+                        deed_record.get("consideration_amount"),
+                        deed_record.get("document_type"),
+                        deed_record.get("transfer_type"),
+                        deed_record.get("grantor_summary"),
+                        deed_record.get("grantee_summary"),
+                        record["source_record_hash"],
+                        Jsonb(metadata_json),
+                    ),
+                )
+                deed_record_id = str(cursor.fetchone()["deed_record_id"])
+
+                cursor.execute(
+                    "DELETE FROM deed_parties WHERE deed_record_id = %s",
+                    (deed_record_id,),
+                )
+                for party in record.get("deed_parties", []):
+                    cursor.execute(
+                        """
+                        INSERT INTO deed_parties (
+                          deed_record_id,
+                          party_role,
+                          party_name,
+                          normalized_name,
+                          party_order,
+                          mailing_address
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            deed_record_id,
+                            party.get("party_role"),
+                            party.get("party_name"),
+                            party.get("normalized_name"),
+                            party.get("party_order"),
+                            party.get("mailing_address"),
+                        ),
+                    )
+
+            lineage_records.append(
+                {
+                    "target_table": "deed_records",
+                    "target_id": deed_record_id,
                     "parcel_id": parcel_id,
                 }
             )
@@ -1747,6 +1901,97 @@ class IngestionRepository:
 
         return {"dataset_type": "property_roll", "entries": entries}
 
+    def capture_deed_rollback_manifest(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        normalized_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        deed_entries: list[dict[str, Any]] = []
+        parcel_entries: dict[str, dict[str, Any]] = {}
+
+        for record in normalized_records:
+            instrument_number = record["deed_record"].get("instrument_number")
+            if instrument_number is None:
+                continue
+
+            prior_deed_row = self._fetch_optional_row(
+                """
+                SELECT *
+                FROM deed_records
+                WHERE county_id = %s
+                  AND instrument_number = %s
+                """,
+                (county_id, instrument_number),
+            )
+            prior_deed_parties = []
+            if prior_deed_row is not None:
+                prior_deed_parties = self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM deed_parties
+                    WHERE deed_record_id = %s
+                    ORDER BY party_role ASC, party_order ASC, deed_party_id ASC
+                    """,
+                    (prior_deed_row["deed_record_id"],),
+                )
+
+            deed_entries.append(
+                {
+                    "instrument_number": instrument_number,
+                    "prior_state": (
+                        None
+                        if prior_deed_row is None
+                        else {
+                            "deed_record": prior_deed_row,
+                            "deed_parties": prior_deed_parties,
+                        }
+                    ),
+                }
+            )
+
+            parcel_link = self._find_parcel_for_deed(
+                county_id=county_id,
+                linked_account_number=record.get("linked_account_number"),
+                linked_cad_property_id=record.get("linked_cad_property_id"),
+                linked_alias_values=list(record.get("linked_alias_values") or []),
+            )
+            if parcel_link is None:
+                continue
+
+            parcel_id = str(parcel_link["parcel_id"])
+            if parcel_id in parcel_entries:
+                continue
+
+            parcel_entries[parcel_id] = {
+                "parcel_id": parcel_id,
+                "prior_rollup": self._fetch_optional_row(
+                    """
+                    SELECT *
+                    FROM current_owner_rollups
+                    WHERE parcel_id = %s
+                      AND tax_year = %s
+                    """,
+                    (parcel_id, tax_year),
+                ),
+                "prior_periods": self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM parcel_owner_periods
+                    WHERE parcel_id = %s
+                    ORDER BY start_date ASC NULLS FIRST, created_at ASC, parcel_owner_period_id ASC
+                    """,
+                    (parcel_id,),
+                ),
+            }
+
+        return {
+            "dataset_type": "deeds",
+            "deed_entries": deed_entries,
+            "parcel_entries": list(parcel_entries.values()),
+        }
+
     def fetch_job_run_metadata(
         self, *, import_batch_id: str, job_stage: str
     ) -> dict[str, Any] | None:
@@ -1893,6 +2138,137 @@ class IngestionRepository:
             "parcel_exemption_count": parcel_exemption_count,
         }
 
+    def inspect_deeds_import_batch(self, *, import_batch_id: str, tax_year: int) -> dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version,
+                  count(DISTINCT rf.raw_file_id) AS raw_file_count,
+                  count(DISTINCT jr.job_run_id) AS job_run_count
+                FROM import_batches ib
+                LEFT JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
+                LEFT JOIN job_runs jr ON jr.import_batch_id = ib.import_batch_id
+                WHERE ib.import_batch_id = %s
+                GROUP BY
+                  ib.county_id,
+                  ib.tax_year,
+                  ib.status,
+                  ib.row_count,
+                  ib.error_count,
+                  ib.publish_state,
+                  ib.publish_version
+                """,
+                (import_batch_id,),
+            )
+            batch_row = cursor.fetchone()
+            if batch_row is None:
+                raise ValueError(f"Missing import batch {import_batch_id}.")
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM stg_sales_raw
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            staging_row_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM lineage_records
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            lineage_record_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT
+                  count(*) AS total_count,
+                  count(*) FILTER (WHERE severity = 'error') AS error_count
+                FROM validation_results
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            validation_counts = cursor.fetchone()
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM deed_records
+                WHERE import_batch_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            deed_record_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                SELECT count(*) AS count
+                FROM deed_parties dp
+                JOIN deed_records dr ON dr.deed_record_id = dp.deed_record_id
+                WHERE dr.import_batch_id = %s
+                  AND dr.tax_year = %s
+                """,
+                (import_batch_id, tax_year),
+            )
+            deed_party_count = cursor.fetchone()["count"]
+
+            cursor.execute(
+                """
+                WITH affected_parcels AS (
+                  SELECT DISTINCT parcel_id
+                  FROM deed_records
+                  WHERE import_batch_id = %s
+                    AND tax_year = %s
+                    AND parcel_id IS NOT NULL
+                )
+                SELECT
+                  (SELECT count(*)
+                   FROM parcel_owner_periods pop
+                   JOIN affected_parcels ap ON ap.parcel_id = pop.parcel_id) AS parcel_owner_period_count,
+                  (SELECT count(*)
+                   FROM current_owner_rollups cor
+                   JOIN affected_parcels ap ON ap.parcel_id = cor.parcel_id
+                   WHERE cor.tax_year = %s) AS current_owner_rollup_count
+                """,
+                (import_batch_id, tax_year, tax_year),
+            )
+            ownership_counts = cursor.fetchone()
+
+        return {
+            "import_batch_id": import_batch_id,
+            "county_id": batch_row["county_id"],
+            "tax_year": batch_row["tax_year"],
+            "status": batch_row["status"],
+            "row_count": batch_row["row_count"],
+            "error_count": batch_row["error_count"],
+            "publish_state": batch_row["publish_state"],
+            "publish_version": batch_row["publish_version"],
+            "raw_file_count": batch_row["raw_file_count"],
+            "job_run_count": batch_row["job_run_count"],
+            "staging_row_count": staging_row_count,
+            "lineage_record_count": lineage_record_count,
+            "validation_result_count": validation_counts["total_count"],
+            "validation_error_count": validation_counts["error_count"],
+            "deed_record_count": deed_record_count,
+            "deed_party_count": deed_party_count,
+            "parcel_owner_period_count": ownership_counts["parcel_owner_period_count"],
+            "current_owner_rollup_count": ownership_counts["current_owner_rollup_count"],
+        }
+
     def fetch_validation_failures(
         self, *, import_batch_id: str, limit: int = 25
     ) -> list[dict[str, Any]]:
@@ -2028,6 +2404,358 @@ class IngestionRepository:
 
         return len(affected_rows)
 
+    def rollback_deed_records(
+        self,
+        *,
+        county_id: str,
+        import_batch_id: str,
+        tax_year: int,
+        rollback_manifest: dict[str, Any] | None,
+    ) -> int:
+        deed_entries = {
+            entry["instrument_number"]: entry.get("prior_state")
+            for entry in (rollback_manifest or {}).get("deed_entries", [])
+        }
+        parcel_entries = {
+            entry["parcel_id"]: entry
+            for entry in (rollback_manifest or {}).get("parcel_entries", [])
+        }
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT deed_record_id, instrument_number, parcel_id
+                FROM deed_records
+                WHERE import_batch_id = %s
+                  AND county_id = %s
+                  AND tax_year = %s
+                ORDER BY instrument_number ASC
+                """,
+                (import_batch_id, county_id, tax_year),
+            )
+            affected_rows = cursor.fetchall()
+
+        affected_parcel_ids = {
+            str(row["parcel_id"]) for row in affected_rows if row["parcel_id"] is not None
+        }
+        for parcel_id in affected_parcel_ids:
+            self._delete_ownership_reconciliation_state(parcel_id=parcel_id, tax_year=tax_year)
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM deed_parties
+                WHERE deed_record_id IN (
+                  SELECT deed_record_id
+                  FROM deed_records
+                  WHERE import_batch_id = %s
+                    AND county_id = %s
+                    AND tax_year = %s
+                )
+                """,
+                (import_batch_id, county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                DELETE FROM deed_records
+                WHERE import_batch_id = %s
+                  AND county_id = %s
+                  AND tax_year = %s
+                """,
+                (import_batch_id, county_id, tax_year),
+            )
+
+        for affected_row in affected_rows:
+            instrument_number = affected_row["instrument_number"]
+            prior_state = deed_entries.get(instrument_number)
+            if prior_state is None:
+                continue
+            self._insert_rows("deed_records", [prior_state["deed_record"]])
+            self._insert_rows("deed_parties", prior_state.get("deed_parties", []))
+
+        for _parcel_id, entry in parcel_entries.items():
+            self._restore_ownership_reconciliation_state(
+                prior_rollup=entry.get("prior_rollup"),
+                prior_periods=entry.get("prior_periods", []),
+            )
+
+        return len(affected_rows)
+
+    def refresh_owner_reconciliation(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        parcel_ids: Iterable[str] | None = None,
+    ) -> int:
+        with self.connection.cursor() as cursor:
+            if parcel_ids is None:
+                cursor.execute(
+                    """
+                    SELECT
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      cad_owner_name,
+                      cad_owner_name_normalized,
+                      source_system_id
+                    FROM parcel_year_snapshots
+                    WHERE county_id = %s
+                      AND tax_year = %s
+                      AND is_current = true
+                    ORDER BY parcel_id ASC
+                    """,
+                    (county_id, tax_year),
+                )
+            else:
+                parcel_id_list = list(parcel_ids)
+                if not parcel_id_list:
+                    return 0
+                cursor.execute(
+                    """
+                    SELECT
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      cad_owner_name,
+                      cad_owner_name_normalized,
+                      source_system_id
+                    FROM parcel_year_snapshots
+                    WHERE county_id = %s
+                      AND tax_year = %s
+                      AND is_current = true
+                      AND parcel_id = ANY(%s::uuid[])
+                    ORDER BY parcel_id ASC
+                    """,
+                    (county_id, tax_year, parcel_id_list),
+                )
+            snapshot_rows = cursor.fetchall()
+
+        refreshed_count = 0
+        for snapshot_row in snapshot_rows:
+            parcel_id = str(snapshot_row["parcel_id"])
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM manual_overrides
+                    WHERE county_id = %s
+                      AND tax_year = %s
+                      AND override_scope = 'ownership'
+                      AND target_table = 'parcels'
+                      AND target_record_id = %s
+                      AND status IN ('approved', 'applied')
+                      AND COALESCE(effective_to, now() + interval '100 years') >= now()
+                    ORDER BY effective_from DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (county_id, tax_year, parcel_id),
+                )
+                manual_override = cursor.fetchone()
+
+                cursor.execute(
+                    """
+                    SELECT
+                      dr.deed_record_id,
+                      dr.parcel_id,
+                      dr.source_system_id,
+                      dr.instrument_number,
+                      dr.recording_date,
+                      dr.execution_date,
+                      COALESCE(dr.recording_date, dr.execution_date) AS effective_date,
+                      dr.document_type,
+                      dr.transfer_type,
+                      dr.grantee_summary,
+                      (
+                        SELECT COALESCE(
+                          jsonb_agg(
+                            jsonb_build_object(
+                              'party_name', dp.party_name,
+                              'normalized_name', dp.normalized_name,
+                              'party_order', dp.party_order,
+                              'mailing_address', dp.mailing_address
+                            )
+                            ORDER BY dp.party_order ASC, dp.deed_party_id ASC
+                          ),
+                          '[]'::jsonb
+                        )
+                        FROM deed_parties dp
+                        WHERE dp.deed_record_id = dr.deed_record_id
+                          AND dp.party_role = 'grantee'
+                      ) AS grantee_parties
+                    FROM deed_records dr
+                    WHERE dr.parcel_id = %s
+                    ORDER BY COALESCE(dr.recording_date, dr.execution_date) ASC NULLS LAST, dr.instrument_number ASC
+                    """,
+                    (parcel_id,),
+                )
+                deed_rows = cursor.fetchall()
+
+                self._delete_ownership_reconciliation_state(parcel_id=parcel_id, tax_year=tax_year)
+
+                owner_periods = build_owner_periods(
+                    parcel_id=parcel_id,
+                    county_id=county_id,
+                    cad_owner_name=snapshot_row["cad_owner_name"],
+                    source_system_id=(
+                        None
+                        if snapshot_row["source_system_id"] is None
+                        else str(snapshot_row["source_system_id"])
+                    ),
+                    deed_records=[
+                        {
+                            "deed_record_id": str(row["deed_record_id"]),
+                            "parcel_id": (
+                                None if row["parcel_id"] is None else str(row["parcel_id"])
+                            ),
+                            "source_system_id": (
+                                None
+                                if row["source_system_id"] is None
+                                else str(row["source_system_id"])
+                            ),
+                            "instrument_number": row["instrument_number"],
+                            "effective_date": row["effective_date"],
+                            "document_type": row["document_type"],
+                            "transfer_type": row["transfer_type"],
+                            "grantee_summary": row["grantee_summary"],
+                            "grantee_parties": list(row["grantee_parties"] or []),
+                            "mailing_address": next(
+                                (
+                                    party.get("mailing_address")
+                                    for party in list(row["grantee_parties"] or [])
+                                    if party.get("mailing_address")
+                                ),
+                                None,
+                            ),
+                        }
+                        for row in deed_rows
+                    ],
+                )
+
+                inserted_periods: list[dict[str, Any]] = []
+                for period in owner_periods:
+                    cursor.execute(
+                        """
+                        INSERT INTO parcel_owner_periods (
+                          parcel_id,
+                          county_id,
+                          owner_name,
+                          owner_name_normalized,
+                          start_date,
+                          end_date,
+                          source_basis,
+                          deed_record_id,
+                          source_system_id,
+                          confidence_score,
+                          is_current,
+                          metadata_json
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING parcel_owner_period_id
+                        """,
+                        (
+                            period["parcel_id"],
+                            period["county_id"],
+                            period["owner_name"],
+                            period.get("owner_name_normalized"),
+                            period.get("start_date"),
+                            period.get("end_date"),
+                            period["source_basis"],
+                            period.get("deed_record_id"),
+                            period.get("source_system_id"),
+                            period.get("confidence_score"),
+                            period.get("is_current", False),
+                            Jsonb(period.get("metadata_json", {})),
+                        ),
+                    )
+                    inserted_period = dict(period)
+                    inserted_period["parcel_owner_period_id"] = str(
+                        cursor.fetchone()["parcel_owner_period_id"]
+                    )
+                    inserted_periods.append(inserted_period)
+
+                current_rollup = build_current_owner_rollup(
+                    tax_year=tax_year,
+                    cad_owner_name=snapshot_row["cad_owner_name"],
+                    cad_owner_name_normalized=snapshot_row["cad_owner_name_normalized"],
+                    cad_source_system_id=(
+                        None
+                        if snapshot_row["source_system_id"] is None
+                        else str(snapshot_row["source_system_id"])
+                    ),
+                    owner_periods=inserted_periods,
+                    manual_override=None if manual_override is None else dict(manual_override),
+                )
+                if current_rollup is None:
+                    continue
+
+                cursor.execute(
+                    """
+                    INSERT INTO current_owner_rollups (
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      owner_name,
+                      owner_name_normalized,
+                      owner_names_json,
+                      mailing_address,
+                      mailing_city,
+                      mailing_state,
+                      mailing_zip,
+                      source_basis,
+                      source_record_hash,
+                      source_system_id,
+                      owner_period_id,
+                      confidence_score,
+                      override_flag,
+                      metadata_json
+                    )
+                    VALUES (
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (parcel_id, tax_year)
+                    DO UPDATE SET
+                      county_id = EXCLUDED.county_id,
+                      owner_name = EXCLUDED.owner_name,
+                      owner_name_normalized = EXCLUDED.owner_name_normalized,
+                      owner_names_json = EXCLUDED.owner_names_json,
+                      mailing_address = EXCLUDED.mailing_address,
+                      mailing_city = EXCLUDED.mailing_city,
+                      mailing_state = EXCLUDED.mailing_state,
+                      mailing_zip = EXCLUDED.mailing_zip,
+                      source_basis = EXCLUDED.source_basis,
+                      source_record_hash = EXCLUDED.source_record_hash,
+                      source_system_id = EXCLUDED.source_system_id,
+                      owner_period_id = EXCLUDED.owner_period_id,
+                      confidence_score = EXCLUDED.confidence_score,
+                      override_flag = EXCLUDED.override_flag,
+                      metadata_json = EXCLUDED.metadata_json,
+                      updated_at = now()
+                    """,
+                    (
+                        parcel_id,
+                        county_id,
+                        tax_year,
+                        current_rollup.owner_name,
+                        current_rollup.owner_name_normalized,
+                        Jsonb(current_rollup.owner_names_json),
+                        current_rollup.mailing_address,
+                        current_rollup.mailing_city,
+                        current_rollup.mailing_state,
+                        current_rollup.mailing_zip,
+                        current_rollup.source_basis,
+                        current_rollup.source_record_hash,
+                        current_rollup.source_system_id,
+                        current_rollup.owner_period_id,
+                        current_rollup.confidence_score,
+                        current_rollup.override_flag,
+                        Jsonb(current_rollup.metadata_json),
+                    ),
+                )
+            refreshed_count += 1
+
+        return refreshed_count
+
     def _delete_property_roll_state(self, *, parcel_id: str, tax_year: int) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -2051,6 +2779,27 @@ class IngestionRepository:
                 "DELETE FROM parcel_year_snapshots WHERE parcel_id = %s AND tax_year = %s",
                 (parcel_id, tax_year),
             )
+
+    def _delete_ownership_reconciliation_state(self, *, parcel_id: str, tax_year: int) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM current_owner_rollups WHERE parcel_id = %s AND tax_year = %s",
+                (parcel_id, tax_year),
+            )
+            cursor.execute(
+                "DELETE FROM parcel_owner_periods WHERE parcel_id = %s",
+                (parcel_id,),
+            )
+
+    def _restore_ownership_reconciliation_state(
+        self,
+        *,
+        prior_rollup: dict[str, Any] | None,
+        prior_periods: list[dict[str, Any]],
+    ) -> None:
+        self._insert_rows("parcel_owner_periods", prior_periods)
+        if prior_rollup is not None:
+            self._insert_rows("current_owner_rollups", [prior_rollup])
 
     def _restore_property_roll_state(self, prior_state: dict[str, Any] | None) -> None:
         if prior_state is None:
@@ -2147,6 +2896,81 @@ class IngestionRepository:
         with self.connection.cursor() as cursor:
             cursor.execute(statement, values)
 
+    def _find_parcel_for_deed(
+        self,
+        *,
+        county_id: str,
+        linked_account_number: str | None,
+        linked_cad_property_id: str | None,
+        linked_alias_values: list[str],
+    ) -> dict[str, Any] | None:
+        if linked_account_number:
+            row = self._fetch_optional_row(
+                """
+                SELECT parcel_id, 'account_number' AS match_basis
+                FROM parcels
+                WHERE county_id = %s
+                  AND account_number = %s
+                LIMIT 1
+                """,
+                (county_id, linked_account_number),
+            )
+            if row is not None:
+                return row
+
+        if linked_cad_property_id:
+            row = self._fetch_optional_row(
+                """
+                SELECT parcel_id, 'cad_property_id' AS match_basis
+                FROM parcels
+                WHERE county_id = %s
+                  AND cad_property_id = %s
+                LIMIT 1
+                """,
+                (county_id, linked_cad_property_id),
+            )
+            if row is not None:
+                return row
+
+        for alias_value in linked_alias_values:
+            row = self._fetch_optional_row(
+                """
+                SELECT
+                  parcel_id,
+                  CASE
+                    WHEN account_number = %s THEN 'alias_account_number'
+                    WHEN cad_property_id = %s THEN 'alias_cad_property_id'
+                    WHEN geo_account_number = %s THEN 'alias_geo_account_number'
+                    WHEN quick_ref_id = %s THEN 'alias_quick_ref_id'
+                    ELSE 'alias'
+                  END AS match_basis
+                FROM parcels
+                WHERE county_id = %s
+                  AND (
+                    account_number = %s
+                    OR cad_property_id = %s
+                    OR geo_account_number = %s
+                    OR quick_ref_id = %s
+                  )
+                LIMIT 1
+                """,
+                (
+                    alias_value,
+                    alias_value,
+                    alias_value,
+                    alias_value,
+                    county_id,
+                    alias_value,
+                    alias_value,
+                    alias_value,
+                    alias_value,
+                ),
+            )
+            if row is not None:
+                return row
+
+        return None
+
     def _insert_rows(self, table_name: str, rows: list[dict[str, Any]]) -> None:
         if not rows:
             return
@@ -2158,7 +2982,10 @@ class IngestionRepository:
         )
         with self.connection.cursor() as cursor:
             for row in rows:
-                cursor.execute(statement, [row.get(column) for column in columns])
+                cursor.execute(
+                    statement,
+                    [self._prepare_insert_value(column, row.get(column)) for column in columns],
+                )
 
     def _fetch_optional_row(self, query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
         with self.connection.cursor() as cursor:
@@ -2190,6 +3017,15 @@ class IngestionRepository:
             return str(value)
         if value.__class__.__name__ == "UUID":
             return str(value)
+        return value
+
+    def _prepare_insert_value(self, column: str, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return Jsonb(value)
+        if isinstance(value, list) and column.endswith("_json"):
+            return Jsonb(value)
         return value
 
     def resolve_staging_table(self, dataset_type: str) -> tuple[str, str]:

@@ -86,3 +86,39 @@ datasets:
       source_family: tax_rates
       parser_name: tax_rates_csv
       validation_profile: fort_bend_tax_rates_v1
+  deeds:
+    source_system_code: DEED_FEED
+    source_name: Fort Bend Deed Feed
+    source_type: county_deed_feed
+    description: Fixture-backed Fort Bend deed extract used to prove Stage 9 deed ingestion and ownership reconciliation.
+    source_url: https://www.fbcad.org
+    file_format: csv
+    staging_table: stg_sales_raw
+    access_method: fixture_csv
+    cadence: ad_hoc
+    reliability_tier: development_fixture
+    auth_required: false
+    manual_fallback_supported: true
+    legal_notes: Fixture data is development-safe and contains only deed-style ownership evidence needed for reconciliation testing.
+    entity_coverage:
+      - deed
+      - ownership
+    supported_years:
+      - 2026
+    dependencies:
+      - property_roll
+    ingestion_ready: true
+    null_handling:
+      required_source_fields:
+        - instrument_number
+        - recording_date
+    transformation_notes:
+      - Fort Bend deed fixtures stay CSV-backed to keep county parsing isolated while still flowing through the shared staging table family.
+      - Grantor and grantee name columns are converted into canonical party arrays before normalization and publish.
+    metadata:
+      fixture_backed: true
+      fixture_path: app/county_adapters/fort_bend/fixtures/deeds_2026.csv
+      delimiter: ','
+      source_family: deeds
+      parser_name: deeds_csv
+      validation_profile: fort_bend_deeds_v1

@@ -1,0 +1,35 @@
+[
+  {
+    "instrument_number": "HCAD-DEED-2026-0001",
+    "recording_date": "2026-02-15",
+    "execution_date": "2026-02-10",
+    "consideration_amount": 425000,
+    "document_type": "Warranty Deed",
+    "transfer_type": "arms_length",
+    "account_number": "1001001001001",
+    "cad_property_id": "HCAD-1001",
+    "grantors": [
+      {"name": "Alex Example"}
+    ],
+    "grantees": [
+      {"name": "Taylor Buyer", "mailing_address": "101 Main St, Houston, TX 77002"}
+    ]
+  },
+  {
+    "instrument_number": "HCAD-DEED-2026-0002",
+    "recording_date": "2026-07-01",
+    "execution_date": "2026-06-28",
+    "consideration_amount": 430000,
+    "document_type": "Special Warranty Deed",
+    "transfer_type": "arms_length",
+    "account_number": "1001001001002",
+    "cad_property_id": "HCAD-1002",
+    "grantors": [
+      {"name": "Jordan Example"}
+    ],
+    "grantees": [
+      {"name": "Casey Purchaser", "mailing_address": "202 Oak Ave, Houston, TX 77003"},
+      {"name": "Morgan Purchaser", "mailing_address": "202 Oak Ave, Houston, TX 77003"}
+    ]
+  }
+]

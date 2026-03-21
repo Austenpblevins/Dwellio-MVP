@@ -246,3 +246,77 @@ def validate_tax_rates(
         )
     )
     return findings
+
+
+def validate_deeds(
+    *,
+    config: CountyAdapterConfig,
+    job_id: str,
+    tax_year: int,
+    dataset_type: str,
+    staging_rows: list[dict[str, Any]],
+) -> list[ValidationFinding]:
+    findings: list[ValidationFinding] = []
+    dataset_config = config.dataset_configs[dataset_type]
+    findings.append(
+        ValidationFinding(
+            validation_code="ROW_COUNT_OK",
+            message=f"Validated {len(staging_rows)} staging rows for {dataset_type}.",
+            validation_scope="staging_row",
+            entity_table=dataset_config.staging_table,
+            details_json={"job_id": job_id, "tax_year": tax_year, "row_count": len(staging_rows)},
+        )
+    )
+
+    for index, row in enumerate(staging_rows, start=1):
+        if row.get("instrument_number") in (None, ""):
+            findings.append(
+                ValidationFinding(
+                    validation_code="MISSING_INSTRUMENT_NUMBER",
+                    message="instrument_number is required for deed reconciliation.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+        if row.get("recording_date") in (None, ""):
+            findings.append(
+                ValidationFinding(
+                    validation_code="MISSING_RECORDING_DATE",
+                    message="recording_date is required for deed reconciliation.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+        if not row.get("grantees"):
+            findings.append(
+                ValidationFinding(
+                    validation_code="MISSING_GRANTEE_PARTY",
+                    message="At least one grantee party is required.",
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+
+    error_count = sum(1 for finding in findings if finding.severity == "error")
+    findings.append(
+        ValidationFinding(
+            validation_code="VALIDATION_SUMMARY",
+            message="Validation completed for Harris deeds staging rows.",
+            validation_scope="file_schema",
+            entity_table=dataset_config.staging_table,
+            details_json={
+                "job_id": job_id,
+                "tax_year": tax_year,
+                "row_count": len(staging_rows),
+                "failed_record_count": error_count,
+                "error_count": error_count,
+            },
+        )
+    )
+    return findings
