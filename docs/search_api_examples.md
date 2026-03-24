@@ -23,7 +23,7 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
       "owner_name": "Alex Example",
       "match_basis": "address_exact",
       "match_score": 0.98,
-      "confidence_label": "high"
+      "confidence_label": "very_high"
     }
   ]
 }
@@ -83,3 +83,65 @@ SELECT dwellio_refresh_search_documents(NULL, NULL);
 ```
 
 Python services can trigger the same rebuild through `SearchIndexService.rebuild_search_documents(...)`.
+
+## Match-Basis Labels
+
+Public search results return a stable `match_basis` label so ranking remains explainable without exposing internal debug details.
+
+Current labels used by the public search path:
+
+- `account_exact`
+- `address_exact`
+- `address_trigram`
+- `search_text_trigram`
+- `owner_fallback`
+- `account_prefix`
+- `address_prefix`
+- `owner_prefix`
+
+The public contract is:
+
+- return the best-ranked public-safe parcel candidates
+- keep ranking deterministic
+- expose `match_basis`, `match_score`, and `confidence_label`
+- do not expose internal score components or matched-field details
+
+## Confidence Logic
+
+`confidence_label` is deterministic and basis-aware.
+
+Examples:
+
+- `account_exact` and `address_exact` -> `very_high`
+- `address_prefix` and strong `account_prefix` matches -> `high`
+- `address_trigram` and `search_text_trigram` depend on score thresholds
+- `owner_fallback` is capped lower than exact address/account matches
+
+This prevents broad fallback matches from looking as strong as exact parcel/address matches even when raw similarity scores are close.
+
+## Internal Inspectability
+
+For admin/debug use only, Dwellio exposes:
+
+- `GET /admin/search/inspect?query={query}&limit={n}`
+
+This internal route returns:
+
+- normalized query forms
+- candidate ranking order
+- `confidence_reasons`
+- matched fields
+- score components such as address similarity, search-text similarity, and owner similarity
+
+This route is intentionally separate from the public `/search` contract.
+
+## Public vs Internal Boundary
+
+Public `/search` and `/search/autocomplete` responses do **not** include:
+
+- `confidence_reasons`
+- matched-field arrays
+- score-component breakdowns
+- internal debug ranking details
+
+Those details are internal-only and should remain on admin/debug surfaces.

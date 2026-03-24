@@ -46,3 +46,34 @@ class AdminCountyYearReadinessDashboard(DwellioBaseModel):
     county_id: str
     tax_years: list[int]
     readiness_rows: list[AdminCountyYearReadiness]
+
+
+class AdminSearchScoreComponents(DwellioBaseModel):
+    basis_rank: int
+    address_similarity: float
+    search_text_similarity: float
+    owner_similarity: float
+
+
+class AdminSearchInspectCandidate(DwellioBaseModel):
+    county_id: str
+    tax_year: int | None = None
+    account_number: str
+    parcel_id: str
+    address: str
+    situs_zip: str | None = None
+    owner_name: str | None = None
+    match_basis: str
+    match_score: float
+    confidence_label: str
+    confidence_reasons: list[str]
+    matched_fields: list[str]
+    score_components: AdminSearchScoreComponents
+
+
+class AdminSearchInspectResponse(DwellioBaseModel):
+    access_scope: str = "internal"
+    query: str
+    normalized_address_query: str
+    normalized_owner_query: str | None = None
+    candidates: list[AdminSearchInspectCandidate]
