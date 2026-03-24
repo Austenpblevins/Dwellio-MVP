@@ -9,7 +9,9 @@ def test_get_harris_source_registry_entry() -> None:
     assert entry.source_name == "Harris CAD Property Roll"
     assert entry.access_method == "fixture_json"
     assert entry.active_flag is True
-    assert entry.supported_years == [2026]
+    assert entry.supported_years == [2022, 2023, 2024, 2025, 2026]
+    assert entry.resolved_tax_year == 2026
+    assert entry.availability_status == "fixture_ready"
 
 
 def test_get_harris_tax_rate_source_registry_entry() -> None:
@@ -24,6 +26,14 @@ def test_get_harris_deed_source_registry_entry() -> None:
     assert entry.source_system_code == "DEED_FEED"
     assert entry.file_format == "json"
     assert entry.active_flag is True
+
+
+def test_get_harris_historical_source_registry_entry_resolves_manual_upload() -> None:
+    entry = get_source_registry_entry(county_id="harris", dataset_type="property_roll", tax_year=2025)
+
+    assert entry.access_method == "manual_upload"
+    assert entry.resolved_tax_year == 2025
+    assert entry.availability_status == "manual_upload_required"
 
 
 def test_list_source_registry_entries_includes_active_fort_bend_dataset() -> None:

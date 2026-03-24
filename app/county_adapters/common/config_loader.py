@@ -35,6 +35,19 @@ class CountyDatasetConfig:
 
 
 @dataclass(frozen=True)
+class CountyDatasetYearSupport:
+    dataset_type: str
+    tax_year: int
+    access_method: str
+    file_format: str
+    source_url: str | None
+    source_system_code: str
+    availability_status: str
+    availability_notes: list[str] = field(default_factory=list)
+    fixture_path: str | None = None
+
+
+@dataclass(frozen=True)
 class FieldMappingConfig:
     target_field: str
     canonical_field_code: str
@@ -107,6 +120,53 @@ def load_county_adapter_config(county_id: str) -> CountyAdapterConfig:
         metadata=dict(raw.get("metadata", {})),
         dataset_configs=dataset_configs,
         field_mappings=field_mappings,
+    )
+
+
+def resolve_dataset_year_support(
+    *,
+    config: CountyAdapterConfig,
+    dataset_type: str,
+    tax_year: int,
+) -> CountyDatasetYearSupport:
+    dataset_config = config.dataset_configs.get(dataset_type)
+    if dataset_config is None:
+        raise ValueError(f"Missing dataset config for {config.county_id}/{dataset_type}.")
+    if tax_year not in dataset_config.supported_years:
+        raise ValueError(f"{config.county_id} {dataset_type} does not support tax_year={tax_year}.")
+
+    metadata = dataset_config.metadata
+    fixture_years = {int(year) for year in metadata.get("fixture_years", [])}
+    manual_backfill_years = {int(year) for year in metadata.get("manual_backfill_years", [])}
+    historical_note = metadata.get("historical_backfill_note")
+
+    availability_notes: list[str] = []
+    if isinstance(historical_note, str) and historical_note.strip():
+        availability_notes.append(historical_note.strip())
+
+    if tax_year in fixture_years:
+        availability_status = "fixture_ready"
+        access_method = dataset_config.access_method
+        fixture_path = metadata.get("fixture_path")
+    elif tax_year in manual_backfill_years:
+        availability_status = "manual_upload_required"
+        access_method = "manual_upload"
+        fixture_path = None
+    else:
+        availability_status = "configured"
+        access_method = dataset_config.access_method
+        fixture_path = metadata.get("fixture_path")
+
+    return CountyDatasetYearSupport(
+        dataset_type=dataset_type,
+        tax_year=tax_year,
+        access_method=access_method,
+        file_format=dataset_config.file_format,
+        source_url=dataset_config.source_url,
+        source_system_code=dataset_config.source_system_code,
+        availability_status=availability_status,
+        availability_notes=availability_notes,
+        fixture_path=fixture_path,
     )
 
 

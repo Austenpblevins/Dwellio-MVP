@@ -62,6 +62,15 @@ Public contract scaffolding:
 python3 -m app.jobs.cli job_fetch_sources --county-id harris --tax-year 2026
 ```
 
+For historical backfill and readiness reporting, prefer a fuller prior year such as `2025`:
+
+```bash
+python3 -m infra.scripts.report_data_readiness --county-id harris --tax-years 2025 2024 2023 2022 2026
+python3 -m infra.scripts.register_manual_import --county-id harris --tax-year 2025 --dataset-type property_roll --source-file /absolute/path/to/harris_property_roll_2025.json
+python3 -m app.jobs.cli job_load_staging --county-id harris --tax-year 2025 --dataset-type property_roll --import-batch-id <import_batch_id>
+python3 -m app.jobs.cli job_normalize --county-id harris --tax-year 2025 --dataset-type property_roll --import-batch-id <import_batch_id>
+```
+
 ## 7) Validation commands
 
 ```bash
@@ -69,4 +78,3 @@ make lint
 make test
 make typecheck
 ```
-

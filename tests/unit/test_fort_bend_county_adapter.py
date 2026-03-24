@@ -14,6 +14,15 @@ def test_fort_bend_adapter_lists_property_roll_dataset() -> None:
     assert "[fixture_csv]" in dataset_lookup["property_roll"].description
 
 
+def test_fort_bend_adapter_lists_historical_dataset_as_manual_upload() -> None:
+    adapter = FortBendCountyAdapter()
+    datasets = adapter.list_available_datasets("fort_bend", 2025)
+    dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
+
+    assert dataset_lookup["property_roll"].source_system_code == "FBCAD_EXPORT"
+    assert "[manual_upload]" in dataset_lookup["property_roll"].description
+
+
 def test_fort_bend_adapter_parse_and_normalize_tax_rate_fixture() -> None:
     adapter = FortBendCountyAdapter()
     acquired = adapter.acquire_dataset("tax_rates", 2026)
@@ -114,6 +123,6 @@ def test_fort_bend_adapter_deed_validation_surfaces_missing_grantee() -> None:
 def test_fort_bend_adapter_metadata_reflects_stage5_scope() -> None:
     metadata = FortBendCountyAdapter().get_adapter_metadata()
     assert metadata.county_id == "fort_bend"
-    assert metadata.supported_years == [2026]
+    assert metadata.supported_years == [2022, 2023, 2024, 2025, 2026]
     assert "fixture-backed" in metadata.known_limitations[0]
     assert "deeds" in metadata.supported_dataset_types
