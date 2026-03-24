@@ -30,14 +30,30 @@ class DatasetYearReadiness:
 @dataclass(frozen=True)
 class TaxYearDerivedReadiness:
     parcel_summary_ready: bool
+    parcel_year_trend_ready: bool
+    neighborhood_stats_ready: bool
+    neighborhood_year_trend_ready: bool
     search_support_ready: bool
     feature_ready: bool
     comp_ready: bool
+    valuation_ready: bool
+    savings_ready: bool
+    decision_tree_ready: bool
+    explanation_ready: bool
+    recommendation_ready: bool
     quote_ready: bool
     parcel_summary_row_count: int = 0
+    parcel_year_trend_row_count: int = 0
+    neighborhood_stats_row_count: int = 0
+    neighborhood_year_trend_row_count: int = 0
     search_document_row_count: int = 0
     parcel_feature_row_count: int = 0
     comp_pool_row_count: int = 0
+    valuation_run_row_count: int = 0
+    savings_row_count: int = 0
+    decision_tree_row_count: int = 0
+    explanation_row_count: int = 0
+    recommendation_row_count: int = 0
     quote_row_count: int = 0
 
 
@@ -136,9 +152,17 @@ class DataReadinessService:
         tax_year: int,
     ) -> TaxYearDerivedReadiness:
         parcel_summary_exists = self._view_exists(connection, "parcel_summary_view")
+        parcel_year_trend_exists = self._view_exists(connection, "parcel_year_trend_view")
+        neighborhood_stats_exists = self._table_exists(connection, "neighborhood_stats")
+        neighborhood_year_trend_exists = self._view_exists(connection, "neighborhood_year_trend_view")
         search_documents_exists = self._table_exists(connection, "search_documents")
         parcel_features_exists = self._table_exists(connection, "parcel_features")
         comp_pools_exists = self._table_exists(connection, "comp_candidate_pools")
+        valuation_runs_exists = self._table_exists(connection, "valuation_runs")
+        savings_exists = self._table_exists(connection, "parcel_savings_estimates")
+        decision_tree_exists = self._table_exists(connection, "decision_tree_results")
+        explanations_exists = self._table_exists(connection, "quote_explanations")
+        recommendations_exists = self._table_exists(connection, "protest_recommendations")
         quote_view_exists = self._view_exists(connection, "v_quote_read_model")
 
         parcel_summary_row_count = (
@@ -148,6 +172,33 @@ class DataReadinessService:
                 (county_id, tax_year),
             )
             if parcel_summary_exists
+            else 0
+        )
+        parcel_year_trend_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM parcel_year_trend_view WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if parcel_year_trend_exists
+            else 0
+        )
+        neighborhood_stats_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM neighborhood_stats WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if neighborhood_stats_exists
+            else 0
+        )
+        neighborhood_year_trend_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM neighborhood_year_trend_view WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if neighborhood_year_trend_exists
             else 0
         )
         search_document_row_count = (
@@ -177,6 +228,79 @@ class DataReadinessService:
             if comp_pools_exists
             else 0
         )
+        valuation_run_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM valuation_runs WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if valuation_runs_exists
+            else 0
+        )
+        savings_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM parcel_savings_estimates pse
+                JOIN valuation_runs vr
+                  ON vr.valuation_run_id = pse.valuation_run_id
+                WHERE vr.county_id = %s
+                  AND vr.tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if savings_exists and valuation_runs_exists
+            else 0
+        )
+        decision_tree_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM decision_tree_results dtr
+                JOIN valuation_runs vr
+                  ON vr.valuation_run_id = dtr.valuation_run_id
+                WHERE vr.county_id = %s
+                  AND vr.tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if decision_tree_exists and valuation_runs_exists
+            else 0
+        )
+        explanation_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM quote_explanations qe
+                JOIN valuation_runs vr
+                  ON vr.valuation_run_id = qe.valuation_run_id
+                WHERE vr.county_id = %s
+                  AND vr.tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if explanations_exists and valuation_runs_exists
+            else 0
+        )
+        recommendation_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM protest_recommendations pr
+                JOIN valuation_runs vr
+                  ON vr.valuation_run_id = pr.valuation_run_id
+                WHERE vr.county_id = %s
+                  AND vr.tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if recommendations_exists and valuation_runs_exists
+            else 0
+        )
         quote_row_count = (
             self._count_rows(
                 connection,
@@ -189,14 +313,30 @@ class DataReadinessService:
 
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
+            parcel_year_trend_ready=parcel_year_trend_row_count > 0,
+            neighborhood_stats_ready=neighborhood_stats_row_count > 0,
+            neighborhood_year_trend_ready=neighborhood_year_trend_row_count > 0,
             search_support_ready=search_document_row_count > 0,
             feature_ready=parcel_feature_row_count > 0,
             comp_ready=comp_pool_row_count > 0,
+            valuation_ready=valuation_run_row_count > 0,
+            savings_ready=savings_row_count > 0,
+            decision_tree_ready=decision_tree_row_count > 0,
+            explanation_ready=explanation_row_count > 0,
+            recommendation_ready=recommendation_row_count > 0,
             quote_ready=quote_row_count > 0,
             parcel_summary_row_count=parcel_summary_row_count,
+            parcel_year_trend_row_count=parcel_year_trend_row_count,
+            neighborhood_stats_row_count=neighborhood_stats_row_count,
+            neighborhood_year_trend_row_count=neighborhood_year_trend_row_count,
             search_document_row_count=search_document_row_count,
             parcel_feature_row_count=parcel_feature_row_count,
             comp_pool_row_count=comp_pool_row_count,
+            valuation_run_row_count=valuation_run_row_count,
+            savings_row_count=savings_row_count,
+            decision_tree_row_count=decision_tree_row_count,
+            explanation_row_count=explanation_row_count,
+            recommendation_row_count=recommendation_row_count,
             quote_row_count=quote_row_count,
         )
 

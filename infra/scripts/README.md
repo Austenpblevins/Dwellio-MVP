@@ -5,3 +5,4 @@
 - `run_job.sh`: runs one ETL/job module from the Stage 0 job registry.
 - `register_manual_import.py`: registers a real manually downloaded county file into `import_batches` and `raw_files` for historical backfill.
 - `report_data_readiness.py`: reports county/tax-year raw, canonical, and derived readiness for QA year selection and backfill verification.
+- `report_historical_validation.py`: ranks candidate tax years for reproducible historical QA and summarizes what validation surfaces are actually ready.

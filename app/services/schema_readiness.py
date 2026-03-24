@@ -34,6 +34,12 @@ MIGRATION_HINTS: dict[str, str] = {
     "view:parcel_summary_view": (
         "Apply migration 0035_stage10_parcel_summary_views before running this job."
     ),
+    "view:parcel_year_trend_view": (
+        "Apply migration 0039_historical_validation_yoy_trends before running this job."
+    ),
+    "view:neighborhood_year_trend_view": (
+        "Apply migration 0039_historical_validation_yoy_trends before running this job."
+    ),
     "view:v_quote_read_model": "Apply migration 0025_views_quote_read_model before running this job.",
     "table:parcel_features": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidate_pools": "Apply migration 0019_features_comps before running this job.",
@@ -51,7 +57,7 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
     "job_features": SchemaReadinessSpec(
         job_name="job_features",
         required_tables=("tax_years", "parcel_features"),
-        required_views=("parcel_summary_view",),
+        required_views=("parcel_summary_view", "parcel_year_trend_view", "neighborhood_year_trend_view"),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     ),
