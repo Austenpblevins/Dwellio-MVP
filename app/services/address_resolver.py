@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.connection import get_connection
+from app.models.admin import (
+    AdminSearchInspectCandidate,
+    AdminSearchInspectResponse,
+    AdminSearchScoreComponents,
+)
 from app.models.parcel import ParcelSearchResult
 from app.models.quote import SearchRequest
 from app.services.ownership_reconciliation import normalize_owner_name
@@ -14,14 +19,57 @@ class AddressResolverService:
         return self.search_by_query(request.address)
 
     def search_by_query(self, query: str, *, limit: int = 10) -> list[ParcelSearchResult]:
+        rows = self._search_candidate_rows(query=query, limit=limit, include_debug=False)
+        return [self._build_result(row) for row in rows]
+
+    def inspect_search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+    ) -> AdminSearchInspectResponse:
         raw_query = query.strip()
         normalized_address = normalize_address_query(raw_query)
         normalized_owner = normalize_owner_name(raw_query) or ""
+        rows = self._search_candidate_rows(query=query, limit=limit, include_debug=True)
 
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
+        return AdminSearchInspectResponse(
+            query=raw_query,
+            normalized_address_query=normalized_address,
+            normalized_owner_query=normalized_owner or None,
+            candidates=[self._build_debug_result(row) for row in rows],
+        )
+
+    def _search_candidate_rows(
+        self,
+        *,
+        query: str,
+        limit: int,
+        include_debug: bool,
+    ) -> list[dict[str, Any]]:
+        raw_query = query.strip()
+        normalized_address = normalize_address_query(raw_query)
+        normalized_owner = normalize_owner_name(raw_query) or ""
+        debug_select = ""
+        if include_debug:
+            debug_select = """
+                        ,
+                        similarity(sd.normalized_address, %s) AS address_similarity,
+                        similarity(sd.search_text, %s) AS search_text_similarity,
+                        CASE
+                          WHEN %s = '' OR sd.normalized_owner_name IS NULL THEN 0::numeric
+                          ELSE similarity(sd.normalized_owner_name, %s)
+                        END AS owner_similarity,
+                        CASE
+                          WHEN sd.account_number = %s THEN ARRAY['account_number']::text[]
+                          WHEN sd.normalized_address = %s THEN ARRAY['normalized_address']::text[]
+                          WHEN %s <> '' AND sd.normalized_owner_name IS NOT NULL AND sd.normalized_owner_name %% %s
+                            THEN ARRAY['normalized_owner_name']::text[]
+                          WHEN sd.normalized_address %% %s THEN ARRAY['normalized_address', 'search_text']::text[]
+                          ELSE ARRAY['search_text']::text[]
+                        END AS matched_fields
+            """
+        sql = f"""
                     WITH ranked_candidates AS (
                       SELECT
                         sd.county_id,
@@ -52,6 +100,7 @@ class AddressResolverService:
                             END
                           )
                         END AS match_score
+                        {debug_select}
                       FROM search_documents sd
                       WHERE sd.account_number = %s
                         OR sd.normalized_address = %s
@@ -75,33 +124,53 @@ class AddressResolverService:
                       county_id ASC,
                       account_number ASC
                     LIMIT %s
-                    """,
-                    (
-                        raw_query,
-                        normalized_address,
-                        normalized_address,
-                        normalized_address,
-                        normalized_owner,
-                        normalized_owner,
-                        raw_query,
-                        normalized_address,
-                        normalized_address,
-                        normalized_address,
-                        normalized_owner,
-                        normalized_owner,
-                        raw_query,
-                        normalized_address,
-                        normalized_address,
-                        normalized_address,
-                        normalized_owner,
-                        normalized_owner,
-                        0.35,
-                        limit,
-                    ),
-                )
-                rows = cursor.fetchall()
+                    """
 
-        return [self._build_result(row) for row in rows]
+        params: list[object] = [
+            raw_query,
+            normalized_address,
+            normalized_address,
+            normalized_address,
+            normalized_owner,
+            normalized_owner,
+            raw_query,
+            normalized_address,
+            normalized_address,
+            normalized_address,
+            normalized_owner,
+            normalized_owner,
+        ]
+        if include_debug:
+            params.extend(
+                [
+                    normalized_address,
+                    normalized_address,
+                    normalized_owner,
+                    normalized_owner,
+                    raw_query,
+                    normalized_address,
+                    normalized_owner,
+                    normalized_owner,
+                    normalized_address,
+                ]
+            )
+        params.extend(
+            [
+                raw_query,
+                normalized_address,
+                normalized_address,
+                normalized_address,
+                normalized_owner,
+                normalized_owner,
+                0.35,
+                limit,
+            ]
+        )
+
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+                return cursor.fetchall()
 
     def autocomplete(self, query: str, *, limit: int = 8) -> list[ParcelSearchResult]:
         raw_query = query.strip()
@@ -181,6 +250,7 @@ class AddressResolverService:
 
     def _build_result(self, row: dict[str, Any]) -> ParcelSearchResult:
         score = float(row["match_score"])
+        match_basis = str(row["match_basis"])
         return ParcelSearchResult(
             county_id=row["county_id"],
             tax_year=row.get("tax_year"),
@@ -189,12 +259,50 @@ class AddressResolverService:
             address=row["address"],
             situs_zip=row.get("situs_zip"),
             owner_name=row.get("owner_name"),
-            match_basis=row["match_basis"],
+            match_basis=match_basis,
             match_score=score,
-            confidence_label=self._confidence_label(score),
+            confidence_label=self._confidence_label(score, match_basis),
         )
 
-    def _confidence_label(self, score: float) -> str:
+    def _build_debug_result(self, row: dict[str, Any]) -> AdminSearchInspectCandidate:
+        score = float(row["match_score"])
+        match_basis = str(row["match_basis"])
+        return AdminSearchInspectCandidate(
+            county_id=row["county_id"],
+            tax_year=row.get("tax_year"),
+            account_number=row["account_number"],
+            parcel_id=str(row["parcel_id"]),
+            address=row["address"],
+            situs_zip=row.get("situs_zip"),
+            owner_name=row.get("owner_name"),
+            match_basis=match_basis,
+            match_score=score,
+            confidence_label=self._confidence_label(score, match_basis),
+            confidence_reasons=self._confidence_reasons(score, match_basis),
+            matched_fields=[str(field) for field in row.get("matched_fields") or []],
+            score_components=AdminSearchScoreComponents(
+                basis_rank=self._basis_rank(match_basis),
+                address_similarity=float(row.get("address_similarity") or 0.0),
+                search_text_similarity=float(row.get("search_text_similarity") or 0.0),
+                owner_similarity=float(row.get("owner_similarity") or 0.0),
+            ),
+        )
+
+    def _confidence_label(self, score: float, match_basis: str) -> str:
+        if match_basis == "account_exact":
+            return "very_high"
+        if match_basis == "address_exact":
+            return "very_high"
+        if match_basis in {"account_prefix", "address_prefix"}:
+            return "high" if score >= 0.90 else "medium"
+        if match_basis == "owner_prefix":
+            return "medium" if score >= 0.80 else "low"
+        if match_basis == "address_trigram":
+            return "high" if score >= 0.80 else "medium"
+        if match_basis == "search_text_trigram":
+            return "medium" if score >= 0.60 else "low"
+        if match_basis == "owner_fallback":
+            return "medium" if score >= 0.50 else "low"
         if score >= 0.99:
             return "very_high"
         if score >= 0.85:
@@ -202,3 +310,40 @@ class AddressResolverService:
         if score >= 0.65:
             return "medium"
         return "low"
+
+    def _confidence_reasons(self, score: float, match_basis: str) -> list[str]:
+        reasons: list[str] = []
+        if match_basis in {"account_exact", "address_exact"}:
+            reasons.append("exact_match")
+        elif match_basis in {"account_prefix", "address_prefix", "owner_prefix"}:
+            reasons.append("prefix_match")
+        elif match_basis == "address_trigram":
+            reasons.append("address_similarity")
+        elif match_basis == "search_text_trigram":
+            reasons.append("search_text_similarity")
+        elif match_basis == "owner_fallback":
+            reasons.append("owner_name_fallback")
+        else:
+            reasons.append("fallback_match")
+
+        if score >= 0.90:
+            reasons.append("score_strong")
+        elif score >= 0.60:
+            reasons.append("score_moderate")
+        else:
+            reasons.append("score_weak")
+        return reasons
+
+    def _basis_rank(self, match_basis: str) -> int:
+        order = {
+            "account_exact": 1,
+            "address_exact": 2,
+            "account_prefix": 3,
+            "address_prefix": 4,
+            "address_trigram": 5,
+            "search_text_trigram": 6,
+            "owner_prefix": 7,
+            "owner_fallback": 8,
+            "search_text_fallback": 9,
+        }
+        return order.get(match_basis, 99)

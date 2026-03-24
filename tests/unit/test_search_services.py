@@ -91,7 +91,38 @@ def test_address_resolver_search_maps_rows_to_ranked_results(monkeypatch) -> Non
     assert len(results) == 1
     assert isinstance(results[0], ParcelSearchResult)
     assert results[0].match_basis == "address_exact"
-    assert results[0].confidence_label == "high"
+    assert results[0].confidence_label == "very_high"
+
+
+def test_address_resolver_inspect_search_returns_debug_components(monkeypatch) -> None:
+    rows = [
+        {
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001001",
+            "parcel_id": uuid4(),
+            "address": "101 Main St, Houston, TX 77002",
+            "situs_zip": "77002",
+            "owner_name": "Alex Example",
+            "match_basis": "owner_fallback",
+            "match_score": 0.58,
+            "address_similarity": 0.31,
+            "search_text_similarity": 0.44,
+            "owner_similarity": 0.77,
+            "matched_fields": ["normalized_owner_name"],
+        }
+    ]
+    monkeypatch.setattr("app.services.address_resolver.get_connection", connection_factory(rows))
+
+    response = AddressResolverService().inspect_search("Alex Example")
+
+    assert response.query == "Alex Example"
+    assert len(response.candidates) == 1
+    candidate = response.candidates[0]
+    assert candidate.confidence_label == "medium"
+    assert candidate.confidence_reasons == ["owner_name_fallback", "score_weak"]
+    assert candidate.matched_fields == ["normalized_owner_name"]
+    assert candidate.score_components.owner_similarity == 0.77
 
 
 def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
