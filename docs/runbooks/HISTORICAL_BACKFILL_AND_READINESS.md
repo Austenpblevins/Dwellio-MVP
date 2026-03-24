@@ -26,6 +26,8 @@ python3 -m infra.scripts.run_migrations
 ```bash
 python3 -m infra.scripts.report_data_readiness --county-id harris --tax-years 2025 2024 2023 2022 2026
 python3 -m infra.scripts.report_data_readiness --county-id fort_bend --tax-years 2025 2024 2023 2022 2026
+python3 -m infra.scripts.report_historical_validation --county-id harris --tax-years 2025 2024 2023 2022 2026 --current-tax-year 2026
+python3 -m infra.scripts.report_historical_validation --county-id fort_bend --tax-years 2025 2024 2023 2022 2026 --current-tax-year 2026
 ```
 
 Interpretation:
@@ -36,6 +38,7 @@ Interpretation:
 - `staged = true`: staging rows exist through the latest import batch state
 - `canonical_published = true`: the latest import batch reached canonical publish
 - derived flags show whether summary/search/feature/comp/quote data is actually present for that county-year
+- historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
 ## 3. Backfill a historical year from real county files
 

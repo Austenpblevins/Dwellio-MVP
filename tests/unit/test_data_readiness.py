@@ -30,11 +30,38 @@ class StubCursor:
             self._row = {"count": count}
         elif "information_schema.tables" in sql:
             table_name = params[0]
-            self._row = {"present": table_name in {"search_documents", "parcel_features", "comp_candidate_pools"}}
+            self._row = {
+                "present": table_name
+                in {
+                    "search_documents",
+                    "parcel_features",
+                    "comp_candidate_pools",
+                    "neighborhood_stats",
+                    "valuation_runs",
+                    "parcel_savings_estimates",
+                    "decision_tree_results",
+                    "quote_explanations",
+                    "protest_recommendations",
+                }
+            }
         elif "information_schema.views" in sql:
             view_name = params[0]
-            self._row = {"present": view_name in {"parcel_summary_view", "v_quote_read_model"}}
+            self._row = {
+                "present": view_name
+                in {
+                    "parcel_summary_view",
+                    "parcel_year_trend_view",
+                    "neighborhood_year_trend_view",
+                    "v_quote_read_model",
+                }
+            }
         elif "FROM parcel_summary_view" in sql:
+            self._row = {"count": 2}
+        elif "FROM parcel_year_trend_view" in sql:
+            self._row = {"count": 2}
+        elif "FROM neighborhood_stats" in sql:
+            self._row = {"count": 3}
+        elif "FROM neighborhood_year_trend_view" in sql:
             self._row = {"count": 2}
         elif "FROM search_documents" in sql:
             self._row = {"count": 2}
@@ -42,8 +69,18 @@ class StubCursor:
             self._row = {"count": 0}
         elif "FROM comp_candidate_pools" in sql:
             self._row = {"count": 0}
+        elif "FROM valuation_runs" in sql:
+            self._row = {"count": 1}
+        elif "FROM parcel_savings_estimates pse" in sql:
+            self._row = {"count": 1}
+        elif "FROM decision_tree_results dtr" in sql:
+            self._row = {"count": 1}
+        elif "FROM quote_explanations qe" in sql:
+            self._row = {"count": 1}
+        elif "FROM protest_recommendations pr" in sql:
+            self._row = {"count": 1}
         elif "FROM v_quote_read_model" in sql:
-            self._row = {"count": 0}
+            self._row = {"count": 1}
         else:
             raise AssertionError(f"Unexpected SQL: {sql}")
 
@@ -75,6 +112,14 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert property_roll.latest_import_status == "normalized"
     assert property_roll.canonical_published is True
     assert readiness.derived.parcel_summary_ready is True
+    assert readiness.derived.parcel_year_trend_ready is True
+    assert readiness.derived.neighborhood_stats_ready is True
+    assert readiness.derived.neighborhood_year_trend_ready is True
     assert readiness.derived.search_support_ready is True
     assert readiness.derived.feature_ready is False
-    assert readiness.derived.quote_ready is False
+    assert readiness.derived.valuation_ready is True
+    assert readiness.derived.savings_ready is True
+    assert readiness.derived.decision_tree_ready is True
+    assert readiness.derived.explanation_ready is True
+    assert readiness.derived.recommendation_ready is True
+    assert readiness.derived.quote_ready is True

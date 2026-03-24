@@ -29,6 +29,8 @@ def test_validate_schema_readiness_reports_missing_stage10_view_and_valuation_da
 
     assert any("Missing view public.parcel_summary_view." in issue for issue in issues)
     assert any("0035_stage10_parcel_summary_views" in issue for issue in issues)
+    assert any("Missing view public.parcel_year_trend_view." in issue for issue in issues)
+    assert any("0039_historical_validation_yoy_trends" in issue for issue in issues)
     assert any("Missing column public.tax_years.valuation_date." in issue for issue in issues)
     assert any("0037_tax_years_valuation_date_alignment" in issue for issue in issues)
 
@@ -36,7 +38,9 @@ def test_validate_schema_readiness_reports_missing_stage10_view_and_valuation_da
 def test_validate_schema_readiness_requires_non_null_valuation_date_for_selected_tax_year() -> None:
     catalog = SchemaCatalog(
         tables=frozenset({"tax_years", "parcel_features"}),
-        views=frozenset({"parcel_summary_view"}),
+        views=frozenset(
+            {"parcel_summary_view", "parcel_year_trend_view", "neighborhood_year_trend_view"}
+        ),
         columns=frozenset(
             {
                 ("tax_years", "tax_year"),
@@ -61,7 +65,9 @@ def test_validate_schema_readiness_requires_non_null_valuation_date_for_selected
 def test_validate_schema_readiness_passes_when_required_objects_and_tax_year_state_exist() -> None:
     catalog = SchemaCatalog(
         tables=frozenset({"tax_years", "parcel_features"}),
-        views=frozenset({"parcel_summary_view"}),
+        views=frozenset(
+            {"parcel_summary_view", "parcel_year_trend_view", "neighborhood_year_trend_view"}
+        ),
         columns=frozenset(
             {
                 ("tax_years", "tax_year"),
@@ -72,7 +78,7 @@ def test_validate_schema_readiness_passes_when_required_objects_and_tax_year_sta
     spec = SchemaReadinessSpec(
         job_name="test_job",
         required_tables=("tax_years", "parcel_features"),
-        required_views=("parcel_summary_view",),
+        required_views=("parcel_summary_view", "parcel_year_trend_view"),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     )
