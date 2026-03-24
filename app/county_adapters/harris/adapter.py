@@ -11,9 +11,17 @@ from app.county_adapters.common.base import (
 )
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.county_adapters.harris.fetch import acquire_dataset, list_available_datasets
-from app.county_adapters.harris.normalize import normalize_deeds, normalize_property_roll, normalize_tax_rates
+from app.county_adapters.harris.normalize import (
+    normalize_deeds,
+    normalize_property_roll,
+    normalize_tax_rates,
+)
 from app.county_adapters.harris.parse import parse_raw_to_staging
-from app.county_adapters.harris.validation import validate_deeds, validate_property_roll, validate_tax_rates
+from app.county_adapters.harris.validation import (
+    validate_deeds,
+    validate_property_roll,
+    validate_tax_rates,
+)
 from app.ingestion.source_registry import get_source_registry_entry
 from app.utils.logging import get_logger
 
@@ -143,9 +151,9 @@ class HarrisCountyAdapter(CountyAdapter):
         )
 
 
-def build_harris_fixture_rows() -> list[dict[str, Any]]:
+def build_harris_fixture_rows(*, tax_year: int = 2026) -> list[dict[str, Any]]:
     adapter = HarrisCountyAdapter()
-    acquired = adapter.acquire_dataset("property_roll", 2026)
+    acquired = adapter.acquire_dataset("property_roll", tax_year)
     staging_rows = adapter.parse_raw_to_staging(acquired)
     return [row.raw_payload for row in staging_rows]
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.county_adapters.common.base import AcquiredDataset, AdapterDataset
-from app.county_adapters.common.config_loader import CountyAdapterConfig, CountyDatasetConfig
+from app.county_adapters.common.config_loader import (
+    CountyAdapterConfig,
+    CountyDatasetConfig,
+    resolve_dataset_year_support,
+)
 from app.ingestion.source_registry import get_source_registry_entry
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
@@ -17,7 +21,11 @@ def list_available_datasets(*, config: CountyAdapterConfig, county_id: str, tax_
     for dataset_type, dataset_config in config.dataset_configs.items():
         if not dataset_config.ingestion_ready or tax_year not in dataset_config.supported_years:
             continue
-        registry_entry = get_source_registry_entry(county_id=config.county_id, dataset_type=dataset_type)
+        registry_entry = get_source_registry_entry(
+            county_id=config.county_id,
+            dataset_type=dataset_type,
+            tax_year=tax_year,
+        )
         datasets.append(
             AdapterDataset(
                 dataset_type=dataset_type,
@@ -32,15 +40,25 @@ def list_available_datasets(*, config: CountyAdapterConfig, county_id: str, tax_
 
 def acquire_dataset(*, config: CountyAdapterConfig, dataset_type: str, tax_year: int) -> AcquiredDataset:
     dataset_config = _dataset_config(config=config, dataset_type=dataset_type)
-    if tax_year not in dataset_config.supported_years:
-        raise ValueError(f"{config.county_id} {dataset_type} does not support tax_year={tax_year}.")
+    year_support = resolve_dataset_year_support(
+        config=config,
+        dataset_type=dataset_type,
+        tax_year=tax_year,
+    )
 
-    if dataset_config.access_method != "fixture_json":
+    if year_support.access_method == "manual_upload":
         raise ValueError(
-            f"Unsupported Harris acquisition method '{dataset_config.access_method}' for {dataset_type}."
+            f"{config.county_id} {dataset_type} for tax_year={tax_year} requires manual_upload. "
+            "Register the downloaded county file with the manual historical backfill workflow, "
+            "then run job_load_staging and job_normalize against that import batch."
         )
 
-    fixture_path = dataset_config.metadata.get("fixture_path")
+    if year_support.access_method != "fixture_json":
+        raise ValueError(
+            f"Unsupported Harris acquisition method '{year_support.access_method}' for {dataset_type}."
+        )
+
+    fixture_path = year_support.fixture_path
     if not fixture_path:
         raise ValueError(f"Missing fixture_path metadata for {config.county_id}/{dataset_type}.")
     content = _read_fixture(Path(fixture_path))
@@ -51,7 +69,7 @@ def acquire_dataset(*, config: CountyAdapterConfig, dataset_type: str, tax_year:
         original_filename=f"harris-{dataset_type}-{tax_year}.json",
         content=content,
         media_type="application/json",
-        source_url=dataset_config.source_url,
+        source_url=year_support.source_url,
     )
 
 

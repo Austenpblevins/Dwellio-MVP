@@ -21,6 +21,10 @@ datasets:
       - assessment
       - exemption
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies: []
     ingestion_ready: true
@@ -42,6 +46,14 @@ datasets:
     metadata:
       fixture_backed: true
       source_family: appraisal_roll
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Harris county exports or manual county downloads for prior tax years until live or fixture-backed historical acquisition is added.
       fixture_path: app/county_adapters/harris/fixtures/property_roll_2026.json
       parser_name: property_roll_json
       validation_profile: harris_property_roll_v1
@@ -64,6 +76,10 @@ datasets:
       - tax_rate
       - parcel_tax_assignment_hint
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies:
       - property_roll
@@ -81,6 +97,14 @@ datasets:
     metadata:
       fixture_backed: true
       source_family: tax_rates
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Harris tax-rate exports for prior tax years; fixture-backed acquisition currently exists only for 2026.
       fixture_path: app/county_adapters/harris/fixtures/tax_rates_2026.json
       parser_name: tax_rates_json
       validation_profile: harris_tax_rates_v1
@@ -102,6 +126,10 @@ datasets:
       - deed
       - ownership
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies:
       - property_roll
@@ -116,6 +144,14 @@ datasets:
     metadata:
       fixture_backed: true
       source_family: deeds
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Harris deed exports for prior tax years; fixture-backed acquisition currently exists only for 2026.
       fixture_path: app/county_adapters/harris/fixtures/deeds_2026.json
       parser_name: deeds_json
       validation_profile: harris_deeds_v1

@@ -14,6 +14,15 @@ def test_harris_adapter_lists_property_roll_dataset() -> None:
     assert "[fixture_json]" in dataset_lookup["property_roll"].description
 
 
+def test_harris_adapter_lists_historical_dataset_as_manual_upload() -> None:
+    adapter = HarrisCountyAdapter()
+    datasets = adapter.list_available_datasets("harris", 2025)
+    dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
+
+    assert dataset_lookup["property_roll"].source_system_code == "HCAD_BULK"
+    assert "[manual_upload]" in dataset_lookup["property_roll"].description
+
+
 def test_harris_adapter_parse_and_normalize_tax_rate_fixture() -> None:
     adapter = HarrisCountyAdapter()
     acquired = adapter.acquire_dataset("tax_rates", 2026)
@@ -110,6 +119,6 @@ def test_harris_adapter_deed_validation_surfaces_missing_grantee() -> None:
 def test_harris_adapter_metadata_reflects_stage4_scope() -> None:
     metadata = HarrisCountyAdapter().get_adapter_metadata()
     assert metadata.county_id == "harris"
-    assert metadata.supported_years == [2026]
+    assert metadata.supported_years == [2022, 2023, 2024, 2025, 2026]
     assert "fixture-backed" in metadata.known_limitations[0]
     assert "deeds" in metadata.supported_dataset_types

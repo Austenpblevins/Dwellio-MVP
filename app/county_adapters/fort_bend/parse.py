@@ -101,7 +101,7 @@ def parse_raw_to_staging(*, config: CountyAdapterConfig, acquired: AcquiredDatas
     return ParseResult(staging_rows=staging_rows, issues=issues)
 
 
-def parse(raw_records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def parse(raw_records: list[dict[str, Any]] | None = None, *, tax_year: int = 2026) -> list[dict[str, Any]]:
     if raw_records is not None:
         return raw_records
 
@@ -109,7 +109,7 @@ def parse(raw_records: list[dict[str, Any]] | None = None) -> list[dict[str, Any
     from app.county_adapters.fort_bend.fetch import acquire_dataset
 
     config = load_county_adapter_config("fort_bend")
-    acquired = acquire_dataset(config=config, dataset_type="property_roll", tax_year=2026)
+    acquired = acquire_dataset(config=config, dataset_type="property_roll", tax_year=tax_year)
     result = parse_raw_to_staging(config=config, acquired=acquired)
     return [row.raw_payload for row in result.staging_rows]
 

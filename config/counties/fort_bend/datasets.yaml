@@ -21,6 +21,10 @@ datasets:
       - assessment
       - exemption
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies: []
     ingestion_ready: true
@@ -41,6 +45,14 @@ datasets:
       - Source field names remain Fort Bend-specific here so canonical normalization stays config-driven.
     metadata:
       fixture_backed: true
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Fort Bend county exports or manual county downloads for prior tax years until live or fixture-backed historical acquisition is added.
       fixture_path: app/county_adapters/fort_bend/fixtures/property_roll_2026.csv
       delimiter: ','
       source_family: appraisal_roll
@@ -65,6 +77,10 @@ datasets:
       - tax_rate
       - parcel_tax_assignment_hint
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies:
       - property_roll
@@ -81,6 +97,14 @@ datasets:
       - Assignment hints are normalized into canonical list fields during parsing so downstream assignment logic stays county-agnostic.
     metadata:
       fixture_backed: true
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Fort Bend tax-rate exports for prior tax years; fixture-backed acquisition currently exists only for 2026.
       fixture_path: app/county_adapters/fort_bend/fixtures/tax_rates_2026.csv
       delimiter: ','
       source_family: tax_rates
@@ -104,6 +128,10 @@ datasets:
       - deed
       - ownership
     supported_years:
+      - 2022
+      - 2023
+      - 2024
+      - 2025
       - 2026
     dependencies:
       - property_roll
@@ -117,6 +145,14 @@ datasets:
       - Grantor and grantee name columns are converted into canonical party arrays before normalization and publish.
     metadata:
       fixture_backed: true
+      fixture_years:
+        - 2026
+      manual_backfill_years:
+        - 2022
+        - 2023
+        - 2024
+        - 2025
+      historical_backfill_note: Use real Fort Bend deed exports for prior tax years; fixture-backed acquisition currently exists only for 2026.
       fixture_path: app/county_adapters/fort_bend/fixtures/deeds_2026.csv
       delimiter: ','
       source_family: deeds
