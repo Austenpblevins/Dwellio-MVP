@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     raw_archive_root: str = Field(default=".dwellio/raw", alias="DWELLIO_RAW_ARCHIVE_ROOT")
 
     default_tax_year: int = Field(default=2026, alias="DWELLIO_DEFAULT_TAX_YEAR")
+    admin_api_token: str = Field(default="dev-admin-token", alias="DWELLIO_ADMIN_API_TOKEN")
 
 
 @lru_cache(maxsize=1)
