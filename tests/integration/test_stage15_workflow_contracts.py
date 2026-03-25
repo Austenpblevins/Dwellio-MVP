@@ -28,6 +28,12 @@ def test_lead_route_accepts_fixture_contract() -> None:
         assert request.email == "alex@example.com"
         assert request.phone == "7135550101"
         assert request.consent_to_contact is True
+        assert request.source_channel == "web_quote_funnel"
+        assert request.anonymous_session_id == "fixture-anon-1"
+        assert request.funnel_stage == "quote_gate"
+        assert request.utm_source == "google"
+        assert request.utm_medium == "cpc"
+        assert request.utm_campaign == "stage15_fixture"
         return LeadCreateResponse(
             lead_id=lead_id,
             context_status="quote_ready",

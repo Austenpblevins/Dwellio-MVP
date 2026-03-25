@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.lead import LeadCreateResponse
 from app.models.parcel import (
     ParcelDataCaveat,
     ParcelExemptionSummary,
@@ -165,9 +166,32 @@ class StubQuoteReadService:
 
 
 def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
+    lead_id = uuid4()
+
+    def stub_create_lead(request) -> LeadCreateResponse:
+        assert request.county_id == "harris"
+        assert request.tax_year == 2026
+        assert request.account_number == "1001001001001"
+        assert request.email == "alex@example.com"
+        assert request.anonymous_session_id == "anon-public-flow-1"
+        assert request.funnel_stage == "quote_gate"
+        return LeadCreateResponse(
+            lead_id=lead_id,
+            context_status="quote_ready",
+            county_supported=True,
+            property_supported=True,
+            quote_ready=True,
+            parcel_id=None,
+            requested_tax_year=2026,
+            served_tax_year=2026,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+        )
+
     monkeypatch.setattr("app.api.search.AddressResolverService", StubAddressResolverService)
     monkeypatch.setattr("app.api.parcel.ParcelSummaryService", StubParcelSummaryService)
     monkeypatch.setattr("app.api.quote.QuoteReadService", StubQuoteReadService)
+    monkeypatch.setattr("app.api.routes.leads.create_lead", stub_create_lead)
 
     client = TestClient(app)
 
@@ -209,3 +233,20 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert explanation_payload["explanation_json"]["basis"] == "market_and_equity"
     assert "agent_remarks" not in explanation_payload
     assert "listing_history" not in explanation_payload
+
+    lead_response = client.post(
+        "/lead",
+        json={
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001001",
+            "email": "alex@example.com",
+            "anonymous_session_id": "anon-public-flow-1",
+            "funnel_stage": "quote_gate",
+        },
+    )
+    assert lead_response.status_code == 200
+    lead_payload = lead_response.json()
+    assert lead_payload["status"] == "accepted"
+    assert lead_payload["context_status"] == "quote_ready"
+    assert lead_payload["lead_id"] == str(lead_id)
