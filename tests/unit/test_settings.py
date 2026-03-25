@@ -12,3 +12,8 @@ def test_settings_default_tax_year_is_int() -> None:
     settings = get_settings()
     assert isinstance(settings.default_tax_year, int)
 
+
+def test_settings_have_admin_token_default() -> None:
+    settings = get_settings()
+    assert isinstance(settings.admin_api_token, str)
+    assert settings.admin_api_token != ""

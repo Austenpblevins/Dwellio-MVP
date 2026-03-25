@@ -101,7 +101,11 @@ def test_admin_search_inspect_route_returns_debug_fields(monkeypatch) -> None:
     monkeypatch.setattr("app.api.admin.AddressResolverService", StubAddressResolverService)
 
     client = TestClient(app)
-    response = client.get("/admin/search/inspect", params={"query": "101 Main", "limit": 5})
+    response = client.get(
+        "/admin/search/inspect",
+        params={"query": "101 Main", "limit": 5},
+        headers={"x-dwellio-admin-token": "dev-admin-token"},
+    )
 
     assert response.status_code == 200
     payload = response.json()
