@@ -19,6 +19,12 @@ export type TaxYearFallbackMetadata = {
   data_freshness_label: "current_year" | "prior_year_fallback" | null;
 };
 
+export type LeadContextStatus =
+  | "quote_ready"
+  | "missing_quote_ready_row"
+  | "unsupported_property_type"
+  | "unsupported_county";
+
 export type SearchResponse = {
   results: ParcelSearchResult[];
 };
@@ -142,4 +148,45 @@ export type QuoteResponse = TaxYearFallbackMetadata & {
   protest_recommendation: string | null;
   explanation_json: Record<string, unknown>;
   explanation_bullets: string[];
+};
+
+export type QuoteExplanationResponse = TaxYearFallbackMetadata & {
+  county_id: string;
+  tax_year: number;
+  account_number: string;
+  explanation_json: Record<string, unknown>;
+  explanation_bullets: string[];
+};
+
+export type LeadCreateRequest = {
+  county_id: string;
+  tax_year: number;
+  account_number: string;
+  owner_name?: string;
+  email?: string;
+  phone?: string;
+  consent_to_contact: boolean;
+  source_channel?: string;
+  anonymous_session_id?: string;
+  funnel_stage?: string;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_term?: string | null;
+  utm_content?: string | null;
+};
+
+export type LeadCreateResponse = {
+  status: "accepted";
+  lead_id: string;
+  context_status: LeadContextStatus;
+  lead_capture_allowed: boolean;
+  county_supported: boolean;
+  property_supported: boolean | null;
+  quote_ready: boolean;
+  parcel_id: string | null;
+  requested_tax_year: number;
+  served_tax_year: number | null;
+  tax_year_fallback_applied: boolean;
+  tax_year_fallback_reason: string | null;
 };

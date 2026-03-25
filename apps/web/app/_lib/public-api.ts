@@ -1,16 +1,40 @@
-import type { ParcelSummaryResponse, QuoteResponse, SearchResponse } from "./public-types";
+import { getPublicRuntimeConfig } from "./public-config";
+import type {
+  LeadCreateRequest,
+  LeadCreateResponse,
+  ParcelSummaryResponse,
+  QuoteExplanationResponse,
+  QuoteResponse,
+  SearchResponse,
+} from "./public-types";
 
-function getApiBaseUrl(): string {
-  return process.env.DWELLIO_API_BASE_URL ?? "http://127.0.0.1:8000";
-}
-
-async function publicFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+async function publicFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const config = getPublicRuntimeConfig();
+  const response = await fetch(`${config.apiBaseUrl}${path}`, {
     cache: "no-store",
+    ...init,
+    headers: {
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...init?.headers,
+    },
   });
 
   if (!response.ok) {
-    throw new Error(`Public API returned ${response.status}`);
+    let detail = `Public API returned ${response.status}.`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      // Fall back to the generic error message when the response body is not JSON.
+    }
+
+    throw new Error(
+      `${detail} (${config.apiBaseUrl}${path}${
+        config.isDefaultApiBaseUrl ? "; using default API base URL" : ""
+      })`,
+    );
   }
 
   return (await response.json()) as T;
@@ -42,4 +66,28 @@ export async function getQuote(
     }
     throw error;
   }
+}
+
+export async function getQuoteExplanation(
+  countyId: string,
+  taxYear: number,
+  accountNumber: string,
+): Promise<QuoteExplanationResponse | null> {
+  try {
+    return await publicFetch<QuoteExplanationResponse>(
+      `/quote/${countyId}/${taxYear}/${accountNumber}/explanation`,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function createLead(request: LeadCreateRequest): Promise<LeadCreateResponse> {
+  return publicFetch<LeadCreateResponse>("/lead", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
 }

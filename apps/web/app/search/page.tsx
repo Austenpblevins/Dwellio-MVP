@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { buildQuoteFunnelHref } from "../_lib/lead-funnel";
 import { searchParcels } from "../_lib/public-api";
 import { formatLabel } from "../_lib/formatters";
 import type { ParcelSearchResult } from "../_lib/public-types";
@@ -19,10 +20,7 @@ function toneForConfidence(label: string): string {
 }
 
 function ResultCard({ result }: { result: ParcelSearchResult }) {
-  const parcelHref =
-    result.tax_year === null
-      ? null
-      : `/parcel/${result.county_id}/${result.tax_year}/${result.account_number}`;
+  const parcelHref = buildQuoteFunnelHref(result);
 
   return (
     <article className="rounded-[1.8rem] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
@@ -44,7 +42,8 @@ function ResultCard({ result }: { result: ParcelSearchResult }) {
           <p className="mt-3 text-sm leading-7 text-slate-600">
             Account {result.account_number}
             {result.tax_year !== null ? ` for ${result.tax_year}` : ""}. Match basis{" "}
-            {formatLabel(result.match_basis)}.
+            {formatLabel(result.match_basis)}. Opening the parcel route keeps the flow on the
+            canonical quote-safe public pages.
           </p>
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-700">
             <span className="rounded-full bg-slate-100 px-3 py-1">
@@ -60,11 +59,11 @@ function ResultCard({ result }: { result: ParcelSearchResult }) {
             href={parcelHref}
             className="inline-flex items-center justify-center rounded-[1.2rem] bg-[var(--accent-strong)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[var(--accent)]"
           >
-            Open parcel summary
+            Open quote funnel
           </Link>
         ) : (
           <span className="rounded-[1.2rem] bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-500">
-            Tax year not available yet
+            Parcel year not available yet
           </span>
         )}
       </div>
@@ -105,7 +104,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               </h1>
               <p className="mt-4 text-base leading-8 text-slate-600">
                 Search results come from Dwellio&apos;s public parcel read model and carry parcel-year
-                identity so the detail page can stay tied to a specific county-year summary.
+                identity so the next page can stay tied to a specific quote-safe parcel-year flow.
               </p>
             </div>
             <form action="/search" className="flex w-full max-w-xl flex-col gap-3 sm:flex-row">
@@ -146,8 +145,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
         {!errorMessage && address.length >= 3 && results.length === 0 ? (
           <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-6 text-slate-700">
-            No parcel matches were found for that query yet. Try the notice address, a simpler street
-            form, or the account number.
+            No parcel matches were found for that query yet. Try the notice address, a simpler
+            street form, or the account number.
           </section>
         ) : null}
 
