@@ -118,6 +118,49 @@ class StubParcelSummaryService:
         )
 
 
+class StubParcelSummaryFallbackService:
+    def get_summary(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_number: str,
+    ) -> ParcelSummaryResponse:
+        return ParcelSummaryResponse(
+            county_id=county_id,
+            tax_year=2025,
+            requested_tax_year=2026,
+            served_tax_year=2025,
+            tax_year_fallback_applied=True,
+            tax_year_fallback_reason="requested_year_unavailable",
+            data_freshness_label="prior_year_fallback",
+            account_number=account_number,
+            parcel_id=uuid4(),
+            address="101 Main St, Houston, TX 77002",
+            owner_name="A. Example",
+            completeness_score=86,
+            warning_codes=["missing_geometry"],
+            public_summary_ready_flag=True,
+            owner_summary=ParcelOwnerSummary(
+                display_name="A. Example",
+                owner_type="individual",
+                privacy_mode="masked_individual_name",
+                confidence_label="medium",
+            ),
+            value_summary=ParcelValueSummary(notice_value=350000),
+            exemption_summary=ParcelExemptionSummary(),
+            tax_summary=ParcelTaxSummary(component_breakdown=[]),
+            caveats=[
+                ParcelDataCaveat(
+                    code="missing_geometry",
+                    severity="info",
+                    title="Map geometry pending",
+                    message="Map geometry is not linked yet.",
+                )
+            ],
+        )
+
+
 class StubQuoteReadService:
     def get_quote(
         self,
@@ -164,6 +207,52 @@ class StubQuoteReadService:
         )
 
 
+class StubFallbackQuoteReadService:
+    def get_quote(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_number: str,
+    ) -> QuoteResponse:
+        return QuoteResponse(
+            county_id=county_id,
+            tax_year=2025,
+            requested_tax_year=2026,
+            served_tax_year=2025,
+            tax_year_fallback_applied=True,
+            tax_year_fallback_reason="requested_year_unavailable",
+            data_freshness_label="prior_year_fallback",
+            account_number=account_number,
+            parcel_id=uuid4(),
+            address="101 Main St, Houston, TX 77002",
+            defensible_value_point=315000,
+            expected_tax_savings_point=850,
+            protest_recommendation="file_protest",
+            explanation_bullets=["Showing the latest available prior-year quote data."],
+        )
+
+    def get_explanation(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_number: str,
+    ) -> QuoteExplanationResponse:
+        return QuoteExplanationResponse(
+            county_id=county_id,
+            tax_year=2025,
+            requested_tax_year=2026,
+            served_tax_year=2025,
+            tax_year_fallback_applied=True,
+            tax_year_fallback_reason="requested_year_unavailable",
+            data_freshness_label="prior_year_fallback",
+            account_number=account_number,
+            explanation_json={"basis": "equity"},
+            explanation_bullets=["Showing the latest available prior-year explanation."],
+        )
+
+
 def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     monkeypatch.setattr("app.api.search.AddressResolverService", StubAddressResolverService)
     monkeypatch.setattr("app.api.parcel.ParcelSummaryService", StubParcelSummaryService)
@@ -201,3 +290,45 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert "comp_candidates" not in quote_payload
     assert "agent_remarks" not in quote_payload
     assert "listing_history" not in quote_payload
+
+
+def test_public_fallback_parcel_quote_and_explanation_payloads_stay_public_safe(monkeypatch) -> None:
+    monkeypatch.setattr("app.api.search.AddressResolverService", StubAddressResolverService)
+    monkeypatch.setattr("app.api.parcel.ParcelSummaryService", StubParcelSummaryFallbackService)
+    monkeypatch.setattr("app.api.quote.QuoteReadService", StubFallbackQuoteReadService)
+
+    client = TestClient(app)
+
+    parcel_response = client.get("/parcel/harris/2026/1001001001001")
+    assert parcel_response.status_code == 200
+    parcel_payload = parcel_response.json()
+    assert parcel_payload["tax_year"] == 2025
+    assert parcel_payload["requested_tax_year"] == 2026
+    assert parcel_payload["served_tax_year"] == 2025
+    assert parcel_payload["tax_year_fallback_applied"] is True
+    assert parcel_payload["tax_year_fallback_reason"] == "requested_year_unavailable"
+    assert "owner_confidence_score" not in parcel_payload
+    assert "component_breakdown_json" not in parcel_payload
+    assert "agent_remarks" not in parcel_payload
+
+    quote_response = client.get("/quote/harris/2026/1001001001001")
+    assert quote_response.status_code == 200
+    quote_payload = quote_response.json()
+    assert quote_payload["tax_year"] == 2025
+    assert quote_payload["requested_tax_year"] == 2026
+    assert quote_payload["served_tax_year"] == 2025
+    assert quote_payload["tax_year_fallback_applied"] is True
+    assert quote_payload["data_freshness_label"] == "prior_year_fallback"
+    assert "comp_candidates" not in quote_payload
+    assert "agent_remarks" not in quote_payload
+    assert "listing_history" not in quote_payload
+
+    explanation_response = client.get("/quote/harris/2026/1001001001001/explanation")
+    assert explanation_response.status_code == 200
+    explanation_payload = explanation_response.json()
+    assert explanation_payload["tax_year"] == 2025
+    assert explanation_payload["requested_tax_year"] == 2026
+    assert explanation_payload["served_tax_year"] == 2025
+    assert explanation_payload["tax_year_fallback_applied"] is True
+    assert "agent_remarks" not in explanation_payload
+    assert "listing_history" not in explanation_payload

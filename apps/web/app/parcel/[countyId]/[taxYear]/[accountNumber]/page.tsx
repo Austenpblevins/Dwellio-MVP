@@ -187,9 +187,9 @@ export default async function ParcelPage({ params }: ParcelPageProps) {
                 {summary.address}
               </h1>
               <p className="mt-4 text-base leading-8 text-slate-600">
-                {summary.county_id} parcel {summary.account_number} for tax year {summary.tax_year}.
-                This public summary is backed by canonical parcel-year read models and avoids live
-                request-time valuation generation.
+                {summary.county_id} parcel {summary.account_number} showing tax year{" "}
+                {summary.served_tax_year}. This public summary is backed by canonical parcel-year
+                read models and avoids live request-time valuation generation.
               </p>
               {parcelFallbackNotice ? (
                 <div className="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-100/80 px-4 py-3 text-sm font-medium text-amber-950">

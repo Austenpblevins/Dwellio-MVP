@@ -99,7 +99,51 @@ def test_quote_explanation_route_returns_explanation(monkeypatch) -> None:
     payload = response.json()
     assert payload["explanation_json"]["basis"] == "market_and_equity"
     assert payload["explanation_bullets"] == ["Comparable evidence supports a lower value."]
+    assert payload["requested_tax_year"] == 2026
     assert payload["served_tax_year"] == 2026
+    assert payload["tax_year_fallback_applied"] is False
+
+
+def test_quote_explanation_route_returns_prior_year_fallback_metadata(monkeypatch) -> None:
+    class FallbackQuoteService:
+        def get_quote(self, *, county_id: str, tax_year: int, account_number: str) -> QuoteResponse:
+            raise AssertionError("quote route should not be called in this test")
+
+        def get_explanation(
+            self,
+            *,
+            county_id: str,
+            tax_year: int,
+            account_number: str,
+        ) -> QuoteExplanationResponse:
+            return QuoteExplanationResponse(
+                county_id=county_id,
+                tax_year=2025,
+                requested_tax_year=2026,
+                served_tax_year=2025,
+                tax_year_fallback_applied=True,
+                tax_year_fallback_reason="requested_year_unavailable",
+                data_freshness_label="prior_year_fallback",
+                account_number=account_number,
+                explanation_json={"basis": "equity"},
+                explanation_bullets=["Showing the latest available prior-year explanation."],
+            )
+
+    monkeypatch.setattr("app.api.quote.QuoteReadService", FallbackQuoteService)
+
+    client = TestClient(app)
+    response = client.get("/quote/harris/2026/1001001001001/explanation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tax_year"] == 2025
+    assert payload["requested_tax_year"] == 2026
+    assert payload["served_tax_year"] == 2025
+    assert payload["tax_year_fallback_applied"] is True
+    assert payload["tax_year_fallback_reason"] == "requested_year_unavailable"
+    assert payload["data_freshness_label"] == "prior_year_fallback"
+    assert "agent_remarks" not in payload
+    assert "listing_history" not in payload
 
 
 @pytest.mark.parametrize(
