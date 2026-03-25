@@ -56,6 +56,11 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
 {
   "county_id": "harris",
   "tax_year": 2026,
+  "requested_tax_year": 2026,
+  "served_tax_year": 2026,
+  "tax_year_fallback_applied": false,
+  "tax_year_fallback_reason": null,
+  "data_freshness_label": "current_year",
   "account_number": "1001001001001",
   "parcel_id": "11111111-1111-1111-1111-111111111111",
   "address": "101 Main St, Houston, TX 77002",
@@ -79,6 +84,23 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
   }
 }
 ```
+
+## Parcel/Quote Fallback Contract
+
+Public parcel and quote routes resolve tax years this way:
+
+- attempt the exact requested year first
+- if unavailable, serve the nearest prior year for the same county/account
+- selection is deterministic: `max(tax_year)` where `tax_year <= requested_tax_year`
+- if no requested-year or prior-year row exists, return `404`
+
+Public fallback metadata fields are:
+
+- `requested_tax_year`
+- `served_tax_year`
+- `tax_year_fallback_applied`
+- `tax_year_fallback_reason`
+- `data_freshness_label`
 
 ## Rebuild Process
 

@@ -30,6 +30,24 @@ Backing read models and views:
 
 The public web app does not query staging tables or canonical tables directly.
 
+## Tax-Year Fallback Policy
+
+Public parcel and quote routes use a deterministic "most recent available year" fallback:
+- first try the exact requested `tax_year`
+- if that row is unavailable, serve `max(tax_year)` where `tax_year <= requested_tax_year` for the same `county_id` and `account_number`
+- if neither the requested year nor any prior year exists, return `404`
+
+Public response metadata fields:
+- `requested_tax_year`: the year requested in the route
+- `served_tax_year`: the year actually served from the read model or parcel summary view
+- `tax_year_fallback_applied`: `true` when a prior year is served
+- `tax_year_fallback_reason`: public-safe reason code such as `requested_year_unavailable`
+- `data_freshness_label`: `current_year` or `prior_year_fallback`
+
+Important boundary:
+- prior-year fallback must be disclosed explicitly in the payload and UI
+- the API must not silently present prior-year data as requested-year data
+
 ## Owner Privacy Restrictions
 
 Public owner display rules:
@@ -69,7 +87,7 @@ When a quote row exists, the parcel page can show:
 
 Operational note:
 - canonical quote routes return quote payloads only when precomputed read-model rows exist
-- when no quote row exists yet for a parcel-year, `GET /quote/{county_id}/{tax_year}/{account_number}` and `/explanation` return `404`
+- when no quote row exists for the requested year or any prior year, `GET /quote/{county_id}/{tax_year}/{account_number}` and `/explanation` return `404`
 - the Stage 13 closeout path may populate quote-support rows from canonical `parcel_summary_view` inputs when deeper feature and comp tables are still sparse, and the public explanation payload must state that limitation explicitly
 
 ## Stage Boundary
@@ -119,6 +137,11 @@ Explicitly deferred beyond Stage 13:
 {
   "county_id": "harris",
   "tax_year": 2026,
+  "requested_tax_year": 2026,
+  "served_tax_year": 2026,
+  "tax_year_fallback_applied": false,
+  "tax_year_fallback_reason": null,
+  "data_freshness_label": "current_year",
   "account_number": "1001001001001",
   "address": "101 Main St, Houston, TX 77002",
   "owner_name": "A. Example",
@@ -178,6 +201,11 @@ Explicitly deferred beyond Stage 13:
 {
   "county_id": "harris",
   "tax_year": 2026,
+  "requested_tax_year": 2026,
+  "served_tax_year": 2026,
+  "tax_year_fallback_applied": false,
+  "tax_year_fallback_reason": null,
+  "data_freshness_label": "current_year",
   "account_number": "1001001001001",
   "address": "101 Main St, Houston, TX 77002",
   "defensible_value_point": 320000,

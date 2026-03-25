@@ -59,6 +59,11 @@ class StubParcelSummaryService:
         return ParcelSummaryResponse(
             county_id=county_id,
             tax_year=tax_year,
+            requested_tax_year=tax_year,
+            served_tax_year=tax_year,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+            data_freshness_label="current_year",
             account_number=account_number,
             parcel_id=uuid4(),
             address="101 Main St, Houston, TX 77002",
