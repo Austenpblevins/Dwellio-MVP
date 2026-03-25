@@ -1,35 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Dwellio Web App
+
+This Next.js app is the public Dwellio web frontend plus the internal admin pages.
+
+Current public flow:
+- `/`
+- `/search?address={query}`
+- `/parcel/{county_id}/{tax_year}/{account_number}`
+
+The public web app consumes the canonical backend routes:
+- `GET /search?address={query}`
+- `GET /quote/{county_id}/{tax_year}/{account_number}`
+- `GET /quote/{county_id}/{tax_year}/{account_number}/explanation`
+- `POST /lead`
 
 ## Getting Started
 
-First, run the development server:
+Run the development server from `apps/web`:
 
 ```bash
+npm install
+export NEXT_PUBLIC_DWELLIO_API_BASE_URL='http://127.0.0.1:8000'
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Runtime config:
+- `NEXT_PUBLIC_DWELLIO_API_BASE_URL`
+- `DWELLIO_API_BASE_URL`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+If neither env var is set, the public app falls back to `http://127.0.0.1:8000`.
+If the backend is unreachable or misconfigured, the public search/funnel pages render an explicit error state instead of fabricating quote data.
 
-## Learn More
+## Checks
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run lint
+npm run build
+```
 
 ## Deploy on Vercel
+
+Recommended project settings:
+- project root: `apps/web`
+- install command: `npm install`
+- build command: `npm run build`
+- output setting: default Next.js output
+
+Required environment variables:
+- production: `NEXT_PUBLIC_DWELLIO_API_BASE_URL`
+- optional server-side fallback: `DWELLIO_API_BASE_URL`
+
+Typical values:
+- local preview: `http://127.0.0.1:8000`
+- deployed preview/production: your public Dwellio API origin
+
+Known limitations:
+- the public funnel supports Harris and Fort Bend only
+- the current quote funnel is SFR-only
+- the parcel page is the quote-to-lead page; no alternate quote route or duplicate frontend funnel architecture exists
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 

@@ -6,7 +6,13 @@
     "owner_name": "Alex Example",
     "email": "alex@example.com",
     "phone": "7135550101",
-    "consent_to_contact": true
+    "consent_to_contact": true,
+    "source_channel": "web_quote_funnel",
+    "anonymous_session_id": "fixture-anon-1",
+    "funnel_stage": "quote_gate",
+    "utm_source": "google",
+    "utm_medium": "cpc",
+    "utm_campaign": "stage15_fixture"
   },
   "case_create_request": {
     "client_id": "11111111-1111-1111-1111-111111111111",

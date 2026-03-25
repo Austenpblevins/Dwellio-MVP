@@ -95,6 +95,9 @@ curl 'http://localhost:8000/search?address=101%20Main'
 curl 'http://localhost:8000/parcel/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001/explanation'
+curl -X POST 'http://localhost:8000/lead' \
+  -H 'content-type: application/json' \
+  -d '{"county_id":"harris","tax_year":2026,"account_number":"1001001001001","email":"alex@example.com","anonymous_session_id":"anon-ops-1","funnel_stage":"quote_gate","utm_source":"ops_smoke","consent_to_contact":true}'
 ```
 
 Admin smoke:
@@ -107,14 +110,16 @@ curl -H 'x-dwellio-admin-token: dev-admin-token' 'http://localhost:8000/admin/pa
 Automated smoke-oriented pytest commands:
 
 ```bash
-python3 -m pytest tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py
+python3 -m pytest tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py tests/integration/test_stage16_lead_funnel_release_hardening.py
 python3 -m pytest tests/unit/test_case_admin_api.py tests/unit/test_stage11_migration_contract.py tests/unit/test_stage13_migration_contract.py tests/unit/test_stage14_migration_contract.py
 cd apps/web && npm run lint
 cd apps/web && npm run build
 ```
 
 Lead flow note:
-- `POST /lead` keeps the canonical route, but the default implementation is still a scaffold and currently returns `501` unless a concrete lead workflow is wired in.
+- `POST /lead` keeps the canonical route and now returns an accepted lead contract instead of a scaffold `501`.
+- Quote-ready and unsupported contexts are preserved through `context_status` while keeping parcel-year identity and attribution payloads.
+- Unsupported county/property and missing quote-ready rows should remain graceful lead-capture cases, not public API shape changes.
 
 ## 6. Rollback and recovery
 

@@ -1,6 +1,6 @@
 # Final Implementation Summary
 
-This document summarizes what is actually implemented in the current Dwellio repository branch family through Stage 14, and what Stage 15 documents and verifies.
+This document summarizes what is actually implemented in the current Dwellio repository branch family through Stage 16, including the public lead-funnel backend/frontend work and the release-hardening docs/tests.
 
 ## Implemented architecture
 
@@ -55,7 +55,14 @@ Quote:
 
 Lead:
 - canonical route `POST /lead`
-- current implementation keeps the route shape but the default backend workflow is still a scaffold
+- lead rows and `lead_events` attribution payloads persist through the canonical route
+- accepted responses preserve parcel-year context plus `context_status` for quote-ready and unsupported cases
+
+Frontend lead funnel:
+- `/` is the public quote-funnel landing page
+- `/search?address={query}` remains the canonical public search entry
+- `/parcel/{county_id}/{tax_year}/{account_number}` is now the progressive quote-to-lead page
+- the public web flow stays on `parcel_summary_view`, `v_search_read_model`, `v_quote_read_model`, and `POST /lead`
 
 ## Internal behavior implemented
 
@@ -81,11 +88,12 @@ Packet workflow foundation:
 ## Practical reproducibility status
 
 What another developer can do locally today:
-- apply migrations through `0041_stage14_case_ops_foundation`
+- apply migrations through `0042_stage16_lead_funnel_backend_contracts`
 - run the API and web app
 - run fixture-backed county ingestion
 - refresh search, parcel, and quote-safe read paths
 - verify public parcel/quote contracts
+- verify the quote-to-lead funnel and unsupported lead-capture states
 - verify internal case/packet admin contracts
 
 What still depends on local data completeness:
@@ -109,3 +117,12 @@ It makes the implemented architecture easier to maintain by:
 - adding an ops/recovery/smoke runbook
 - documenting fixture inventory and actual route behavior
 - adding workflow contract integration coverage for the still-thin lead and case/packet paths
+
+## Stage 16 closeout contribution
+
+Stage 16 does not redesign the platform or public route contracts.
+It hardens the implemented lead funnel by:
+- wiring the canonical `POST /lead` route to real lead and attribution persistence
+- turning the public parcel page into a progressive quote-to-lead flow without introducing alternate search or quote systems
+- documenting supported scope, unsupported handling, deployment configuration, and smoke paths
+- extending integration coverage for search -> quote -> lead behavior and attribution/unsupported handling

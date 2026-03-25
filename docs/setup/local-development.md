@@ -91,8 +91,17 @@ Admin access:
 ```bash
 cd apps/web
 npm install
+export NEXT_PUBLIC_DWELLIO_API_BASE_URL='http://127.0.0.1:8000'
 npm run dev
 ```
+
+Supported web env vars:
+- `NEXT_PUBLIC_DWELLIO_API_BASE_URL`
+- `DWELLIO_API_BASE_URL`
+
+Runtime behavior:
+- if neither env var is set, the web app falls back to `http://127.0.0.1:8000`
+- if the backend is unreachable, the public pages render an explicit API/configuration error instead of fabricating quote data
 
 Important public pages:
 - `/`
@@ -166,6 +175,9 @@ curl 'http://localhost:8000/search?address=101%20Main'
 curl 'http://localhost:8000/parcel/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001/explanation'
+curl -X POST 'http://localhost:8000/lead' \
+  -H 'content-type: application/json' \
+  -d '{"county_id":"harris","tax_year":2026,"account_number":"1001001001001","email":"alex@example.com","anonymous_session_id":"anon-smoke-1","funnel_stage":"quote_gate","utm_source":"smoke","consent_to_contact":true}'
 ```
 
 Admin flow:
@@ -176,7 +188,9 @@ curl -H 'x-dwellio-admin-token: dev-admin-token' 'http://localhost:8000/admin/pa
 ```
 
 Lead flow note:
-- `POST /lead` keeps the canonical route shape, but the default backend workflow is still a scaffold and returns `501` until a concrete lead creation service is wired.
+- `POST /lead` now persists the canonical lead row plus a `lead_events` attribution payload.
+- The route accepts quote-ready, unsupported, and missing-quote contexts without changing the public route shape.
+- `context_status` reports whether the request matched `quote_ready`, `missing_quote_ready_row`, `unsupported_property_type`, or `unsupported_county`.
 
 ## 11) Validation commands
 
@@ -191,7 +205,7 @@ cd apps/web && npm run build
 Targeted regression commands:
 
 ```bash
-python3 -m pytest tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py
+python3 -m pytest tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py tests/integration/test_stage16_lead_funnel_release_hardening.py
 python3 -m pytest tests/unit/test_stage11_migration_contract.py tests/unit/test_stage13_migration_contract.py tests/unit/test_stage14_migration_contract.py
 ```
 
