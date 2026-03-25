@@ -1,7 +1,11 @@
 import { requireAdminToken } from "./auth";
 import type {
+  AdminCaseDetail,
+  AdminCaseListResponse,
   AdminCompletenessIssuesResponse,
   AdminCountyYearReadinessDashboard,
+  AdminEvidencePacketDetail,
+  AdminEvidencePacketListResponse,
   AdminImportBatchDetail,
   AdminImportBatchListResponse,
   AdminMutationResult,
@@ -112,4 +116,52 @@ export async function postAdminMutation<TPayload extends object>(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getAdminCases(
+  countyId?: string,
+  taxYear?: number,
+  caseStatus?: string,
+): Promise<AdminCaseListResponse> {
+  const params = new URLSearchParams();
+  if (countyId) {
+    params.set("county_id", countyId);
+  }
+  if (taxYear !== undefined) {
+    params.set("tax_year", String(taxYear));
+  }
+  if (caseStatus) {
+    params.set("case_status", caseStatus);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminFetch(`/admin/cases${suffix}`);
+}
+
+export async function getAdminCaseDetail(caseId: string): Promise<AdminCaseDetail> {
+  return adminFetch(`/admin/cases/${caseId}`);
+}
+
+export async function getAdminPackets(
+  countyId?: string,
+  taxYear?: number,
+  packetStatus?: string,
+): Promise<AdminEvidencePacketListResponse> {
+  const params = new URLSearchParams();
+  if (countyId) {
+    params.set("county_id", countyId);
+  }
+  if (taxYear !== undefined) {
+    params.set("tax_year", String(taxYear));
+  }
+  if (packetStatus) {
+    params.set("packet_status", packetStatus);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminFetch(`/admin/packets${suffix}`);
+}
+
+export async function getAdminPacketDetail(
+  packetId: string,
+): Promise<AdminEvidencePacketDetail> {
+  return adminFetch(`/admin/packets/${packetId}`);
 }

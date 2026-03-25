@@ -2,6 +2,8 @@ import Link from "next/link";
 
 const ADMIN_LINKS = [
   { href: "/admin/ops", label: "Overview" },
+  { href: "/admin/cases", label: "Cases" },
+  { href: "/admin/packets", label: "Packets" },
   { href: "/admin/ops/jobs", label: "Jobs" },
   { href: "/admin/ops/validation", label: "Validation" },
   { href: "/admin/ops/source-files", label: "Source Files" },
