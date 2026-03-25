@@ -34,9 +34,14 @@ LEFT JOIN protest_recommendations pr ON pr.valuation_run_id = vr.valuation_run_i
 CREATE OR REPLACE VIEW v_search_read_model AS
 SELECT
     county_id,
+    tax_year,
     account_number,
     parcel_id,
-    COALESCE(NULLIF(document_json ->> 'situs_address', ''), display_address) AS situs_address,
+    COALESCE(NULLIF(document_json ->> 'address', ''), display_address) AS address,
+    COALESCE(
+      NULLIF(document_json ->> 'situs_address', ''),
+      split_part(COALESCE(NULLIF(document_json ->> 'address', ''), display_address), ',', 1)
+    ) AS situs_address,
     NULLIF(document_json ->> 'situs_zip', '') AS situs_zip,
     normalized_address,
     NULLIF(document_json ->> 'owner_name', '') AS owner_name
