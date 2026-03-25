@@ -25,5 +25,7 @@ def test_quote_read_model_file_matches_stage11_search_wrapper() -> None:
     read_model_path = Path("app/db/views/quote_read_model.sql")
     sql = read_model_path.read_text(encoding="utf-8")
 
-    assert "CREATE OR REPLACE VIEW v_search_read_model AS" in sql
+    assert "CREATE VIEW v_search_read_model AS" in sql
     assert "FROM search_documents" in sql
+    assert "tax_year" in sql
+    assert "address" in sql

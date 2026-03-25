@@ -135,7 +135,12 @@ class ParcelSummaryService:
             confidence_score=_as_float(row.get("owner_confidence_score")),
         )
         component_breakdown = [
-            ParcelTaxRateComponent.model_validate(component)
+            ParcelTaxRateComponent.model_validate(
+                {
+                    field_name: component.get(field_name)
+                    for field_name in ParcelTaxRateComponent.model_fields
+                }
+            )
             for component in row.get("component_breakdown_json") or []
             if isinstance(component, dict)
         ]

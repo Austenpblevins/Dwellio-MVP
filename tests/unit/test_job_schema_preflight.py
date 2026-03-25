@@ -7,6 +7,7 @@ from app.jobs import (
     job_score_models,
     job_score_savings,
 )
+from app.services.quote_generation import QuoteGenerationSummary
 
 
 def test_job_features_calls_schema_preflight(monkeypatch) -> None:
@@ -42,6 +43,11 @@ def test_job_score_models_calls_schema_preflight(monkeypatch) -> None:
         "assert_job_schema_ready",
         lambda job_name, *, tax_year=None: observed.append((job_name, tax_year)),
     )
+    monkeypatch.setattr(
+        job_score_models,
+        "QuoteGenerationService",
+        lambda: _StubQuoteGenerationService(),
+    )
 
     job_score_models.run(county_id="harris", tax_year=2026)
 
@@ -54,6 +60,11 @@ def test_job_score_savings_calls_schema_preflight(monkeypatch) -> None:
         job_score_savings,
         "assert_job_schema_ready",
         lambda job_name, *, tax_year=None: observed.append((job_name, tax_year)),
+    )
+    monkeypatch.setattr(
+        job_score_savings,
+        "QuoteGenerationService",
+        lambda: _StubQuoteGenerationService(),
     )
 
     job_score_savings.run(county_id="harris", tax_year=2026)
@@ -68,7 +79,23 @@ def test_job_refresh_quote_cache_calls_schema_preflight(monkeypatch) -> None:
         "assert_job_schema_ready",
         lambda job_name, *, tax_year=None: observed.append((job_name, tax_year)),
     )
+    monkeypatch.setattr(
+        job_refresh_quote_cache,
+        "QuoteGenerationService",
+        lambda: _StubQuoteGenerationService(),
+    )
 
     job_refresh_quote_cache.run(county_id="harris", tax_year=2026)
 
     assert observed == [("job_refresh_quote_cache", 2026)]
+
+
+class _StubQuoteGenerationService:
+    def score_models(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+        return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)
+
+    def score_savings(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+        return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)
+
+    def refresh_quote_cache(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+        return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)

@@ -92,6 +92,7 @@ def test_address_resolver_search_maps_rows_to_ranked_results(monkeypatch) -> Non
     assert isinstance(results[0], ParcelSearchResult)
     assert results[0].match_basis == "address_exact"
     assert results[0].confidence_label == "very_high"
+    assert results[0].owner_name == "A. Example"
 
 
 def test_address_resolver_inspect_search_returns_debug_components(monkeypatch) -> None:
@@ -179,10 +180,26 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
             "effective_tax_rate": 0.021,
             "estimated_taxable_value": 245000.0,
             "estimated_annual_tax": 5145.0,
+            "exemption_type_codes": ["homestead"],
+            "raw_exemption_codes": ["HS"],
+            "component_breakdown_json": [
+                {
+                    "unit_type_code": "county",
+                    "unit_code": "HC",
+                    "unit_name": "Harris County",
+                    "rate_component": "maintenance",
+                    "rate_value": 0.01,
+                    "rate_per_100": 1.0,
+                    "assignment_method": "gis",
+                    "assignment_confidence": 0.99,
+                    "assignment_reason_code": "polygon_match",
+                    "is_primary": True,
+                    "match_basis_json": {"city": "Houston"},
+                }
+            ],
             "completeness_score": 80.0,
-            "warning_codes": [],
+            "warning_codes": ["missing_geometry"],
             "public_summary_ready_flag": True,
-            "admin_review_required": False,
         }
     ]
     monkeypatch.setattr("app.services.parcel_summary.get_connection", connection_factory(rows))
@@ -196,6 +213,13 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
     assert isinstance(summary, ParcelSummaryResponse)
     assert summary.account_number == "1001001001001"
     assert summary.public_summary_ready_flag is True
+    assert summary.owner_name == "A. Example"
+    assert summary.owner_summary is not None
+    assert summary.owner_summary.privacy_mode == "masked_individual_name"
+    assert summary.tax_summary is not None
+    assert len(summary.tax_summary.component_breakdown) == 1
+    assert "match_basis_json" not in summary.tax_summary.component_breakdown[0].model_dump()
+    assert summary.caveats[0].code == "missing_geometry"
 
 
 def test_parcel_summary_service_raises_when_missing(monkeypatch) -> None:

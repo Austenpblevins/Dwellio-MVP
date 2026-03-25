@@ -20,7 +20,7 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
       "parcel_id": "11111111-1111-1111-1111-111111111111",
       "address": "101 Main St, Houston, TX 77002",
       "situs_zip": "77002",
-      "owner_name": "Alex Example",
+      "owner_name": "A. Example",
       "match_basis": "address_exact",
       "match_score": 0.98,
       "confidence_label": "very_high"
@@ -41,7 +41,7 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
       "parcel_id": "11111111-1111-1111-1111-111111111111",
       "address": "101 Main St, Houston, TX 77002",
       "situs_zip": "77002",
-      "owner_name": "Alex Example",
+      "owner_name": "A. Example",
       "match_basis": "address_prefix",
       "match_score": 0.99,
       "confidence_label": "high"
@@ -59,7 +59,7 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
   "account_number": "1001001001001",
   "parcel_id": "11111111-1111-1111-1111-111111111111",
   "address": "101 Main St, Houston, TX 77002",
-  "owner_name": "Alex Example",
+  "owner_name": "A. Example",
   "property_type_code": "sfr",
   "living_area_sf": 2100.0,
   "market_value": 450000.0,
@@ -70,7 +70,13 @@ Stage 11 adds the public-facing search and parcel-summary read path on top of `s
   "estimated_annual_tax": 5145.0,
   "completeness_score": 90.0,
   "warning_codes": [],
-  "public_summary_ready_flag": true
+  "public_summary_ready_flag": true,
+  "owner_summary": {
+    "display_name": "A. Example",
+    "owner_type": "individual",
+    "privacy_mode": "masked_individual_name",
+    "confidence_label": "medium"
+  }
 }
 ```
 
@@ -105,6 +111,7 @@ The public contract is:
 - keep ranking deterministic
 - expose `match_basis`, `match_score`, and `confidence_label`
 - do not expose internal score components or matched-field details
+- mask individual owner names on public responses
 
 ## Confidence Logic
 
