@@ -1,0 +1,65 @@
+{
+  "lead_request": {
+    "county_id": "harris",
+    "tax_year": 2026,
+    "account_number": "1001001001001",
+    "owner_name": "Alex Example",
+    "email": "alex@example.com",
+    "phone": "7135550101",
+    "consent_to_contact": true
+  },
+  "case_create_request": {
+    "client_id": "11111111-1111-1111-1111-111111111111",
+    "parcel_id": "22222222-2222-2222-2222-222222222222",
+    "tax_year": 2026,
+    "valuation_run_id": "33333333-3333-3333-3333-333333333333",
+    "representation_agreement_id": "44444444-4444-4444-4444-444444444444",
+    "appraisal_district_id": "55555555-5555-5555-5555-555555555555",
+    "case_status": "created",
+    "workflow_status_code": "active"
+  },
+  "packet_create_request": {
+    "protest_case_id": "66666666-6666-6666-6666-666666666666",
+    "packet_type": "informal",
+    "packet_status": "draft",
+    "valuation_run_id": "33333333-3333-3333-3333-333333333333",
+    "packet_json": {
+      "source": "stage15_fixture"
+    },
+    "items": [
+      {
+        "item_type": "section",
+        "section_code": "value_summary",
+        "title": "Value summary",
+        "body_text": "Ready for analyst review.",
+        "source_basis": "quote_read_model",
+        "display_order": 10,
+        "metadata_json": {
+          "section_version": 1
+        }
+      }
+    ],
+    "comp_sets": [
+      {
+        "basis_type": "equity",
+        "set_label": "Equity support set",
+        "notes": "Use neighborhood peers only.",
+        "metadata_json": {
+          "selection_mode": "manual"
+        },
+        "items": [
+          {
+            "parcel_sale_id": "77777777-7777-7777-7777-777777777777",
+            "parcel_id": "88888888-8888-8888-8888-888888888888",
+            "comp_role": "supporting",
+            "comp_rank": 1,
+            "rationale_text": "Neighborhood peer",
+            "adjustment_summary_json": {
+              "basis": "none"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

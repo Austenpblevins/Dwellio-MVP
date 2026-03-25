@@ -201,3 +201,11 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert "comp_candidates" not in quote_payload
     assert "agent_remarks" not in quote_payload
     assert "listing_history" not in quote_payload
+
+    explanation_response = client.get("/quote/harris/2026/1001001001001/explanation")
+    assert explanation_response.status_code == 200
+    explanation_payload = explanation_response.json()
+    assert explanation_payload["served_tax_year"] == 2026
+    assert explanation_payload["explanation_json"]["basis"] == "market_and_equity"
+    assert "agent_remarks" not in explanation_payload
+    assert "listing_history" not in explanation_payload
