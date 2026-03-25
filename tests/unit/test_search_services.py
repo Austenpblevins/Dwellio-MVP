@@ -212,6 +212,11 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
 
     assert isinstance(summary, ParcelSummaryResponse)
     assert summary.account_number == "1001001001001"
+    assert summary.requested_tax_year == 2026
+    assert summary.served_tax_year == 2026
+    assert summary.tax_year_fallback_applied is False
+    assert summary.tax_year_fallback_reason is None
+    assert summary.data_freshness_label == "current_year"
     assert summary.public_summary_ready_flag is True
     assert summary.owner_name == "A. Example"
     assert summary.owner_summary is not None
@@ -220,6 +225,38 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
     assert len(summary.tax_summary.component_breakdown) == 1
     assert "match_basis_json" not in summary.tax_summary.component_breakdown[0].model_dump()
     assert summary.caveats[0].code == "missing_geometry"
+
+
+def test_parcel_summary_service_applies_prior_year_fallback(monkeypatch) -> None:
+    rows = [
+        {
+            "county_id": "harris",
+            "tax_year": 2025,
+            "account_number": "1001001001001",
+            "parcel_id": uuid4(),
+            "address": "101 Main St, Houston, TX 77002",
+            "owner_name": "Alex Example",
+            "owner_confidence_score": 0.5,
+            "component_breakdown_json": [],
+            "completeness_score": 86.0,
+            "warning_codes": [],
+            "public_summary_ready_flag": True,
+        }
+    ]
+    monkeypatch.setattr("app.services.parcel_summary.get_connection", connection_factory(rows))
+
+    summary = ParcelSummaryService().get_summary(
+        county_id="harris",
+        tax_year=2026,
+        account_number="1001001001001",
+    )
+
+    assert summary.tax_year == 2025
+    assert summary.requested_tax_year == 2026
+    assert summary.served_tax_year == 2025
+    assert summary.tax_year_fallback_applied is True
+    assert summary.tax_year_fallback_reason == "requested_year_unavailable"
+    assert summary.data_freshness_label == "prior_year_fallback"
 
 
 def test_parcel_summary_service_raises_when_missing(monkeypatch) -> None:
@@ -231,3 +268,40 @@ def test_parcel_summary_service_raises_when_missing(monkeypatch) -> None:
             tax_year=2026,
             account_number="missing",
         )
+
+
+def test_parcel_summary_service_queries_nearest_prior_year(monkeypatch) -> None:
+    connection = FakeConnection(
+        [
+            {
+                "county_id": "harris",
+                "tax_year": 2025,
+                "account_number": "1001001001001",
+                "parcel_id": uuid4(),
+                "address": "101 Main St, Houston, TX 77002",
+                "owner_name": "Alex Example",
+                "owner_confidence_score": 0.5,
+                "component_breakdown_json": [],
+                "completeness_score": 86.0,
+                "warning_codes": [],
+                "public_summary_ready_flag": True,
+            }
+        ]
+    )
+
+    @contextmanager
+    def _connection():
+        yield connection
+
+    monkeypatch.setattr("app.services.parcel_summary.get_connection", _connection)
+
+    ParcelSummaryService().get_summary(
+        county_id="harris",
+        tax_year=2026,
+        account_number="1001001001001",
+    )
+
+    sql, params = connection.cursor_instance.execute_calls[0]
+    assert "tax_year <= %s" in sql
+    assert "ORDER BY tax_year DESC" in sql
+    assert params == ("harris", "1001001001001", 2026)

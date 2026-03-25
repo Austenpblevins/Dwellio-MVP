@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.models.common import DwellioBaseModel
+from app.models.common import DwellioBaseModel, TaxYearFallbackMetadata
 
 
 class CountyConfig(DwellioBaseModel):
@@ -52,7 +52,7 @@ class ParcelAutocompleteResponse(DwellioBaseModel):
     suggestions: list[ParcelSearchResult]
 
 
-class ParcelSummaryResponse(DwellioBaseModel):
+class ParcelSummaryResponse(TaxYearFallbackMetadata, DwellioBaseModel):
     county_id: str
     tax_year: int
     account_number: str

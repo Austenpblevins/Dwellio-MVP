@@ -11,6 +11,14 @@ export type ParcelSearchResult = {
   confidence_label: string;
 };
 
+export type TaxYearFallbackMetadata = {
+  requested_tax_year: number;
+  served_tax_year: number;
+  tax_year_fallback_applied: boolean;
+  tax_year_fallback_reason: string | null;
+  data_freshness_label: "current_year" | "prior_year_fallback" | null;
+};
+
 export type SearchResponse = {
   results: ParcelSearchResult[];
 };
@@ -68,7 +76,7 @@ export type ParcelDataCaveat = {
   message: string;
 };
 
-export type ParcelSummaryResponse = {
+export type ParcelSummaryResponse = TaxYearFallbackMetadata & {
   county_id: string;
   tax_year: number;
   account_number: string;
@@ -114,7 +122,7 @@ export type ParcelSummaryResponse = {
   caveats: ParcelDataCaveat[];
 };
 
-export type QuoteResponse = {
+export type QuoteResponse = TaxYearFallbackMetadata & {
   county_id: string;
   tax_year: number;
   account_number: string;

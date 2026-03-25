@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getParcelSummary, getQuote } from "../../../../_lib/public-api";
 import { formatCurrency, formatLabel, formatNumber, formatRate } from "../../../../_lib/formatters";
+import { buildTaxYearFallbackNotice } from "../../../../_lib/tax-year-fallback";
 import type {
   ParcelDataCaveat,
   ParcelSummaryResponse,
@@ -75,11 +76,18 @@ function TaxRateRow({ component }: { component: ParcelTaxRateComponent }) {
 }
 
 function QuoteTeaser({ quote }: { quote: QuoteResponse }) {
+  const fallbackNotice = buildTaxYearFallbackNotice(quote);
+
   return (
     <section className="rounded-[2rem] border border-emerald-200 bg-emerald-50/90 p-6">
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">
         Quote-safe read model
       </p>
+      {fallbackNotice ? (
+        <div className="mt-4 rounded-[1.25rem] border border-amber-200 bg-amber-100/80 px-4 py-3 text-sm font-medium text-amber-950">
+          {fallbackNotice}
+        </div>
+      ) : null}
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
@@ -164,6 +172,7 @@ export default async function ParcelPage({ params }: ParcelPageProps) {
   }
 
   const quote = await getQuote(route.countyId, taxYear, route.accountNumber);
+  const parcelFallbackNotice = buildTaxYearFallbackNotice(summary);
 
   return (
     <main className="px-5 py-8 md:px-8 md:py-10">
@@ -182,6 +191,11 @@ export default async function ParcelPage({ params }: ParcelPageProps) {
                 This public summary is backed by canonical parcel-year read models and avoids live
                 request-time valuation generation.
               </p>
+              {parcelFallbackNotice ? (
+                <div className="mt-5 rounded-[1.25rem] border border-amber-200 bg-amber-100/80 px-4 py-3 text-sm font-medium text-amber-950">
+                  {parcelFallbackNotice}
+                </div>
+              ) : null}
             </div>
             <div className="grid gap-3 rounded-[1.8rem] bg-slate-950 px-5 py-5 text-sm text-slate-100">
               <div>

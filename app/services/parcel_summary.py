@@ -106,6 +106,26 @@ class ParcelSummaryService:
         tax_year: int,
         account_number: str,
     ) -> ParcelSummaryResponse:
+        row = self._fetch_summary_row(
+            county_id=county_id,
+            requested_tax_year=tax_year,
+            account_number=account_number,
+        )
+
+        if row is None:
+            raise LookupError(
+                f"Parcel summary not found for {county_id}/{tax_year}/{account_number}."
+            )
+
+        return self._build_summary(row, requested_tax_year=tax_year)
+
+    def _fetch_summary_row(
+        self,
+        *,
+        county_id: str,
+        requested_tax_year: int,
+        account_number: str,
+    ) -> dict[str, Any] | None:
         with get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -113,27 +133,28 @@ class ParcelSummaryService:
                     SELECT *
                     FROM parcel_summary_view
                     WHERE county_id = %s
-                      AND tax_year = %s
                       AND account_number = %s
+                      AND tax_year <= %s
+                    ORDER BY tax_year DESC
                     LIMIT 1
                     """,
-                    (county_id, tax_year, account_number),
+                    (county_id, account_number, requested_tax_year),
                 )
-                row = cursor.fetchone()
+                return cursor.fetchone()
 
-        if row is None:
-            raise LookupError(
-                f"Parcel summary not found for {county_id}/{tax_year}/{account_number}."
-            )
-
-        return self._build_summary(row)
-
-    def _build_summary(self, row: dict[str, Any]) -> ParcelSummaryResponse:
+    def _build_summary(
+        self,
+        row: dict[str, Any],
+        *,
+        requested_tax_year: int,
+    ) -> ParcelSummaryResponse:
         warning_codes = [str(code) for code in row.get("warning_codes") or []]
         owner_summary = build_public_owner_summary(
             row.get("owner_name"),
             confidence_score=_as_float(row.get("owner_confidence_score")),
         )
+        served_tax_year = int(row["tax_year"])
+        tax_year_fallback_applied = served_tax_year != requested_tax_year
         component_breakdown = [
             ParcelTaxRateComponent.model_validate(
                 {
@@ -146,8 +167,17 @@ class ParcelSummaryService:
         ]
 
         return ParcelSummaryResponse(
+            requested_tax_year=requested_tax_year,
+            served_tax_year=served_tax_year,
+            tax_year_fallback_applied=tax_year_fallback_applied,
+            tax_year_fallback_reason=(
+                "requested_year_unavailable" if tax_year_fallback_applied else None
+            ),
+            data_freshness_label=(
+                "prior_year_fallback" if tax_year_fallback_applied else "current_year"
+            ),
             county_id=row["county_id"],
-            tax_year=int(row["tax_year"]),
+            tax_year=served_tax_year,
             account_number=row["account_number"],
             parcel_id=row["parcel_id"],
             address=row["address"],

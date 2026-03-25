@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.models.common import DwellioBaseModel, JsonDict
+from app.models.common import DwellioBaseModel, JsonDict, TaxYearFallbackMetadata
 from app.models.parcel import ParcelAutocompleteResponse, ParcelSearchResult
 
 
@@ -20,7 +20,7 @@ class AutocompleteResponse(ParcelAutocompleteResponse):
     pass
 
 
-class QuoteResponse(DwellioBaseModel):
+class QuoteResponse(TaxYearFallbackMetadata, DwellioBaseModel):
     county_id: str
     tax_year: int
     account_number: str
@@ -42,7 +42,7 @@ class QuoteResponse(DwellioBaseModel):
     explanation_bullets: list[str] = Field(default_factory=list)
 
 
-class QuoteExplanationResponse(DwellioBaseModel):
+class QuoteExplanationResponse(TaxYearFallbackMetadata, DwellioBaseModel):
     county_id: str
     tax_year: int
     account_number: str

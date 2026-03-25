@@ -55,6 +55,11 @@ class StubParcelSummaryService:
         return ParcelSummaryResponse(
             county_id=county_id,
             tax_year=tax_year,
+            requested_tax_year=tax_year,
+            served_tax_year=tax_year,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+            data_freshness_label="current_year",
             account_number=account_number,
             parcel_id=uuid4(),
             address="101 Main St, Houston, TX 77002",
@@ -124,6 +129,11 @@ class StubQuoteReadService:
         return QuoteResponse(
             county_id=county_id,
             tax_year=tax_year,
+            requested_tax_year=tax_year,
+            served_tax_year=tax_year,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+            data_freshness_label="current_year",
             account_number=account_number,
             parcel_id=uuid4(),
             address="101 Main St, Houston, TX 77002",
@@ -143,6 +153,11 @@ class StubQuoteReadService:
         return QuoteExplanationResponse(
             county_id=county_id,
             tax_year=tax_year,
+            requested_tax_year=tax_year,
+            served_tax_year=tax_year,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+            data_freshness_label="current_year",
             account_number=account_number,
             explanation_json={"basis": "market_and_equity"},
             explanation_bullets=["Comparable evidence supports a lower value."],
@@ -169,6 +184,7 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     parcel_payload = parcel_response.json()
     assert parcel_payload["owner_summary"]["privacy_mode"] == "masked_individual_name"
     assert parcel_payload["tax_summary"]["component_breakdown"][0]["unit_name"] == "Harris County"
+    assert parcel_payload["tax_year_fallback_applied"] is False
     assert "admin_review_required" not in parcel_payload
     assert "cad_owner_name" not in parcel_payload
     assert "owner_source_basis" not in parcel_payload
@@ -181,6 +197,7 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert quote_response.status_code == 200
     quote_payload = quote_response.json()
     assert quote_payload["defensible_value_point"] == 320000
+    assert quote_payload["tax_year_fallback_applied"] is False
     assert "comp_candidates" not in quote_payload
     assert "agent_remarks" not in quote_payload
     assert "listing_history" not in quote_payload
