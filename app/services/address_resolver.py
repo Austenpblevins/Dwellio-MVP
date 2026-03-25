@@ -10,6 +10,7 @@ from app.models.admin import (
 )
 from app.models.parcel import ParcelSearchResult
 from app.models.quote import SearchRequest
+from app.services.public_owner import build_public_owner_summary
 from app.services.ownership_reconciliation import normalize_owner_name
 from app.utils.text_normalization import normalize_address_query
 
@@ -54,59 +55,72 @@ class AddressResolverService:
         if include_debug:
             debug_select = """
                         ,
-                        similarity(sd.normalized_address, %s) AS address_similarity,
-                        similarity(sd.search_text, %s) AS search_text_similarity,
+                        similarity(srm.normalized_address, %s) AS address_similarity,
+                        similarity(srm.address, %s) AS search_text_similarity,
                         CASE
-                          WHEN %s = '' OR sd.normalized_owner_name IS NULL THEN 0::numeric
-                          ELSE similarity(sd.normalized_owner_name, %s)
+                          WHEN %s = '' OR srm.normalized_owner_name IS NULL THEN 0::numeric
+                          ELSE similarity(srm.normalized_owner_name, %s)
                         END AS owner_similarity,
                         CASE
-                          WHEN sd.account_number = %s THEN ARRAY['account_number']::text[]
-                          WHEN sd.normalized_address = %s THEN ARRAY['normalized_address']::text[]
-                          WHEN %s <> '' AND sd.normalized_owner_name IS NOT NULL AND sd.normalized_owner_name %% %s
+                          WHEN srm.account_number = %s THEN ARRAY['account_number']::text[]
+                          WHEN srm.normalized_address = %s THEN ARRAY['normalized_address']::text[]
+                          WHEN %s <> '' AND srm.normalized_owner_name IS NOT NULL AND srm.normalized_owner_name %% %s
                             THEN ARRAY['normalized_owner_name']::text[]
-                          WHEN sd.normalized_address %% %s THEN ARRAY['normalized_address', 'search_text']::text[]
+                          WHEN srm.normalized_address %% %s THEN ARRAY['normalized_address', 'search_text']::text[]
                           ELSE ARRAY['search_text']::text[]
                         END AS matched_fields
             """
         sql = f"""
                     WITH ranked_candidates AS (
                       SELECT
-                        sd.county_id,
-                        sd.tax_year,
-                        sd.account_number,
-                        sd.parcel_id,
-                        COALESCE(NULLIF(sd.document_json ->> 'address', ''), sd.display_address) AS address,
-                        NULLIF(sd.document_json ->> 'situs_zip', '') AS situs_zip,
-                        NULLIF(sd.document_json ->> 'owner_name', '') AS owner_name,
+                        srm.county_id,
+                        srm.tax_year,
+                        srm.account_number,
+                        srm.parcel_id,
+                        srm.address,
+                        srm.situs_zip,
+                        srm.owner_name,
                         CASE
-                          WHEN sd.account_number = %s THEN 'account_exact'
-                          WHEN sd.normalized_address = %s THEN 'address_exact'
-                          WHEN sd.normalized_address %% %s THEN 'address_trigram'
-                          WHEN sd.search_text %% %s THEN 'search_text_trigram'
-                          WHEN %s <> '' AND sd.normalized_owner_name IS NOT NULL AND sd.normalized_owner_name %% %s
+                          WHEN srm.account_number = %s THEN 'account_exact'
+                          WHEN srm.normalized_address = %s THEN 'address_exact'
+                          WHEN srm.normalized_address %% %s THEN 'address_trigram'
+                          WHEN srm.address %% %s THEN 'search_text_trigram'
+                          WHEN %s <> '' AND srm.normalized_owner_name IS NOT NULL AND srm.normalized_owner_name %% %s
                             THEN 'owner_fallback'
                           ELSE 'search_text_fallback'
                         END AS match_basis,
                         CASE
-                          WHEN sd.account_number = %s THEN 1.0000::numeric
-                          WHEN sd.normalized_address = %s THEN 0.9800::numeric
+                          WHEN srm.account_number = %s THEN 1.0000::numeric
+                          WHEN srm.normalized_address = %s THEN 0.9800::numeric
                           ELSE GREATEST(
-                            similarity(sd.normalized_address, %s) * 0.95,
-                            similarity(sd.search_text, %s) * 0.85,
+                            similarity(srm.normalized_address, %s) * 0.95,
+                            similarity(srm.address, %s) * 0.85,
                             CASE
-                              WHEN %s = '' OR sd.normalized_owner_name IS NULL THEN 0::numeric
-                              ELSE similarity(sd.normalized_owner_name, %s) * 0.75
+                              WHEN %s = '' OR srm.normalized_owner_name IS NULL THEN 0::numeric
+                              ELSE similarity(srm.normalized_owner_name, %s) * 0.75
                             END
                           )
                         END AS match_score
                         {debug_select}
-                      FROM search_documents sd
-                      WHERE sd.account_number = %s
-                        OR sd.normalized_address = %s
-                        OR sd.normalized_address %% %s
-                        OR sd.search_text %% %s
-                        OR (%s <> '' AND sd.normalized_owner_name IS NOT NULL AND sd.normalized_owner_name %% %s)
+                      FROM (
+                        SELECT
+                          county_id,
+                          tax_year,
+                          account_number,
+                          parcel_id,
+                          address,
+                          situs_zip,
+                          normalized_address,
+                          owner_name,
+                          upper(regexp_replace(COALESCE(owner_name, ''), '[^A-Za-z0-9 ]', '', 'g'))
+                            AS normalized_owner_name
+                        FROM v_search_read_model
+                      ) AS srm
+                      WHERE srm.account_number = %s
+                        OR srm.normalized_address = %s
+                        OR srm.normalized_address %% %s
+                        OR srm.address %% %s
+                        OR (%s <> '' AND srm.normalized_owner_name IS NOT NULL AND srm.normalized_owner_name %% %s)
                     )
                     SELECT *
                     FROM ranked_candidates
@@ -183,33 +197,46 @@ class AddressResolverService:
                     """
                     WITH prefix_candidates AS (
                       SELECT
-                        sd.county_id,
-                        sd.tax_year,
-                        sd.account_number,
-                        sd.parcel_id,
-                        COALESCE(NULLIF(sd.document_json ->> 'address', ''), sd.display_address) AS address,
-                        NULLIF(sd.document_json ->> 'situs_zip', '') AS situs_zip,
-                        NULLIF(sd.document_json ->> 'owner_name', '') AS owner_name,
+                        srm.county_id,
+                        srm.tax_year,
+                        srm.account_number,
+                        srm.parcel_id,
+                        srm.address,
+                        srm.situs_zip,
+                        srm.owner_name,
                         CASE
-                          WHEN sd.account_number LIKE %s THEN 'account_prefix'
-                          WHEN sd.normalized_address LIKE %s THEN 'address_prefix'
-                          WHEN %s <> '' AND sd.normalized_owner_name LIKE %s THEN 'owner_prefix'
+                          WHEN srm.account_number LIKE %s THEN 'account_prefix'
+                          WHEN srm.normalized_address LIKE %s THEN 'address_prefix'
+                          WHEN %s <> '' AND srm.normalized_owner_name LIKE %s THEN 'owner_prefix'
                           ELSE 'search_text_trigram'
                         END AS match_basis,
                         CASE
-                          WHEN sd.account_number LIKE %s THEN 0.99::numeric
-                          WHEN sd.normalized_address LIKE %s THEN 0.97::numeric
-                          WHEN %s <> '' AND sd.normalized_owner_name LIKE %s THEN 0.85::numeric
+                          WHEN srm.account_number LIKE %s THEN 0.99::numeric
+                          WHEN srm.normalized_address LIKE %s THEN 0.97::numeric
+                          WHEN %s <> '' AND srm.normalized_owner_name LIKE %s THEN 0.85::numeric
                           ELSE GREATEST(
-                            similarity(sd.search_text, %s) * 0.85,
-                            similarity(sd.normalized_address, %s) * 0.95
+                            similarity(srm.address, %s) * 0.85,
+                            similarity(srm.normalized_address, %s) * 0.95
                           )
                         END AS match_score
-                      FROM search_documents sd
-                      WHERE sd.account_number LIKE %s
-                        OR sd.normalized_address LIKE %s
-                        OR (%s <> '' AND sd.normalized_owner_name LIKE %s)
-                        OR sd.search_text %% %s
+                      FROM (
+                        SELECT
+                          county_id,
+                          tax_year,
+                          account_number,
+                          parcel_id,
+                          address,
+                          situs_zip,
+                          normalized_address,
+                          owner_name,
+                          upper(regexp_replace(COALESCE(owner_name, ''), '[^A-Za-z0-9 ]', '', 'g'))
+                            AS normalized_owner_name
+                        FROM v_search_read_model
+                      ) AS srm
+                      WHERE srm.account_number LIKE %s
+                        OR srm.normalized_address LIKE %s
+                        OR (%s <> '' AND srm.normalized_owner_name LIKE %s)
+                        OR srm.address %% %s
                     )
                     SELECT *
                     FROM prefix_candidates
@@ -251,6 +278,7 @@ class AddressResolverService:
     def _build_result(self, row: dict[str, Any]) -> ParcelSearchResult:
         score = float(row["match_score"])
         match_basis = str(row["match_basis"])
+        owner_summary = build_public_owner_summary(row.get("owner_name"))
         return ParcelSearchResult(
             county_id=row["county_id"],
             tax_year=row.get("tax_year"),
@@ -258,7 +286,7 @@ class AddressResolverService:
             parcel_id=row["parcel_id"],
             address=row["address"],
             situs_zip=row.get("situs_zip"),
-            owner_name=row.get("owner_name"),
+            owner_name=owner_summary.display_name,
             match_basis=match_basis,
             match_score=score,
             confidence_label=self._confidence_label(score, match_basis),

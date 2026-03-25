@@ -40,3 +40,11 @@ class QuoteResponse(DwellioBaseModel):
     protest_recommendation: str | None = None
     explanation_json: JsonDict = Field(default_factory=dict)
     explanation_bullets: list[str] = Field(default_factory=list)
+
+
+class QuoteExplanationResponse(DwellioBaseModel):
+    county_id: str
+    tax_year: int
+    account_number: str
+    explanation_json: JsonDict = Field(default_factory=dict)
+    explanation_bullets: list[str] = Field(default_factory=list)

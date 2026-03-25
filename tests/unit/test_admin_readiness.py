@@ -186,3 +186,4 @@ def test_public_parcel_summary_model_has_no_admin_only_fields() -> None:
     assert "blockers" not in ParcelSummaryResponse.model_fields
     assert "readiness_score" not in ParcelSummaryResponse.model_fields
     assert "trend_delta" not in ParcelSummaryResponse.model_fields
+    assert "admin_review_required" not in ParcelSummaryResponse.model_fields
