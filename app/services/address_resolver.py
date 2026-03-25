@@ -124,7 +124,10 @@ class AddressResolverService:
                     )
                     SELECT *
                     FROM ranked_candidates
-                    WHERE match_score >= %s
+                    WHERE match_score >= CASE match_basis
+                      WHEN 'address_trigram' THEN %s
+                      ELSE %s
+                    END
                     ORDER BY
                       CASE match_basis
                         WHEN 'account_exact' THEN 1
@@ -176,6 +179,7 @@ class AddressResolverService:
                 normalized_address,
                 normalized_owner,
                 normalized_owner,
+                0.29,
                 0.35,
                 limit,
             ]

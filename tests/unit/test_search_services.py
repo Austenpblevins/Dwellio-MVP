@@ -95,6 +95,88 @@ def test_address_resolver_search_maps_rows_to_ranked_results(monkeypatch) -> Non
     assert results[0].owner_name == "A. Example"
 
 
+def test_address_resolver_search_keeps_short_address_trigram_candidates(monkeypatch) -> None:
+    rows = [
+        {
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001001",
+            "parcel_id": uuid4(),
+            "address": "101 Main St, Houston, TX 77002",
+            "situs_zip": "77002",
+            "owner_name": "Alex Example",
+            "match_basis": "address_trigram",
+            "match_score": 0.2948,
+        }
+    ]
+    connection = FakeConnection(rows)
+
+    @contextmanager
+    def _connection():
+        yield connection
+
+    monkeypatch.setattr("app.services.address_resolver.get_connection", _connection)
+
+    results = AddressResolverService().search_by_query("101 Main")
+
+    assert len(results) == 1
+    assert results[0].address == "101 Main St, Houston, TX 77002"
+    assert results[0].match_basis == "address_trigram"
+    assert results[0].confidence_label == "medium"
+
+    sql, params = connection.cursor_instance.execute_calls[0]
+    assert "WHEN 'address_trigram' THEN %s" in sql
+    assert params[-3] == 0.29
+    assert params[-2] == 0.35
+
+
+def test_address_resolver_search_keeps_account_and_exact_ranking_ahead_of_trigram(monkeypatch) -> None:
+    rows = [
+        {
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001001",
+            "parcel_id": uuid4(),
+            "address": "101 Main St, Houston, TX 77002",
+            "situs_zip": "77002",
+            "owner_name": "Alex Example",
+            "match_basis": "account_exact",
+            "match_score": 1.0,
+        },
+        {
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001002",
+            "parcel_id": uuid4(),
+            "address": "101 Main Street, Houston, TX 77002",
+            "situs_zip": "77002",
+            "owner_name": "Jordan Example",
+            "match_basis": "address_exact",
+            "match_score": 0.98,
+        },
+        {
+            "county_id": "harris",
+            "tax_year": 2026,
+            "account_number": "1001001001003",
+            "parcel_id": uuid4(),
+            "address": "101 Main St, Houston, TX 77002",
+            "situs_zip": "77002",
+            "owner_name": "Taylor Example",
+            "match_basis": "address_trigram",
+            "match_score": 0.2948,
+        },
+    ]
+    monkeypatch.setattr("app.services.address_resolver.get_connection", connection_factory(rows))
+
+    results = AddressResolverService().search_by_query("101 Main")
+
+    assert [result.match_basis for result in results] == [
+        "account_exact",
+        "address_exact",
+        "address_trigram",
+    ]
+
+
 def test_address_resolver_inspect_search_returns_debug_components(monkeypatch) -> None:
     rows = [
         {
