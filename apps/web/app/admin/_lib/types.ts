@@ -248,3 +248,157 @@ export type AdminMutationResult = {
   publish_version: string | null;
   message: string;
 };
+
+export type CaseMutationResult = {
+  access_scope: string;
+  action: string;
+  protest_case_id: string | null;
+  evidence_packet_id: string | null;
+  message: string;
+};
+
+export type AdminCaseSummary = {
+  protest_case_id: string;
+  county_id: string;
+  parcel_id: string;
+  account_number: string;
+  tax_year: number;
+  case_status: string;
+  workflow_status_code: string | null;
+  address: string | null;
+  owner_name: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  representation_agreement_id: string | null;
+  valuation_run_id: string | null;
+  packet_count: number;
+  note_count: number;
+  hearing_count: number;
+  latest_outcome_code: string | null;
+  outcome_date: string | null;
+  recommendation_code: string | null;
+  expected_tax_savings_point: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminCaseNote = {
+  case_note_id: string;
+  note_text: string;
+  note_code: string;
+  author_label: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminCaseAssignment = {
+  case_assignment_id: string;
+  assignee_name: string;
+  assignee_role: string;
+  assignment_status: string;
+  assigned_at: string | null;
+  due_at: string | null;
+  active_flag: boolean;
+  metadata_json: Record<string, unknown>;
+};
+
+export type AdminHearingSummary = {
+  hearing_id: string;
+  hearing_type_code: string;
+  hearing_status: string;
+  scheduled_at: string | null;
+  location_text: string | null;
+  hearing_reference: string | null;
+  result_summary: string | null;
+};
+
+export type AdminCaseStatusHistoryEntry = {
+  case_status_history_id: string;
+  workflow_status_code: string | null;
+  case_status: string;
+  reason_text: string | null;
+  changed_by: string | null;
+  created_at: string | null;
+};
+
+export type AdminCaseListResponse = {
+  access_scope: string;
+  county_id: string | null;
+  tax_year: number | null;
+  case_status: string | null;
+  cases: AdminCaseSummary[];
+};
+
+export type AdminEvidencePacketSummary = {
+  evidence_packet_id: string;
+  protest_case_id: string | null;
+  county_id: string;
+  parcel_id: string;
+  account_number: string;
+  tax_year: number;
+  packet_type: string;
+  packet_status: string;
+  valuation_run_id: string | null;
+  address: string | null;
+  case_status: string | null;
+  item_count: number;
+  comp_set_count: number;
+  generated_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminEvidencePacketItem = {
+  evidence_packet_item_id: string;
+  item_type: string;
+  section_code: string;
+  title: string;
+  body_text: string | null;
+  source_basis: string | null;
+  display_order: number;
+  metadata_json: Record<string, unknown>;
+};
+
+export type AdminEvidenceCompSetItem = {
+  evidence_comp_set_item_id: string;
+  parcel_sale_id: string | null;
+  parcel_id: string | null;
+  comp_role: string;
+  comp_rank: number | null;
+  rationale_text: string | null;
+  adjustment_summary_json: Record<string, unknown>;
+};
+
+export type AdminEvidenceCompSet = {
+  evidence_comp_set_id: string;
+  basis_type: string;
+  set_label: string;
+  notes: string | null;
+  metadata_json: Record<string, unknown>;
+  items: AdminEvidenceCompSetItem[];
+};
+
+export type AdminEvidencePacketListResponse = {
+  access_scope: string;
+  county_id: string | null;
+  tax_year: number | null;
+  packet_status: string | null;
+  packets: AdminEvidencePacketSummary[];
+};
+
+export type AdminEvidencePacketDetail = {
+  access_scope: string;
+  packet: AdminEvidencePacketSummary;
+  items: AdminEvidencePacketItem[];
+  comp_sets: AdminEvidenceCompSet[];
+};
+
+export type AdminCaseDetail = {
+  access_scope: string;
+  case: AdminCaseSummary;
+  notes: AdminCaseNote[];
+  assignments: AdminCaseAssignment[];
+  hearings: AdminHearingSummary[];
+  status_history: AdminCaseStatusHistoryEntry[];
+  packets: AdminEvidencePacketSummary[];
+};
