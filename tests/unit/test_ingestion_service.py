@@ -262,6 +262,9 @@ def test_normalize_supports_deeds_and_refreshes_owner_reconciliation(monkeypatch
         def create_job_run(self, **kwargs) -> str:
             return "job-normalize"
 
+        def count_validation_errors(self, **kwargs) -> int:
+            return 0
+
         def fetch_staging_rows(self, **kwargs) -> list[dict[str, object]]:
             return [
                 {
@@ -335,3 +338,127 @@ def test_normalize_supports_deeds_and_refreshes_owner_reconciliation(monkeypatch
     assert result.row_count == 1
     assert result.publish_version == "harris-2026-deeds-job-norm"
     assert refresh_calls[0]["parcel_ids"] == ["parcel-1"]
+
+
+def test_normalize_blocks_publish_when_validation_failed(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+    updates: list[dict[str, object]] = []
+    completed_runs: list[dict[str, object]] = []
+    inserted_findings: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2025/property_roll/example.json",
+                original_filename="harris-property_roll-2025.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def count_validation_errors(self, **kwargs) -> int:
+            return 2
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-normalize"
+
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted_findings.extend(kwargs["findings"])
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            updates.append(kwargs)
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            completed_runs.append(kwargs)
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+
+    try:
+        service.normalize(
+            county_id="harris",
+            tax_year=2025,
+            dataset_type="property_roll",
+        )
+    except RuntimeError as exc:
+        assert "Publish blocked because 2 validation error finding(s) exist" in str(exc)
+    else:
+        raise AssertionError("Expected normalize() to block publish when validation errors exist.")
+
+    assert updates[0]["status"] == "publish_blocked"
+    assert updates[0]["publish_state"] == "blocked_validation"
+    assert "Publish blocked because 2 validation error finding(s) exist" in str(
+        updates[0]["status_reason"]
+    )
+    assert completed_runs[0]["status"] == "failed"
+    assert inserted_findings[0]["validation_code"] == "PUBLISH_BLOCKED_VALIDATION_FAILED"
+
+
+def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+    search_refresh_calls: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2025/property_roll/example.json",
+                original_filename="harris-property_roll-2025.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def fetch_job_run_metadata(self, **kwargs) -> dict[str, object]:
+            return {"rollback_manifest": {"entries": []}}
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-rollback"
+
+        def rollback_property_roll_records(self, **kwargs) -> int:
+            return 2
+
+        def insert_validation_results(self, **kwargs) -> None:
+            return None
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            return None
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            return None
+
+    class StubAdapter:
+        def rollback_publish(self, job_id: str) -> None:
+            return None
+
+    service.adapter = StubAdapter()  # type: ignore[assignment]
+    monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(service, "_refresh_tax_assignments", lambda **kwargs: None)
+    monkeypatch.setattr(service, "_refresh_owner_reconciliation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_refresh_search_documents",
+        lambda **kwargs: search_refresh_calls.append(kwargs),
+    )
+
+    service.rollback_publish(
+        county_id="harris",
+        tax_year=2025,
+        dataset_type="property_roll",
+    )
+
+    assert len(search_refresh_calls) == 1
+    assert search_refresh_calls[0]["county_id"] == "harris"
+    assert search_refresh_calls[0]["tax_year"] == 2025

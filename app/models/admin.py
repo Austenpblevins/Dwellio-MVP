@@ -14,6 +14,7 @@ class AdminCountyYearDatasetReadiness(DwellioBaseModel):
     availability_status: str
     raw_file_count: int
     latest_import_status: str | None = None
+    latest_status_reason: str | None = None
     latest_publish_state: str | None = None
     stage_status: str
     blockers: list[str]
@@ -105,9 +106,10 @@ class AdminImportBatchSummary(DwellioBaseModel):
     tax_year: int
     dataset_type: str
     source_system_code: str
-    source_filename: str
+    source_filename: str | None = None
     file_format: str | None = None
     status: str
+    status_reason: str | None = None
     publish_state: str | None = None
     publish_version: str | None = None
     row_count: int | None = None

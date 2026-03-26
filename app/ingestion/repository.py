@@ -37,6 +37,16 @@ class JobRunRecord:
     raw_file_id: str | None
 
 
+@dataclass(frozen=True)
+class DuplicateRawFileRecord:
+    import_batch_id: str
+    raw_file_id: str
+    status: str
+    publish_state: str | None
+    source_filename: str | None
+    row_count: int | None
+
+
 STAGING_TABLES: dict[str, tuple[str, str]] = {
     "property_roll": ("stg_county_property_raw", "stg_county_property_raw_id"),
     "tax_rates": ("stg_county_tax_rates_raw", "stg_county_tax_rates_raw_id"),
@@ -88,8 +98,9 @@ class IngestionRepository:
         source_system_id: str,
         county_id: str,
         tax_year: int,
-        source_filename: str,
-        source_checksum: str,
+        dataset_type: str,
+        source_filename: str | None,
+        source_checksum: str | None,
         source_url: str | None,
         file_format: str,
         dry_run_flag: bool,
@@ -101,6 +112,7 @@ class IngestionRepository:
                   source_system_id,
                   county_id,
                   tax_year,
+                  dataset_type,
                   source_filename,
                   source_checksum,
                   source_url,
@@ -108,13 +120,14 @@ class IngestionRepository:
                   status,
                   dry_run_flag
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'created', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'created', %s)
                 RETURNING import_batch_id
                 """,
                 (
                     source_system_id,
                     county_id,
                     tax_year,
+                    dataset_type,
                     source_filename,
                     source_checksum,
                     source_url,
@@ -287,6 +300,7 @@ class IngestionRepository:
         error_count: int | None = None,
         publish_state: str | None = None,
         publish_version: str | None = None,
+        status_reason: str | None = None,
     ) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -298,8 +312,18 @@ class IngestionRepository:
                   error_count = COALESCE(%s, error_count),
                   publish_state = COALESCE(%s, publish_state),
                   publish_version = COALESCE(%s, publish_version),
+                  status_reason = COALESCE(%s, status_reason),
                   completed_at = CASE
-                    WHEN %s IN ('fetched', 'staged', 'normalized', 'published', 'failed', 'rolled_back')
+                    WHEN %s IN (
+                      'fetched',
+                      'staged',
+                      'normalized',
+                      'published',
+                      'failed',
+                      'rolled_back',
+                      'publish_blocked',
+                      'validation_failed'
+                    )
                       THEN now()
                     ELSE completed_at
                   END,
@@ -312,7 +336,38 @@ class IngestionRepository:
                     error_count,
                     publish_state,
                     publish_version,
+                    status_reason,
                     status,
+                    import_batch_id,
+                ),
+            )
+
+    def update_import_batch_source_details(
+        self,
+        import_batch_id: str,
+        *,
+        source_filename: str,
+        source_checksum: str,
+        source_url: str | None,
+        file_format: str,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE import_batches
+                SET
+                  source_filename = %s,
+                  source_checksum = %s,
+                  source_url = %s,
+                  file_format = %s,
+                  updated_at = now()
+                WHERE import_batch_id = %s
+                """,
+                (
+                    source_filename,
+                    source_checksum,
+                    source_url,
+                    file_format,
                     import_batch_id,
                 ),
             )
@@ -362,7 +417,7 @@ class IngestionRepository:
                     JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
                     WHERE ib.county_id = %s
                       AND ib.tax_year = %s
-                      AND rf.file_kind = %s
+                      AND COALESCE(ib.dataset_type, rf.file_kind) = %s
                     ORDER BY ib.created_at DESC, rf.created_at DESC
                     LIMIT 1
                     """,
@@ -399,7 +454,7 @@ class IngestionRepository:
                 JOIN raw_files rf ON rf.import_batch_id = ib.import_batch_id
                 WHERE ib.county_id = %s
                   AND ib.tax_year = %s
-                  AND rf.file_kind = %s
+                  AND COALESCE(ib.dataset_type, rf.file_kind) = %s
                 ORDER BY ib.created_at DESC, rf.created_at DESC
                 LIMIT 1
                 """,
@@ -409,6 +464,62 @@ class IngestionRepository:
         if row is None:
             return None
         return str(row["import_batch_id"])
+
+    def find_duplicate_raw_file(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+        checksum: str,
+    ) -> DuplicateRawFileRecord | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  ib.import_batch_id,
+                  rf.raw_file_id,
+                  ib.status,
+                  ib.publish_state,
+                  ib.source_filename,
+                  ib.row_count
+                FROM raw_files rf
+                JOIN import_batches ib
+                  ON ib.import_batch_id = rf.import_batch_id
+                WHERE rf.county_id = %s
+                  AND rf.tax_year = %s
+                  AND rf.file_kind = %s
+                  AND rf.checksum = %s
+                ORDER BY rf.created_at DESC, rf.raw_file_id DESC
+                LIMIT 1
+                """,
+                (county_id, tax_year, dataset_type, checksum),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return DuplicateRawFileRecord(
+            import_batch_id=str(row["import_batch_id"]),
+            raw_file_id=str(row["raw_file_id"]),
+            status=row["status"],
+            publish_state=row.get("publish_state"),
+            source_filename=row.get("source_filename"),
+            row_count=row.get("row_count"),
+        )
+
+    def count_validation_errors(self, *, import_batch_id: str) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM validation_results
+            WHERE import_batch_id = %s
+              AND severity = 'error'
+            """,
+            (import_batch_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
 
     def insert_staging_rows(
         self,

@@ -24,6 +24,7 @@ def test_register_manual_import_registers_batch_and_raw_file(monkeypatch: pytest
         def create_import_batch(self, **kwargs) -> str:
             assert kwargs["county_id"] == "harris"
             assert kwargs["tax_year"] == 2025
+            assert kwargs["dataset_type"] == "property_roll"
             assert kwargs["source_filename"] == source_file.name
             assert kwargs["file_format"] == "json"
             return "batch-1"

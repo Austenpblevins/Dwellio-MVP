@@ -8,8 +8,7 @@ from app.county_adapters.common.config_loader import (
     CountyDatasetConfig,
     resolve_dataset_year_support,
 )
-from app.ingestion.source_registry import get_source_registry_entry
-
+from app.county_adapters.common.live_acquisition import infer_live_filename, load_live_content
 
 def list_available_datasets(*, config: CountyAdapterConfig, county_id: str, tax_year: int) -> list[AdapterDataset]:
     if county_id != config.county_id:
@@ -19,8 +18,8 @@ def list_available_datasets(*, config: CountyAdapterConfig, county_id: str, tax_
     for dataset_type, dataset_config in config.dataset_configs.items():
         if not dataset_config.ingestion_ready or tax_year not in dataset_config.supported_years:
             continue
-        registry_entry = get_source_registry_entry(
-            county_id=config.county_id,
+        year_support = resolve_dataset_year_support(
+            config=config,
             dataset_type=dataset_type,
             tax_year=tax_year,
         )
@@ -29,8 +28,8 @@ def list_available_datasets(*, config: CountyAdapterConfig, county_id: str, tax_
                 dataset_type=dataset_type,
                 source_system_code=dataset_config.source_system_code,
                 tax_year=tax_year,
-                description=f"{dataset_config.description} [{registry_entry.access_method}]",
-                source_url=dataset_config.source_url,
+                description=f"{dataset_config.description} [{year_support.access_method}]",
+                source_url=year_support.source_url,
             )
         )
     return datasets
@@ -52,8 +51,25 @@ def acquire_dataset(*, config: CountyAdapterConfig, dataset_type: str, tax_year:
         )
 
     if year_support.access_method != "fixture_csv":
-        raise ValueError(
-            f"Unsupported Fort Bend acquisition method '{year_support.access_method}' for {dataset_type}."
+        if year_support.access_method not in {"live_http", "live_file"}:
+            raise ValueError(
+                f"Unsupported Fort Bend acquisition method '{year_support.access_method}' for {dataset_type}."
+            )
+        content = load_live_content(year_support)
+        return AcquiredDataset(
+            dataset_type=dataset_type,
+            source_system_code=dataset_config.source_system_code,
+            tax_year=tax_year,
+            original_filename=infer_live_filename(
+                county_id=config.county_id,
+                dataset_type=dataset_type,
+                tax_year=tax_year,
+                file_format=dataset_config.file_format,
+                config=year_support,
+            ),
+            content=content,
+            media_type="text/csv",
+            source_url=year_support.source_url,
         )
 
     fixture_path = year_support.fixture_path

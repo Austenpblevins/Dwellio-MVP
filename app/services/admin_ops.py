@@ -105,7 +105,7 @@ class AdminOpsService:
             source_files=[self._build_source_file(row) for row in source_files],
             job_runs=[self._build_job_run(row) for row in job_runs],
             actions=AdminImportBatchActions(
-                can_publish=summary.status in {"staged", "validation_failed", "rolled_back"},
+                can_publish=summary.status in {"staged", "rolled_back"},
                 can_rollback=summary.publish_state == "published",
                 manual_fallback_supported=bool(
                     dataset_config.manual_fallback_supported if dataset_config is not None else True
@@ -366,11 +366,12 @@ class AdminOpsService:
                   ib.import_batch_id,
                   ib.county_id,
                   ib.tax_year,
-                  COALESCE(MAX(rf.file_kind), 'unknown') AS dataset_type,
+                  COALESCE(ib.dataset_type, MAX(rf.file_kind), 'unknown') AS dataset_type,
                   COALESCE(MAX(ss.source_system_code), '') AS source_system_code,
                   ib.source_filename,
                   ib.file_format,
                   ib.status,
+                  ib.status_reason,
                   ib.publish_state,
                   ib.publish_version,
                   ib.row_count,
@@ -407,19 +408,25 @@ class AdminOpsService:
                 ) latest_job ON true
                 WHERE ib.county_id = %s
                   AND (%s IS NULL OR ib.tax_year = %s)
-                  AND (%s IS NULL OR EXISTS (
-                    SELECT 1
-                    FROM raw_files rf_filter
-                    WHERE rf_filter.import_batch_id = ib.import_batch_id
-                      AND rf_filter.file_kind = %s
-                  ))
+                  AND (
+                    %s IS NULL
+                    OR ib.dataset_type = %s
+                    OR EXISTS (
+                      SELECT 1
+                      FROM raw_files rf_filter
+                      WHERE rf_filter.import_batch_id = ib.import_batch_id
+                        AND rf_filter.file_kind = %s
+                    )
+                  )
                 GROUP BY
                   ib.import_batch_id,
                   ib.county_id,
                   ib.tax_year,
+                  ib.dataset_type,
                   ib.source_filename,
                   ib.file_format,
                   ib.status,
+                  ib.status_reason,
                   ib.publish_state,
                   ib.publish_version,
                   ib.row_count,
@@ -434,7 +441,7 @@ class AdminOpsService:
                 ORDER BY ib.created_at DESC, ib.import_batch_id DESC
                 LIMIT %s
                 """,
-                (county_id, tax_year, tax_year, dataset_type, dataset_type, limit),
+                (county_id, tax_year, tax_year, dataset_type, dataset_type, dataset_type, limit),
             )
             return cursor.fetchall()
 
@@ -603,6 +610,7 @@ class AdminOpsService:
             source_filename=row["source_filename"],
             file_format=row.get("file_format"),
             status=row["status"],
+            status_reason=row.get("status_reason"),
             publish_state=row.get("publish_state"),
             publish_version=row.get("publish_version"),
             row_count=row.get("row_count"),

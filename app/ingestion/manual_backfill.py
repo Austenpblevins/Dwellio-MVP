@@ -76,6 +76,7 @@ def register_manual_import(
             source_system_id=source_system_id,
             county_id=county_id,
             tax_year=tax_year,
+            dataset_type=dataset_type,
             source_filename=source_path.name,
             source_checksum=checksum,
             source_url=acquired.source_url,

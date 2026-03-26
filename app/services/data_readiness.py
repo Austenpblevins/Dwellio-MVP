@@ -22,6 +22,7 @@ class DatasetYearReadiness:
     raw_file_count: int = 0
     latest_import_batch_id: str | None = None
     latest_import_status: str | None = None
+    latest_status_reason: str | None = None
     latest_publish_state: str | None = None
     staged: bool = False
     canonical_published: bool = False
@@ -124,6 +125,7 @@ class DataReadinessService:
             dataset_type=dataset_type,
         )
         latest_status = latest_batch["status"] if latest_batch is not None else None
+        latest_status_reason = latest_batch["status_reason"] if latest_batch is not None else None
         latest_publish_state = latest_batch["publish_state"] if latest_batch is not None else None
         return DatasetYearReadiness(
             county_id=county_id,
@@ -139,6 +141,7 @@ class DataReadinessService:
                 str(latest_batch["import_batch_id"]) if latest_batch is not None else None
             ),
             latest_import_status=latest_status,
+            latest_status_reason=latest_status_reason,
             latest_publish_state=latest_publish_state,
             staged=latest_status in {"staged", "normalized"},
             canonical_published=latest_publish_state == "published",
@@ -374,13 +377,12 @@ class DataReadinessService:
                 SELECT
                   ib.import_batch_id,
                   ib.status,
+                  ib.status_reason,
                   ib.publish_state
                 FROM import_batches ib
-                JOIN raw_files rf
-                  ON rf.import_batch_id = ib.import_batch_id
                 WHERE ib.county_id = %s
                   AND ib.tax_year = %s
-                  AND rf.file_kind = %s
+                  AND ib.dataset_type = %s
                 ORDER BY ib.created_at DESC, ib.import_batch_id DESC
                 LIMIT 1
                 """,
