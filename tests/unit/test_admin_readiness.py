@@ -187,3 +187,30 @@ def test_public_parcel_summary_model_has_no_admin_only_fields() -> None:
     assert "readiness_score" not in ParcelSummaryResponse.model_fields
     assert "trend_delta" not in ParcelSummaryResponse.model_fields
     assert "admin_review_required" not in ParcelSummaryResponse.model_fields
+
+
+def test_admin_readiness_marks_publish_blocked_dataset() -> None:
+    dataset = AdminReadinessService()._build_dataset_readiness(
+        DatasetYearReadiness(
+            county_id="harris",
+            tax_year=2025,
+            dataset_type="property_roll",
+            source_system_code="HCAD_BULK",
+            access_method="live_file",
+            availability_status="live_ready",
+            tax_year_known=True,
+            raw_file_count=1,
+            latest_import_batch_id="batch-1",
+            latest_import_status="publish_blocked",
+            latest_status_reason="Publish blocked because 2 validation error finding(s) exist for import batch batch-1.",
+            latest_publish_state="blocked_validation",
+            staged=False,
+            canonical_published=False,
+        )
+    )
+
+    assert dataset.stage_status == "publish_blocked"
+    assert "publish_blocked_validation" in dataset.blockers
+    assert dataset.latest_status_reason == (
+        "Publish blocked because 2 validation error finding(s) exist for import batch batch-1."
+    )

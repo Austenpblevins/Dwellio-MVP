@@ -115,6 +115,8 @@ class AdminReadinessService:
             blockers.append("source_not_acquired")
         if dataset.latest_import_status == "validation_failed":
             blockers.append("staging_validation_failed")
+        if dataset.latest_import_status == "publish_blocked":
+            blockers.append("publish_blocked_validation")
         if dataset.raw_file_count > 0 and not dataset.canonical_published:
             blockers.append("canonical_publish_pending")
 
@@ -125,6 +127,7 @@ class AdminReadinessService:
             availability_status=dataset.availability_status,
             raw_file_count=dataset.raw_file_count,
             latest_import_status=dataset.latest_import_status,
+            latest_status_reason=dataset.latest_status_reason,
             latest_publish_state=dataset.latest_publish_state,
             stage_status=self._dataset_stage_status(dataset),
             blockers=blockers,
@@ -139,6 +142,8 @@ class AdminReadinessService:
                 if dataset.availability_status == "manual_upload_required"
                 else "awaiting_source_data"
             )
+        if dataset.latest_import_status == "publish_blocked":
+            return "publish_blocked"
         if dataset.canonical_published:
             return "canonical_published"
         if dataset.staged:

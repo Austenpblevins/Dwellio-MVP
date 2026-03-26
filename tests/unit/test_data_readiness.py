@@ -21,6 +21,7 @@ class StubCursor:
                 self._row = {
                     "import_batch_id": "batch-1",
                     "status": "normalized",
+                    "status_reason": "published_to_canonical: property_roll publish succeeded.",
                     "publish_state": "published",
                 }
             else:
@@ -110,6 +111,7 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert property_roll.availability_status == "manual_upload_required"
     assert property_roll.raw_file_count == 1
     assert property_roll.latest_import_status == "normalized"
+    assert property_roll.latest_status_reason == "published_to_canonical: property_roll publish succeeded."
     assert property_roll.canonical_published is True
     assert readiness.derived.parcel_summary_ready is True
     assert readiness.derived.parcel_year_trend_ready is True

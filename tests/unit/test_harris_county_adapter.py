@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from app.county_adapters.harris.adapter import HarrisCountyAdapter
 
 
@@ -21,6 +23,27 @@ def test_harris_adapter_lists_historical_dataset_as_manual_upload() -> None:
 
     assert dataset_lookup["property_roll"].source_system_code == "HCAD_BULK"
     assert "[manual_upload]" in dataset_lookup["property_roll"].description
+
+
+def test_harris_adapter_live_file_override_for_historical_year(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    source_path = tmp_path / "harris_property_roll_2025.json"
+    source_path.write_text(json.dumps([{"account_number": "1001001001001"}]), encoding="utf-8")
+    monkeypatch.setenv(
+        "DWELLIO_HARRIS_PROPERTY_ROLL_2025_SOURCE_FILE_PATH",
+        str(source_path),
+    )
+
+    adapter = HarrisCountyAdapter()
+    datasets = adapter.list_available_datasets("harris", 2025)
+    dataset_lookup = {dataset.dataset_type: dataset for dataset in datasets}
+    assert "[live_file]" in dataset_lookup["property_roll"].description
+
+    acquired = adapter.acquire_dataset("property_roll", 2025)
+    assert acquired.original_filename == source_path.name
+    assert json.loads(acquired.content.decode("utf-8"))[0]["account_number"] == "1001001001001"
 
 
 def test_harris_adapter_parse_and_normalize_tax_rate_fixture() -> None:

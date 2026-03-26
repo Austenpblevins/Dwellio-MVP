@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -9,6 +10,7 @@ from app.db.connection import get_connection
 from app.ingestion.archive import read_raw_archive, write_raw_archive
 from app.ingestion.registry import get_adapter
 from app.ingestion.repository import IngestionRepository
+from app.ingestion.source_registry import get_source_registry_entry
 from app.services.tax_assignment import build_tax_assignments
 from app.utils.hashing import sha256_text
 from app.utils.logging import get_logger
@@ -27,6 +29,8 @@ class PipelineStepResult:
     job_run_id: str
     row_count: int
     publish_version: str | None = None
+    status: str = "succeeded"
+    message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,8 +41,10 @@ class PipelineRunResult:
     import_batch_id: str
     rerun_of_import_batch_id: str | None
     fetch_result: PipelineStepResult
-    staging_result: PipelineStepResult
-    normalize_result: PipelineStepResult
+    staging_result: PipelineStepResult | None
+    normalize_result: PipelineStepResult | None
+    skipped_duplicate: bool = False
+    skip_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,11 @@ class IngestionLifecycleService:
         with get_connection() as connection:
             repository = IngestionRepository(connection)
             for spec in dataset_specs:
+                registry_entry = get_source_registry_entry(
+                    county_id=county_id,
+                    dataset_type=spec.dataset_type,
+                    tax_year=tax_year,
+                )
                 logger.info(
                     "fetch_sources started",
                     extra={
@@ -102,13 +113,112 @@ class IngestionLifecycleService:
                         "dry_run": dry_run,
                     },
                 )
-                acquired = adapter.acquire_dataset(spec.dataset_type, tax_year)
-                checksum = sha256_text(acquired.content.decode("utf-8"))
+                try:
+                    acquired = adapter.acquire_dataset(spec.dataset_type, tax_year)
+                except Exception as exc:
+                    source_system_id = repository.fetch_source_system_id(spec.source_system_code)
+                    import_batch_id = repository.create_import_batch(
+                        source_system_id=source_system_id,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        dataset_type=spec.dataset_type,
+                        source_filename=None,
+                        source_checksum=None,
+                        source_url=spec.source_url,
+                        file_format=registry_entry.file_format,
+                        dry_run_flag=dry_run,
+                    )
+                    repository.update_import_batch(
+                        import_batch_id,
+                        status="failed",
+                        error_count=1,
+                        status_reason=f"acquisition_failed: {exc}",
+                    )
+                    job_run_id = repository.create_job_run(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        job_name="job_fetch_sources",
+                        job_stage="fetch",
+                        import_batch_id=import_batch_id,
+                        raw_file_id=None,
+                        dry_run_flag=dry_run,
+                        metadata_json={
+                            "dataset_type": spec.dataset_type,
+                            "source_url": spec.source_url,
+                            "acquisition_mode": registry_entry.access_method,
+                        },
+                    )
+                    repository.complete_job_run(
+                        job_run_id,
+                        status="failed",
+                        error_message=str(exc),
+                        metadata_json={
+                            "dataset_type": spec.dataset_type,
+                            "failure_stage": "acquisition",
+                            "acquisition_mode": registry_entry.access_method,
+                        },
+                    )
+                    self._finalize_connection(connection, dry_run=dry_run)
+                    raise
+
+                checksum = hashlib.sha256(acquired.content).hexdigest()
+                duplicate = None if dry_run else repository.find_duplicate_raw_file(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    dataset_type=spec.dataset_type,
+                    checksum=checksum,
+                )
+                if duplicate is not None:
+                    job_run_id = repository.create_job_run(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        job_name="job_fetch_sources",
+                        job_stage="fetch",
+                        import_batch_id=duplicate.import_batch_id,
+                        raw_file_id=duplicate.raw_file_id,
+                        dry_run_flag=False,
+                        metadata_json={
+                            "dataset_type": spec.dataset_type,
+                            "duplicate_checksum": checksum,
+                            "dedupe_action": "skip_existing_batch",
+                        },
+                    )
+                    repository.complete_job_run(
+                        job_run_id,
+                        status="succeeded",
+                        row_count=0,
+                        metadata_json={
+                            "dataset_type": spec.dataset_type,
+                            "duplicate_checksum": checksum,
+                            "dedupe_action": "skip_existing_batch",
+                            "existing_import_batch_id": duplicate.import_batch_id,
+                        },
+                    )
+                    self._finalize_connection(connection, dry_run=False)
+                    results.append(
+                        PipelineStepResult(
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            dataset_type=spec.dataset_type,
+                            import_batch_id=duplicate.import_batch_id,
+                            raw_file_id=duplicate.raw_file_id,
+                            job_run_id=job_run_id,
+                            row_count=int(duplicate.row_count or 0),
+                            status="skipped_duplicate",
+                            message=(
+                                f"Skipped fetch because checksum already exists in import batch "
+                                f"{duplicate.import_batch_id}."
+                            ),
+                        )
+                    )
+                    continue
+
                 source_system_id = repository.fetch_source_system_id(acquired.source_system_code)
                 import_batch_id = repository.create_import_batch(
                     source_system_id=source_system_id,
                     county_id=county_id,
                     tax_year=tax_year,
+                    dataset_type=spec.dataset_type,
                     source_filename=acquired.original_filename,
                     source_checksum=checksum,
                     source_url=acquired.source_url,
@@ -174,15 +284,16 @@ class IngestionLifecycleService:
                 )
                 results.append(
                     PipelineStepResult(
-                        county_id=county_id,
-                        tax_year=tax_year,
-                        dataset_type=spec.dataset_type,
-                        import_batch_id=import_batch_id,
-                        raw_file_id=raw_file_id,
-                        job_run_id=job_run_id,
-                        row_count=self._estimate_record_count(acquired),
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            dataset_type=spec.dataset_type,
+                            import_batch_id=import_batch_id,
+                            raw_file_id=raw_file_id,
+                            job_run_id=job_run_id,
+                            row_count=self._estimate_record_count(acquired),
+                            message=f"Fetched {spec.dataset_type} using {registry_entry.access_method}.",
+                        )
                     )
-                )
         return results
 
     def load_staging(
@@ -289,6 +400,12 @@ class IngestionLifecycleService:
                 status="staged" if error_count == 0 else "validation_failed",
                 row_count=len(inserted),
                 error_count=error_count,
+                publish_state=None if error_count == 0 else "blocked_validation",
+                status_reason=(
+                    "staging_validation_passed"
+                    if error_count == 0
+                    else f"validation_failed: {error_count} error finding(s) blocked publish."
+                ),
             )
             repository.complete_job_run(
                 job_run_id,
@@ -350,6 +467,64 @@ class IngestionLifecycleService:
                 dataset_type=dataset_type,
                 import_batch_id=import_batch_id,
             )
+            validation_error_count = repository.count_validation_errors(
+                import_batch_id=batch.import_batch_id
+            )
+            if validation_error_count > 0:
+                job_run_id = repository.create_job_run(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    job_name="job_normalize",
+                    job_stage="normalize",
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    dry_run_flag=dry_run,
+                    metadata_json={"dataset_type": dataset_type},
+                )
+                message = (
+                    f"Publish blocked because {validation_error_count} validation error finding(s) exist "
+                    f"for import batch {batch.import_batch_id}."
+                )
+                repository.insert_validation_results(
+                    job_run_id=job_run_id,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=[
+                        {
+                            "validation_code": "PUBLISH_BLOCKED_VALIDATION_FAILED",
+                            "message": message,
+                            "severity": "error",
+                            "validation_scope": "publish",
+                            "entity_table": None,
+                            "details_json": {
+                                "dataset_type": dataset_type,
+                                "validation_error_count": validation_error_count,
+                            },
+                        }
+                    ],
+                )
+                repository.update_import_batch(
+                    batch.import_batch_id,
+                    status="publish_blocked",
+                    error_count=validation_error_count,
+                    publish_state="blocked_validation",
+                    status_reason=message,
+                )
+                repository.complete_job_run(
+                    job_run_id,
+                    status="failed",
+                    row_count=0,
+                    error_message=message,
+                    metadata_json={
+                        "dataset_type": dataset_type,
+                        "validation_error_count": validation_error_count,
+                        "publish_blocked": True,
+                    },
+                )
+                self._finalize_connection(connection, dry_run=dry_run)
+                raise RuntimeError(message)
             job_run_id = repository.create_job_run(
                 county_id=county_id,
                 tax_year=tax_year,
@@ -490,6 +665,7 @@ class IngestionLifecycleService:
                 error_count=0,
                 publish_state=publish_result.publish_state,
                 publish_version=publish_result.publish_version,
+                status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
             )
             repository.complete_job_run(
                 job_run_id,
@@ -614,6 +790,11 @@ class IngestionLifecycleService:
                     tax_year=tax_year,
                     parcel_ids=None,
                 )
+                self._refresh_search_documents(
+                    repository=repository,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
             repository.insert_validation_results(
                 job_run_id=job_run_id,
                 import_batch_id=batch.import_batch_id,
@@ -642,6 +823,7 @@ class IngestionLifecycleService:
                 batch.import_batch_id,
                 status="rolled_back",
                 publish_state="rolled_back",
+                status_reason=f"rollback_completed: rolled back {dataset_type} publish and refreshed dependent search state.",
             )
             repository.complete_job_run(
                 job_run_id,
@@ -688,6 +870,19 @@ class IngestionLifecycleService:
                 f"Expected one fetched dataset for {county_id}/{dataset_type}, got {len(fetch_results)}."
             )
         fetch_result = fetch_results[0]
+        if fetch_result.status == "skipped_duplicate":
+            return PipelineRunResult(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                import_batch_id=fetch_result.import_batch_id,
+                rerun_of_import_batch_id=rerun_of_import_batch_id,
+                fetch_result=fetch_result,
+                staging_result=None,
+                normalize_result=None,
+                skipped_duplicate=True,
+                skip_reason=fetch_result.message,
+            )
 
         staging_result = self.load_staging(
             county_id=county_id,

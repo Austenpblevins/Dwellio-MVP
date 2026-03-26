@@ -59,6 +59,7 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
                     source_filename="harris_2025_property_roll.csv",
                     file_format="csv",
                     status="normalized",
+                    status_reason="published_to_canonical: property_roll publish succeeded.",
                     publish_state="published",
                     publish_version="v1",
                     row_count=123,
@@ -84,6 +85,7 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
     assert payload["access_scope"] == "internal"
     assert payload["batches"][0]["dataset_type"] == "property_roll"
     assert payload["batches"][0]["publish_state"] == "published"
+    assert payload["batches"][0]["status_reason"] == "published_to_canonical: property_roll publish succeeded."
 
 
 def test_admin_manual_register_route_uses_existing_backfill_path(monkeypatch) -> None:

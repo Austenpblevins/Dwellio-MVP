@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from app.county_adapters.common.live_acquisition import env_override_for_dataset
+
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "counties"
 
 
@@ -45,6 +47,11 @@ class CountyDatasetYearSupport:
     availability_status: str
     availability_notes: list[str] = field(default_factory=list)
     fixture_path: str | None = None
+    source_file_path: str | None = None
+    request_headers: dict[str, str] = field(default_factory=dict)
+    retry_attempts: int = 1
+    backoff_seconds: float = 0.0
+    timeout_seconds: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -144,29 +151,72 @@ def resolve_dataset_year_support(
     if isinstance(historical_note, str) and historical_note.strip():
         availability_notes.append(historical_note.strip())
 
-    if tax_year in fixture_years:
+    live_override = env_override_for_dataset(
+        county_id=config.county_id,
+        dataset_type=dataset_type,
+        tax_year=tax_year,
+        default_source_url=dataset_config.source_url,
+    )
+
+    if live_override is not None:
+        availability_status = "live_ready"
+        access_method = live_override.access_method
+        fixture_path = None
+        source_url = live_override.source_url
+        source_file_path = live_override.source_file_path
+        request_headers = dict(live_override.headers)
+        retry_attempts = live_override.retry_attempts
+        backoff_seconds = live_override.backoff_seconds
+        timeout_seconds = live_override.timeout_seconds
+        availability_notes.append(
+            f"Live acquisition override active via environment using {access_method}."
+        )
+    elif tax_year in fixture_years:
         availability_status = "fixture_ready"
         access_method = dataset_config.access_method
         fixture_path = metadata.get("fixture_path")
+        source_url = dataset_config.source_url
+        source_file_path = None
+        request_headers = {}
+        retry_attempts = 1
+        backoff_seconds = 0.0
+        timeout_seconds = 30.0
     elif tax_year in manual_backfill_years:
         availability_status = "manual_upload_required"
         access_method = "manual_upload"
         fixture_path = None
+        source_url = dataset_config.source_url
+        source_file_path = None
+        request_headers = {}
+        retry_attempts = 1
+        backoff_seconds = 0.0
+        timeout_seconds = 30.0
     else:
         availability_status = "configured"
         access_method = dataset_config.access_method
         fixture_path = metadata.get("fixture_path")
+        source_url = dataset_config.source_url
+        source_file_path = None
+        request_headers = {}
+        retry_attempts = 1
+        backoff_seconds = 0.0
+        timeout_seconds = 30.0
 
     return CountyDatasetYearSupport(
         dataset_type=dataset_type,
         tax_year=tax_year,
         access_method=access_method,
         file_format=dataset_config.file_format,
-        source_url=dataset_config.source_url,
+        source_url=source_url,
         source_system_code=dataset_config.source_system_code,
         availability_status=availability_status,
         availability_notes=availability_notes,
         fixture_path=fixture_path,
+        source_file_path=source_file_path,
+        request_headers=request_headers,
+        retry_attempts=retry_attempts,
+        backoff_seconds=backoff_seconds,
+        timeout_seconds=timeout_seconds,
     )
 
 
