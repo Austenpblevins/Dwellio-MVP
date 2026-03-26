@@ -1,0 +1,588 @@
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+
+from infra.scripts.convert_2025_real_sources import (
+    convert_fort_bend,
+    convert_harris,
+    resolve_outputs,
+    verify_outputs,
+    HarrisRawPaths,
+    FortBendRawPaths,
+    _open_sqlite,
+)
+
+
+def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir(parents=True)
+
+    harris_paths = _write_harris_raw_files(raw_root)
+    fort_bend_paths = _write_fort_bend_raw_files(raw_root)
+    outputs = resolve_outputs(ready_dir)
+
+    connection = _open_sqlite(tmp_path / "conversion.sqlite3")
+    try:
+        harris_counts = convert_harris(
+            connection=connection,
+            tax_year=2025,
+            raw_paths=harris_paths,
+            property_roll_output=outputs.harris_property_roll,
+            tax_rates_output=outputs.harris_tax_rates,
+        )
+        fort_bend_counts = convert_fort_bend(
+            connection=connection,
+            tax_year=2025,
+            raw_paths=fort_bend_paths,
+            property_roll_output=outputs.fort_bend_property_roll,
+            tax_rates_output=outputs.fort_bend_tax_rates,
+        )
+    finally:
+        connection.close()
+
+    assert harris_counts == {"property_roll": 1, "tax_rates": 2}
+    assert fort_bend_counts == {"property_roll": 1, "tax_rates": 3}
+
+    harris_property_roll = json.loads(outputs.harris_property_roll.read_text(encoding="utf-8"))
+    assert harris_property_roll[0]["account_number"] == "0021440000001"
+    assert harris_property_roll[0]["market_value"] == 484857
+    assert harris_property_roll[0]["school_district_name"] == "HOUSTON ISD"
+
+    with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
+        fort_bend_rows = list(csv.DictReader(handle))
+    assert fort_bend_rows[0]["account_id"] == "5910-04-022-0700-907"
+    assert fort_bend_rows[0]["school_district"] == "Fort Bend ISD"
+    assert fort_bend_rows[0]["market_value"] == "213077"
+
+    results = verify_outputs(outputs=outputs, tax_year=2025)
+    assert all(result.parse_issue_count == 0 for result in results)
+    assert all(result.validation_error_count == 0 for result in results)
+
+
+def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
+    acct_owner_dir = raw_root / "2025 Harris_Real_acct_owner"
+    building_land_dir = raw_root / "2025 Harris_Real_building_land"
+    tax_dir = raw_root / "2025 Harris Roll Source_Real_jur_exempt"
+    acct_owner_dir.mkdir(parents=True)
+    building_land_dir.mkdir(parents=True)
+    tax_dir.mkdir(parents=True)
+
+    real_acct = acct_owner_dir / "real_acct.txt"
+    real_acct.write_text(
+        "\t".join(
+            [
+                "acct",
+                "school_dist",
+                "site_addr_1",
+                "site_addr_2",
+                "site_addr_3",
+                "state_class",
+                "Neighborhood_Code",
+                "land_ar",
+                "acreage",
+                "land_val",
+                "bld_val",
+                "x_features_val",
+                "assessed_val",
+                "tot_appr_val",
+                "tot_mkt_val",
+                "prior_tot_appr_val",
+                "prior_tot_mkt_val",
+                "certified_date",
+                "lgl_1",
+                "lgl_2",
+                "mailto",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "0021440000001",
+                "01",
+                "2120 LIVE OAK ST",
+                "HOUSTON",
+                "77003",
+                "A1",
+                "8400.12",
+                "5000",
+                "0.1148",
+                "220000",
+                "264857",
+                "0",
+                "484857",
+                "342370",
+                "484857",
+                "311246",
+                "510178",
+                "2025-07-20",
+                "LT 1 BLK 426",
+                "SSBB",
+                "CURRENT OWNER",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    owners = acct_owner_dir / "owners.txt"
+    owners.write_text(
+        "acct\tln_num\tname\taka\tpct_own\n"
+        "0021440000001\t1\tTREWICK MICHAEL & MEGONE\t\t1.0000\n",
+        encoding="utf-8",
+    )
+
+    building_res = building_land_dir / "building_res.txt"
+    building_res.write_text(
+        "\t".join(
+            [
+                "acct",
+                "property_use_cd",
+                "qa_cd",
+                "dscr",
+                "date_erected",
+                "eff",
+                "im_sq_ft",
+                "heat_ar",
+                "gross_ar",
+                "eff_ar",
+                "act_ar",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "0021440000001",
+                "A1",
+                "B",
+                "Good",
+                "2004",
+                "2004",
+                "2537",
+                "2537",
+                "2537",
+                "2537",
+                "2537",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    land = building_land_dir / "land.txt"
+    land.write_text(
+        "acct\tnum\tuse_cd\tuse_dscr\tinf_cd\tinf_dscr\tinf_adj\ttp\tuts\tsz_fact\tinf_fact\tcond\tovr_dscr\ttot_adj\tunit_prc\tadj_unit_prc\tval\tovr_val\n"
+        "0021440000001\t1\t8005\tLand Neighborhood Section 5\t4600\t\t1.0000\tSF\t5000.0000\t1.0000\t1.0000\t1.0000\t\t1.0000\t0\t0\t220000\t0\n",
+        encoding="utf-8",
+    )
+
+    tax_rates = tax_dir / "jur_tax_dist_exempt_value_rate.txt"
+    tax_rates.write_text(
+        "RP_TYPE\ttax_dist\tname\texempt_cd\tprop\tcurr\texempt_val\texempt_rate\n"
+        "Real\t001\tHOUSTON ISD\tHS\t0.868300\t0.878300\t65000\t0.000000\n"
+        "Real\t040\tHARRIS COUNTY\tHS\t0.350000\t0.340000\t0\t0.000000\n",
+        encoding="utf-8",
+    )
+
+    return HarrisRawPaths(
+        real_acct=real_acct,
+        owners=owners,
+        building_res=building_res,
+        land=land,
+        tax_rates=tax_rates,
+    )
+
+
+def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
+    extracted_dir = raw_root / "2025 Fort Bend_Certified Export-EXTRACTED"
+    extracted_dir.mkdir(parents=True)
+
+    property_export = extracted_dir / "2025_07_17_1800_PropertyExport.txt"
+    property_export.write_text(
+        ",".join(
+            [
+                "RecordType",
+                "PropertyQuickRefID",
+                "PropertyNumber",
+                "PropertyTypeCode",
+                "SitusStreetAddress",
+                "SitusCity",
+                "SitusState",
+                "SitusZip",
+                "LegalDesc",
+                "AbstractCode",
+                "Block",
+                "Tract",
+                "Acres",
+                "Entities",
+                "StateCodeLand",
+                "StateCodeImp",
+                "ProdUseCode",
+                "ARBProtestFlag",
+                "CADFlag",
+                "ApplyTUPct",
+                "ChangeCode",
+                "Comment",
+                "TaxYear",
+                "SupplementNumber",
+            ]
+        )
+        + "\n"
+        + ",".join(
+            [
+                "1",
+                "R100000",
+                "5910-04-022-0700-907",
+                "RR",
+                "2110 Hilton Head DR",
+                "Missouri City",
+                "TX",
+                "77459",
+                "\"QUAIL VALLEY EAST SEC 4, BLOCK 22, LOT 7\"",
+                "5910-04",
+                "22",
+                "",
+                "0.1148",
+                "\"C09,D01,G01,J07,M27,S07\"",
+                "A1",
+                "A1",
+                "",
+                "0",
+                "\"C09,CAD,D01,G01,J07,M27,S07\"",
+                "",
+                "M",
+                "",
+                "2025",
+                "CERT",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    owner_export = extracted_dir / "2025_07_17_1800_OwnerExport.txt"
+    owner_export.write_text(
+        "\t".join(
+            [
+                "RecordType",
+                "PropertyQuickRefID",
+                "PartyQuickRefID",
+                "OwnerQuickRefID",
+                "OwnerPropertyNumber",
+                "OwnerName",
+                "OwnerAddress1",
+                "OwnerAddress2",
+                "OwnerAddress3",
+                "OwnerCity",
+                "OwnerState",
+                "OwnerPostalCode",
+                "OwnerCountry",
+                "AddressType",
+                "UndeliverableFlag",
+                "OwnershipPercentage",
+                "ConfidentialFlag",
+                "CAAgentID",
+                "ARBAgentID",
+                "EntityAgentID",
+                "DBA",
+                "ImpHSValue",
+                "ImpNHSValue",
+                "LandHSValue",
+                "LandNHSValue",
+                "AgMktValue",
+                "AgUseValue",
+                "TimMktValue",
+                "TimUseValue",
+                "HSCapAdj",
+                "PersonalValue",
+                "MineralValue",
+                "AutoValue",
+                "NewImpHS",
+                "RenditionPenaltyPct",
+                "CurrentOwnerName",
+                "CurrentOwnerAddress1",
+                "CurrentOwnerAddress2",
+                "CurrentOwnerAddress3",
+                "CurrentOwnerCity",
+                "CurrentOwnerState",
+                "CurrentOwnerPostalCode",
+                "CurrentOwnerCountry",
+                "CurrentAddressType",
+                "CBLCapAdj",
+                "",
+                "CurrentPartyQuickRefID",
+                "CurrentOwnerQuickRefID",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "2",
+                "R100000",
+                "O0895068",
+                "R100000",
+                "5910-04-022-0700-907",
+                "Shearita Denene Singleton Revocable Living Trust",
+                "200 S Paulsen AVE",
+                "",
+                "",
+                "Compton",
+                "CA",
+                "90220-6712",
+                "",
+                "S",
+                "0",
+                "100",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "183177",
+                "0",
+                "29900",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "",
+                "",
+                "",
+                "0",
+                "",
+                "Shearita Denene Singleton Revocable Living Trust",
+                "200 S Paulsen AVE",
+                "",
+                "",
+                "Compton",
+                "CA",
+                "90220-6712",
+                "",
+                "S",
+                "0",
+                "",
+                "O0895068",
+                "R100000",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    exemption_export = extracted_dir / "2025_07_17_1800_ExemptionExport.txt"
+    exemption_export.write_text(
+        "RecordType\tOwnerQuickRefID\tExemptionCode\tApplicationDate\tEffectiveDate\tTerminationDate\tSurvivingSpouseIndicator\tExemptionPct\tType\tLevel\tChildren\tDVO65Flag\tTransferDate\tTransferAmount\tBICode\tBIPercentage\tSPEXInfo\tTaxingUnitsOA\tTaxingUnitsDP\tDSSTRDate\tDSSTPDate\tDSSTYDate\n"
+        "3\tR100000\tHS\t2/2/2011\t1/1/2009\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n",
+        encoding="utf-8",
+    )
+
+    residential_segments = raw_root / "WebsiteResidentialSegs-7-22.csv"
+    residential_segments.write_text(
+        ",".join(
+            [
+                "vwPropertyGeneral_AdHocTaxYear",
+                "PropertyStatusCode",
+                "QuickRefID",
+                "PropertyNumber",
+                "PropertyTypeCode",
+                "PropertyID",
+                "InstanceID",
+                "cama_TSGRSeg_AdHocTaxYear",
+                "NodeID",
+                "TreeNodeID",
+                "LBound",
+                "ParentNodeID",
+                "LPParentNodeID",
+                "FirstPage",
+                "fActYear",
+                "fAddlFixtures",
+                "fApexMapping",
+                "fApprMethod",
+                "fArea",
+                "fAreaFactor",
+                "fBedrooms",
+                "fCapPercent",
+                "fCapStatus",
+                "fCapYear",
+                "fCDU",
+                "fChangeFinder",
+                "fComment",
+                "fCondition",
+                "fConstStyle",
+                "fEconCd",
+                "fEconomic",
+                "fEffYear",
+                "fExtFinish",
+                "fFireplace",
+                "fFlatValue",
+                "fFlooring",
+                "fFoundation",
+                "fFunctional",
+                "fFuntionalCd",
+                "fHeatAC",
+                "fIntFinish",
+                "fNumHalfBath",
+                "fNumQuaterBath",
+                "fPercentComplete",
+                "fPercentGood",
+                "fPerimeter",
+                "fPhysical",
+                "fPhysicalCd",
+                "fPlumbing",
+                "fRemodComments",
+                "fRemodType",
+                "fRemodYear",
+                "fRoof",
+                "fRooms",
+                "fSegClass",
+                "fSegType",
+                "fUpgrade",
+                "fUpgradeReason",
+                "fUpgradeReasons",
+                "fVectors",
+                "vTSGRSeg_AdjArea",
+                "vTSGRSeg_AdjFactor",
+                "vTSGRSeg_CalcPctGood",
+                "vTSGRSeg_DefaultCDU",
+                "vTSGRSeg_EconPercent",
+                "vTSGRSeg_FixedIncrement",
+                "vTSGRSeg_FixedIncUnAdj",
+                "vTSGRSeg_FPValue",
+                "vTSGRSeg_FuncPercent",
+                "vTSGRSeg_ImpNum",
+                "vTSGRSeg_ImpSegNum",
+                "vTSGRSeg_MktUnitPrice",
+                "vTSGRSeg_NbhdPercent",
+                "vTSGRSeg_PercentGood",
+                "vTSGRSeg_PhysPercent",
+                "vTSGRSeg_SegmentValNbhd",
+                "vTSGRSeg_SegmentValue",
+                "vTSGRSeg_SegmentValueUnadj",
+                "vTSGRSeg_SegNewValue",
+                "vTSGRSeg_SegNewYear",
+                "vTSGRSeg_SumPorch",
+                "vTSGRSeg_TableClass",
+                "vTSGRSeg_TempVar",
+                "vTSGRSeg_UnitPrice",
+                "vTSGRSeg_UnitPrUnAdj",
+                "vTSGRSeg_YearNewValue",
+                "vTSGRSeg_FireplaceValue",
+                "vTSGRSeg_UpgradeValue",
+            ]
+        )
+        + "\n"
+        + ",".join(
+            [
+                "2025",
+                "A",
+                "R100000",
+                "5910-04-022-0700-907",
+                "RR",
+                "50090",
+                "505669",
+                "2025",
+                "11",
+                "85973000",
+                "9",
+                "85972999",
+                "85972998",
+                "1",
+                "1976",
+                "",
+                "21",
+                "RMS",
+                "1305",
+                "",
+                "4",
+                "",
+                "",
+                "",
+                "21",
+                "",
+                "",
+                "0",
+                "CV",
+                "",
+                "",
+                "1976",
+                "",
+                "",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "1",
+                "",
+                "",
+                "70",
+                "164",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "RA2",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "1305",
+                "0.57",
+                "57",
+                "",
+                "100",
+                "18322",
+                "14427",
+                "18322",
+                "100",
+                "1",
+                "1",
+                "127",
+                "57",
+                "100",
+                "189875",
+                "108229",
+                "149508",
+                "",
+                "",
+                "0",
+                "",
+                "",
+                "131.46",
+                "103.51",
+                "",
+                "9699",
+                "0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    tax_rates = raw_root / "2025 Fort Bend Tax Rate Source.csv"
+    tax_rates.write_text(
+        "Code,Taxing Unit,Type,Contact Name,State Number,Total Rate,I&S Rate,M&O Rate,Prev Rate\n"
+        "C09,City of Missouri City,City,Fort Bend County,07910903,1.1594830,0.6496190,0.5098640,0.6496190\n"
+        "S07,Fort Bend ISD,School,Fort Bend County,07990100,1.1200000,0.2500000,0.8700000,1.1000000\n"
+        "G01,Fort Bend County,County General,Fort Bend County,07900000,0.4200000,0.0000000,0.4200000,0.4200000\n",
+        encoding="utf-8",
+    )
+
+    return FortBendRawPaths(
+        property_export=property_export,
+        owner_export=owner_export,
+        exemption_export=exemption_export,
+        residential_segments=residential_segments,
+        tax_rates=tax_rates,
+    )

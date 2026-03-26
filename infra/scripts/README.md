@@ -6,3 +6,4 @@
 - `register_manual_import.py`: registers a real manually downloaded county file into `import_batches` and `raw_files` for historical backfill.
 - `report_data_readiness.py`: reports county/tax-year raw, canonical, and derived readiness for QA year selection and backfill verification.
 - `report_historical_validation.py`: ranks candidate tax years for reproducible historical QA and summarizes what validation surfaces are actually ready.
+- `convert_2025_real_sources.py`: converts the real 2025 Harris and Fort Bend county export files into the adapter-ready local files PR1 expects for historical/live-source pilot validation.
