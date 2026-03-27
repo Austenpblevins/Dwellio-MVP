@@ -18,6 +18,10 @@ from app.utils.storage import build_storage_path
 
 logger = get_logger(__name__)
 
+PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE = 2000
+PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE = 10000
+PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD = 50_000
+
 
 @dataclass(frozen=True)
 class PipelineStepResult:
@@ -535,32 +539,87 @@ class IngestionLifecycleService:
                 dry_run_flag=dry_run,
                 metadata_json={"dataset_type": dataset_type},
             )
-            staged_rows = repository.fetch_staging_rows(
-                import_batch_id=batch.import_batch_id,
-                dataset_type=dataset_type,
-            )
-            normalized = adapter.normalize_staging_to_canonical(
-                dataset_type,
-                [row["raw_payload"] for row in staged_rows],
-            )
-            if dataset_type == "property_roll":
-                rollback_manifest = repository.capture_property_roll_rollback_manifest(
-                    county_id=county_id,
-                    tax_year=tax_year,
-                    account_numbers=[
-                        record["parcel"]["account_number"] for record in normalized["property_roll"]
-                    ],
-                )
-
-                canonical_targets = repository.upsert_property_roll_records(
-                    county_id=county_id,
-                    tax_year=tax_year,
+            staging_row_count = (
+                repository.count_staging_rows(
                     import_batch_id=batch.import_batch_id,
-                    job_run_id=job_run_id,
-                    source_system_id=batch.source_system_id,
-                    normalized_records=normalized["property_roll"],
+                    dataset_type=dataset_type,
                 )
+                if hasattr(repository, "count_staging_rows")
+                else 0
+            )
+            bulk_property_roll_mode = (
+                dataset_type == "property_roll"
+                and staging_row_count > PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD
+            )
+            canonical_targets: list[dict[str, str]] = []
+            property_roll_row_count = 0
+            rollback_manifest: dict[str, Any]
+
+            if dataset_type == "property_roll":
+                rollback_manifest = {"dataset_type": "property_roll", "entries": []}
+                for staged_rows in repository.iterate_staging_rows(
+                    import_batch_id=batch.import_batch_id,
+                    dataset_type=dataset_type,
+                    chunk_size=(
+                        PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE
+                        if bulk_property_roll_mode
+                        else PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE
+                    ),
+                ):
+                    normalized = adapter.normalize_staging_to_canonical(
+                        dataset_type,
+                        [row["raw_payload"] for row in staged_rows],
+                    )
+                    property_roll_records = normalized["property_roll"]
+                    rollback_chunk = repository.capture_property_roll_rollback_manifest(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        account_numbers=[
+                            record["parcel"]["account_number"] for record in property_roll_records
+                        ],
+                    )
+                    rollback_manifest["entries"].extend(rollback_chunk.get("entries", []))
+                    chunk_targets = repository.upsert_property_roll_records(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        import_batch_id=batch.import_batch_id,
+                        job_run_id=job_run_id,
+                        source_system_id=batch.source_system_id,
+                        normalized_records=property_roll_records,
+                        include_detail_tables=not bulk_property_roll_mode,
+                    )
+                    if not bulk_property_roll_mode:
+                        repository.insert_lineage_records(
+                            {
+                                "job_run_id": job_run_id,
+                                "import_batch_id": batch.import_batch_id,
+                                "raw_file_id": batch.raw_file_id,
+                                "relation_type": "staging_to_canonical",
+                                "source_table": staged_rows[index]["staging_table"],
+                                "source_id": staged_rows[index]["staging_row_id"],
+                                "target_table": target["target_table"],
+                                "target_id": target["target_id"],
+                                "source_record_hash": staged_rows[index]["row_hash"],
+                                "details_json": {
+                                    "dataset_type": dataset_type,
+                                    "parcel_id": target.get("parcel_id"),
+                                    "taxing_unit_id": target.get("taxing_unit_id"),
+                                },
+                            }
+                            for index, target in enumerate(chunk_targets)
+                        )
+                    property_roll_row_count += len(chunk_targets)
+                    if not bulk_property_roll_mode:
+                        canonical_targets.extend(chunk_targets)
             elif dataset_type == "tax_rates":
+                staged_rows = repository.fetch_staging_rows(
+                    import_batch_id=batch.import_batch_id,
+                    dataset_type=dataset_type,
+                )
+                normalized = adapter.normalize_staging_to_canonical(
+                    dataset_type,
+                    [row["raw_payload"] for row in staged_rows],
+                )
                 rollback_manifest = repository.capture_tax_rate_rollback_manifest(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -577,6 +636,14 @@ class IngestionLifecycleService:
                     normalized_records=normalized["tax_rates"],
                 )
             elif dataset_type == "deeds":
+                staged_rows = repository.fetch_staging_rows(
+                    import_batch_id=batch.import_batch_id,
+                    dataset_type=dataset_type,
+                )
+                normalized = adapter.normalize_staging_to_canonical(
+                    dataset_type,
+                    [row["raw_payload"] for row in staged_rows],
+                )
                 rollback_manifest = repository.capture_deed_rollback_manifest(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -592,35 +659,42 @@ class IngestionLifecycleService:
                 )
             else:
                 raise ValueError(f"Unsupported normalize dataset_type={dataset_type}.")
-            repository.insert_lineage_records(
-                {
-                    "job_run_id": job_run_id,
-                    "import_batch_id": batch.import_batch_id,
-                    "raw_file_id": batch.raw_file_id,
-                    "relation_type": "staging_to_canonical",
-                    "source_table": staged_rows[index]["staging_table"],
-                    "source_id": staged_rows[index]["staging_row_id"],
-                    "target_table": target["target_table"],
-                    "target_id": target["target_id"],
-                    "source_record_hash": staged_rows[index]["row_hash"],
-                    "details_json": {
-                        "dataset_type": dataset_type,
-                        "parcel_id": target.get("parcel_id"),
-                        "taxing_unit_id": target.get("taxing_unit_id"),
-                    },
-                }
-                for index, target in enumerate(canonical_targets)
-            )
-            self._refresh_tax_assignments(
-                repository=repository,
-                county_id=county_id,
-                tax_year=tax_year,
-                import_batch_id=batch.import_batch_id,
-                job_run_id=job_run_id,
-                source_system_id=batch.source_system_id,
-                force=dataset_type == "tax_rates",
-            )
-            if dataset_type in {"property_roll", "deeds"}:
+            if dataset_type != "property_roll":
+                repository.insert_lineage_records(
+                    {
+                        "job_run_id": job_run_id,
+                        "import_batch_id": batch.import_batch_id,
+                        "raw_file_id": batch.raw_file_id,
+                        "relation_type": "staging_to_canonical",
+                        "source_table": staged_rows[index]["staging_table"],
+                        "source_id": staged_rows[index]["staging_row_id"],
+                        "target_table": target["target_table"],
+                        "target_id": target["target_id"],
+                        "source_record_hash": staged_rows[index]["row_hash"],
+                        "details_json": {
+                            "dataset_type": dataset_type,
+                            "parcel_id": target.get("parcel_id"),
+                            "taxing_unit_id": target.get("taxing_unit_id"),
+                        },
+                    }
+                    for index, target in enumerate(canonical_targets)
+                )
+
+            deferred_steps: list[str] = []
+            if not bulk_property_roll_mode:
+                self._refresh_tax_assignments(
+                    repository=repository,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    import_batch_id=batch.import_batch_id,
+                    job_run_id=job_run_id,
+                    source_system_id=batch.source_system_id,
+                    force=dataset_type == "tax_rates",
+                )
+            elif dataset_type == "property_roll":
+                deferred_steps.append("tax_assignments")
+
+            if dataset_type in {"property_roll", "deeds"} and not bulk_property_roll_mode:
                 self._refresh_owner_reconciliation(
                     repository=repository,
                     county_id=county_id,
@@ -631,6 +705,11 @@ class IngestionLifecycleService:
                         if target.get("parcel_id") is not None
                     ],
                 )
+            elif dataset_type == "property_roll" and bulk_property_roll_mode:
+                deferred_steps.append("owner_reconciliation")
+                deferred_steps.append("lineage_records")
+
+            if dataset_type in {"property_roll", "deeds"}:
                 self._refresh_search_documents(
                     repository=repository,
                     county_id=county_id,
@@ -658,10 +737,35 @@ class IngestionLifecycleService:
                     }
                 ],
             )
+            if deferred_steps:
+                repository.insert_validation_results(
+                    job_run_id=job_run_id,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=[
+                        {
+                            "validation_code": "DERIVED_REFRESH_DEFERRED",
+                            "message": (
+                                "Deferred post-publish refresh steps for bulk property_roll publish "
+                                "to keep real-county ingest within PR1 runtime bounds."
+                            ),
+                            "severity": "info",
+                            "validation_scope": "publish",
+                            "entity_table": "parcel_year_snapshots",
+                            "details_json": {
+                                "dataset_type": dataset_type,
+                                "deferred_steps": deferred_steps,
+                                "staging_row_count": staging_row_count,
+                            },
+                        }
+                    ],
+                )
             repository.update_import_batch(
                 batch.import_batch_id,
                 status="normalized",
-                row_count=len(canonical_targets),
+                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
                 error_count=0,
                 publish_state=publish_result.publish_state,
                 publish_version=publish_result.publish_version,
@@ -670,13 +774,14 @@ class IngestionLifecycleService:
             repository.complete_job_run(
                 job_run_id,
                 status="succeeded",
-                row_count=len(canonical_targets),
+                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
                 publish_version=publish_result.publish_version,
                 metadata_json={
                     "dataset_type": dataset_type,
                     "dry_run": dry_run,
                     "publish_result": publish_result.details_json,
                     "rollback_manifest": rollback_manifest,
+                    "deferred_post_publish_steps": deferred_steps,
                 },
             )
             self._finalize_connection(connection, dry_run=dry_run)
@@ -688,7 +793,7 @@ class IngestionLifecycleService:
                     "dataset_type": dataset_type,
                     "import_batch_id": batch.import_batch_id,
                     "dry_run": dry_run,
-                    "row_count": len(canonical_targets),
+                    "row_count": property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
                     "publish_version": publish_result.publish_version,
                 },
             )
@@ -699,7 +804,7 @@ class IngestionLifecycleService:
                 import_batch_id=batch.import_batch_id,
                 raw_file_id=batch.raw_file_id,
                 job_run_id=job_run_id,
-                row_count=len(canonical_targets),
+                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
                 publish_version=publish_result.publish_version,
             )
 

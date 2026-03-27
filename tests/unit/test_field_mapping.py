@@ -21,14 +21,31 @@ def test_harris_field_mapping_builds_expected_sections() -> None:
     )
 
     assert normalized["parcel"]["account_number"] == "1001001001001"
+    assert normalized["parcel"]["property_type_code"] == "sfr"
     assert normalized["address"]["normalized_address"] == "101 MAIN ST HOUSTON TX 77002"
     assert normalized["characteristics"]["homestead_flag"] is True
+    assert normalized["characteristics"]["property_type_code"] == "sfr"
     assert normalized["improvements"][0]["building_label"] == "Main"
     assert normalized["land_segments"][0]["segment_num"] == 1
     assert normalized["value_components"][2]["taxable_value"] == 230000
     assert normalized["assessment"]["exemption_value_total"] == 100000
     assert normalized["exemptions"][0]["exemption_type_code"] == "homestead"
     assert normalized["exemptions"][0]["raw_exemption_code"] == "HS"
+
+
+def test_harris_field_mapping_clamps_property_type_to_supported_mvp_code() -> None:
+    config = load_county_adapter_config("harris")
+    source_row = dict(build_harris_fixture_rows()[0])
+    source_row["property_type_code"] = "real_property"
+
+    normalized = build_normalized_record(
+        config=config,
+        dataset_type="property_roll",
+        source_row=source_row,
+    )
+
+    assert normalized["parcel"]["property_type_code"] == "sfr"
+    assert normalized["characteristics"]["property_type_code"] == "sfr"
 
 
 def test_harris_required_source_fields_are_config_driven() -> None:
