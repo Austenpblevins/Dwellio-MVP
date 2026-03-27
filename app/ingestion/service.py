@@ -19,7 +19,7 @@ from app.utils.storage import build_storage_path
 logger = get_logger(__name__)
 
 PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE = 2000
-PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE = 10000
+PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE = 50000
 PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD = 50_000
 
 
@@ -453,6 +453,7 @@ class IngestionLifecycleService:
         dry_run: bool = False,
     ) -> PipelineStepResult:
         adapter = self._resolve_adapter(county_id)
+        post_commit_search_context: dict[str, Any] | None = None
         with get_connection() as connection:
             repository = IngestionRepository(connection)
             logger.info(
@@ -551,66 +552,99 @@ class IngestionLifecycleService:
                 dataset_type == "property_roll"
                 and staging_row_count > PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD
             )
+            existing_bulk_property_roll_rows = (
+                repository.count_property_roll_rows_for_import_batch(
+                    import_batch_id=batch.import_batch_id,
+                )
+                if bulk_property_roll_mode
+                else 0
+            )
             canonical_targets: list[dict[str, str]] = []
             property_roll_row_count = 0
             rollback_manifest: dict[str, Any]
 
             if dataset_type == "property_roll":
                 rollback_manifest = {"dataset_type": "property_roll", "entries": []}
-                for staged_rows in repository.iterate_staging_rows(
-                    import_batch_id=batch.import_batch_id,
-                    dataset_type=dataset_type,
-                    chunk_size=(
-                        PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE
-                        if bulk_property_roll_mode
-                        else PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE
-                    ),
-                ):
-                    normalized = adapter.normalize_staging_to_canonical(
-                        dataset_type,
-                        [row["raw_payload"] for row in staged_rows],
+                if existing_bulk_property_roll_rows > 0:
+                    property_roll_row_count = existing_bulk_property_roll_rows
+                    logger.info(
+                        "property_roll bulk normalize recovery mode detected committed canonical rows",
+                        extra={
+                            "county_id": county_id,
+                            "tax_year": tax_year,
+                            "import_batch_id": batch.import_batch_id,
+                            "existing_bulk_property_roll_rows": existing_bulk_property_roll_rows,
+                        },
                     )
-                    property_roll_records = normalized["property_roll"]
-                    rollback_chunk = repository.capture_property_roll_rollback_manifest(
-                        county_id=county_id,
-                        tax_year=tax_year,
-                        account_numbers=[
-                            record["parcel"]["account_number"] for record in property_roll_records
-                        ],
-                    )
-                    rollback_manifest["entries"].extend(rollback_chunk.get("entries", []))
-                    chunk_targets = repository.upsert_property_roll_records(
-                        county_id=county_id,
-                        tax_year=tax_year,
+                else:
+                    processed_property_roll_rows = 0
+                    for staged_rows in repository.iterate_staging_rows(
                         import_batch_id=batch.import_batch_id,
-                        job_run_id=job_run_id,
-                        source_system_id=batch.source_system_id,
-                        normalized_records=property_roll_records,
-                        include_detail_tables=not bulk_property_roll_mode,
-                    )
-                    if not bulk_property_roll_mode:
-                        repository.insert_lineage_records(
-                            {
-                                "job_run_id": job_run_id,
-                                "import_batch_id": batch.import_batch_id,
-                                "raw_file_id": batch.raw_file_id,
-                                "relation_type": "staging_to_canonical",
-                                "source_table": staged_rows[index]["staging_table"],
-                                "source_id": staged_rows[index]["staging_row_id"],
-                                "target_table": target["target_table"],
-                                "target_id": target["target_id"],
-                                "source_record_hash": staged_rows[index]["row_hash"],
-                                "details_json": {
-                                    "dataset_type": dataset_type,
-                                    "parcel_id": target.get("parcel_id"),
-                                    "taxing_unit_id": target.get("taxing_unit_id"),
-                                },
-                            }
-                            for index, target in enumerate(chunk_targets)
+                        dataset_type=dataset_type,
+                        chunk_size=(
+                            PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE
+                            if bulk_property_roll_mode
+                            else PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE
+                        ),
+                    ):
+                        normalized = adapter.normalize_staging_to_canonical(
+                            dataset_type,
+                            [row["raw_payload"] for row in staged_rows],
                         )
-                    property_roll_row_count += len(chunk_targets)
-                    if not bulk_property_roll_mode:
-                        canonical_targets.extend(chunk_targets)
+                        property_roll_records = normalized["property_roll"]
+                        rollback_chunk = repository.capture_property_roll_rollback_manifest(
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            account_numbers=[
+                                record["parcel"]["account_number"] for record in property_roll_records
+                            ],
+                        )
+                        rollback_manifest["entries"].extend(rollback_chunk.get("entries", []))
+                        chunk_targets = repository.upsert_property_roll_records(
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            import_batch_id=batch.import_batch_id,
+                            job_run_id=job_run_id,
+                            source_system_id=batch.source_system_id,
+                            normalized_records=property_roll_records,
+                            include_detail_tables=not bulk_property_roll_mode,
+                        )
+                        if not bulk_property_roll_mode:
+                            repository.insert_lineage_records(
+                                {
+                                    "job_run_id": job_run_id,
+                                    "import_batch_id": batch.import_batch_id,
+                                    "raw_file_id": batch.raw_file_id,
+                                    "relation_type": "staging_to_canonical",
+                                    "source_table": staged_rows[index]["staging_table"],
+                                    "source_id": staged_rows[index]["staging_row_id"],
+                                    "target_table": target["target_table"],
+                                    "target_id": target["target_id"],
+                                    "source_record_hash": staged_rows[index]["row_hash"],
+                                    "details_json": {
+                                        "dataset_type": dataset_type,
+                                        "parcel_id": target.get("parcel_id"),
+                                        "taxing_unit_id": target.get("taxing_unit_id"),
+                                    },
+                                }
+                                for index, target in enumerate(chunk_targets)
+                            )
+                        property_roll_row_count += len(property_roll_records)
+                        processed_property_roll_rows += len(property_roll_records)
+                        if bulk_property_roll_mode:
+                            logger.info(
+                                "property_roll bulk normalize chunk finished",
+                                extra={
+                                    "county_id": county_id,
+                                    "tax_year": tax_year,
+                                    "import_batch_id": batch.import_batch_id,
+                                    "processed_rows": processed_property_roll_rows,
+                                    "staging_row_count": staging_row_count,
+                                    "chunk_row_count": len(property_roll_records),
+                                },
+                            )
+                        if not bulk_property_roll_mode:
+                            canonical_targets.extend(chunk_targets)
             elif dataset_type == "tax_rates":
                 staged_rows = repository.fetch_staging_rows(
                     import_batch_id=batch.import_batch_id,
@@ -709,12 +743,17 @@ class IngestionLifecycleService:
                 deferred_steps.append("owner_reconciliation")
                 deferred_steps.append("lineage_records")
 
-            if dataset_type in {"property_roll", "deeds"}:
+            if dataset_type in {"property_roll", "deeds"} and not (
+                dataset_type == "property_roll" and bulk_property_roll_mode
+            ):
                 self._refresh_search_documents(
                     repository=repository,
                     county_id=county_id,
                     tax_year=tax_year,
                 )
+            final_row_count = (
+                property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets)
+            )
             publish_result = adapter.publish_dataset(job_run_id, tax_year, dataset_type)
             repository.insert_validation_results(
                 job_run_id=job_run_id,
@@ -762,29 +801,153 @@ class IngestionLifecycleService:
                         }
                     ],
                 )
-            repository.update_import_batch(
-                batch.import_batch_id,
-                status="normalized",
-                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
-                error_count=0,
-                publish_state=publish_result.publish_state,
-                publish_version=publish_result.publish_version,
-                status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
-            )
-            repository.complete_job_run(
-                job_run_id,
-                status="succeeded",
-                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
-                publish_version=publish_result.publish_version,
-                metadata_json={
-                    "dataset_type": dataset_type,
-                    "dry_run": dry_run,
-                    "publish_result": publish_result.details_json,
+            if dataset_type == "property_roll" and bulk_property_roll_mode:
+                post_commit_search_context = {
+                    "batch": batch,
+                    "job_run_id": job_run_id,
                     "rollback_manifest": rollback_manifest,
-                    "deferred_post_publish_steps": deferred_steps,
-                },
-            )
-            self._finalize_connection(connection, dry_run=dry_run)
+                    "deferred_steps": deferred_steps,
+                    "final_row_count": final_row_count,
+                    "publish_result": publish_result,
+                }
+                self._finalize_connection(connection, dry_run=dry_run)
+            else:
+                repository.update_import_batch(
+                    batch.import_batch_id,
+                    status="normalized",
+                    row_count=final_row_count,
+                    error_count=0,
+                    publish_state=publish_result.publish_state,
+                    publish_version=publish_result.publish_version,
+                    status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
+                )
+                repository.complete_job_run(
+                    job_run_id,
+                    status="succeeded",
+                    row_count=final_row_count,
+                    publish_version=publish_result.publish_version,
+                    metadata_json={
+                        "dataset_type": dataset_type,
+                        "dry_run": dry_run,
+                        "publish_result": publish_result.details_json,
+                        "rollback_manifest": rollback_manifest,
+                        "deferred_post_publish_steps": deferred_steps,
+                    },
+                )
+                self._finalize_connection(connection, dry_run=dry_run)
+                logger.info(
+                    "normalize completed",
+                    extra={
+                        "county_id": county_id,
+                        "tax_year": tax_year,
+                        "dataset_type": dataset_type,
+                        "import_batch_id": batch.import_batch_id,
+                        "dry_run": dry_run,
+                        "row_count": final_row_count,
+                        "publish_version": publish_result.publish_version,
+                    },
+                )
+                return PipelineStepResult(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    dataset_type=dataset_type,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    job_run_id=job_run_id,
+                    row_count=final_row_count,
+                    publish_version=publish_result.publish_version,
+                )
+
+        if post_commit_search_context is not None:
+            batch = post_commit_search_context["batch"]
+            job_run_id = post_commit_search_context["job_run_id"]
+            rollback_manifest = post_commit_search_context["rollback_manifest"]
+            deferred_steps = post_commit_search_context["deferred_steps"]
+            final_row_count = post_commit_search_context["final_row_count"]
+            publish_result = post_commit_search_context["publish_result"]
+            try:
+                with get_connection() as post_commit_connection:
+                    post_commit_repository = IngestionRepository(post_commit_connection)
+                    self._refresh_search_documents(
+                        repository=post_commit_repository,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                    )
+                    post_commit_repository.insert_validation_results(
+                        job_run_id=job_run_id,
+                        import_batch_id=batch.import_batch_id,
+                        raw_file_id=batch.raw_file_id,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        findings=[
+                            {
+                                "validation_code": "SEARCH_REFRESH_OK",
+                                "message": "Search documents refreshed after bulk property_roll publish.",
+                                "severity": "info",
+                                "validation_scope": "publish",
+                                "entity_table": "search_documents",
+                                "details_json": {
+                                    "dataset_type": dataset_type,
+                                    "post_commit_refresh": True,
+                                },
+                            }
+                        ],
+                    )
+                    post_commit_repository.update_import_batch(
+                        batch.import_batch_id,
+                        status="normalized",
+                        row_count=final_row_count,
+                        error_count=0,
+                        publish_state=publish_result.publish_state,
+                        publish_version=publish_result.publish_version,
+                        status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
+                    )
+                    post_commit_repository.complete_job_run(
+                        job_run_id,
+                        status="succeeded",
+                        row_count=final_row_count,
+                        publish_version=publish_result.publish_version,
+                        metadata_json={
+                            "dataset_type": dataset_type,
+                            "dry_run": dry_run,
+                            "publish_result": publish_result.details_json,
+                            "rollback_manifest": rollback_manifest,
+                            "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_search_refresh": True,
+                        },
+                    )
+                    self._finalize_connection(post_commit_connection, dry_run=dry_run)
+            except Exception as exc:
+                with get_connection() as error_connection:
+                    error_repository = IngestionRepository(error_connection)
+                    error_repository.update_import_batch(
+                        batch.import_batch_id,
+                        status="failed",
+                        row_count=final_row_count,
+                        error_count=1,
+                        publish_state=publish_result.publish_state,
+                        publish_version=publish_result.publish_version,
+                        status_reason=f"post_commit_search_refresh_failed: {exc}",
+                    )
+                    error_repository.complete_job_run(
+                        job_run_id,
+                        status="failed",
+                        row_count=final_row_count,
+                        publish_version=publish_result.publish_version,
+                        error_message=str(exc),
+                        metadata_json={
+                            "dataset_type": dataset_type,
+                            "dry_run": dry_run,
+                            "publish_result": publish_result.details_json,
+                            "rollback_manifest": rollback_manifest,
+                            "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_search_refresh": True,
+                            "post_commit_search_refresh_failed": True,
+                        },
+                    )
+                    self._finalize_connection(error_connection, dry_run=False)
+                raise
+
             logger.info(
                 "normalize completed",
                 extra={
@@ -793,7 +956,7 @@ class IngestionLifecycleService:
                     "dataset_type": dataset_type,
                     "import_batch_id": batch.import_batch_id,
                     "dry_run": dry_run,
-                    "row_count": property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
+                    "row_count": final_row_count,
                     "publish_version": publish_result.publish_version,
                 },
             )
@@ -804,7 +967,7 @@ class IngestionLifecycleService:
                 import_batch_id=batch.import_batch_id,
                 raw_file_id=batch.raw_file_id,
                 job_run_id=job_run_id,
-                row_count=property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets),
+                row_count=final_row_count,
                 publish_version=publish_result.publish_version,
             )
 

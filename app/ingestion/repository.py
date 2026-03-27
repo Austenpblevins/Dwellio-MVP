@@ -652,6 +652,19 @@ class IngestionRepository:
             return 0
         return int(row["count"] or 0)
 
+    def count_property_roll_rows_for_import_batch(self, *, import_batch_id: str) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_year_snapshots
+            WHERE import_batch_id = %s
+            """,
+            (import_batch_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def insert_validation_results(
         self,
         *,
@@ -753,6 +766,18 @@ class IngestionRepository:
         appraisal_district_id = self.fetch_appraisal_district_id(county_id)
         lineage_records: list[dict[str, str]] = []
         if not normalized_records:
+            return lineage_records
+
+        if not include_detail_tables:
+            self._bulk_upsert_property_roll_core_records(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+                appraisal_district_id=appraisal_district_id,
+                normalized_records=normalized_records,
+            )
             return lineage_records
 
         account_numbers = [record["parcel"]["account_number"] for record in normalized_records]
@@ -1358,6 +1383,418 @@ class IngestionRepository:
             )
 
         return lineage_records
+
+    def _bulk_upsert_property_roll_core_records(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+        appraisal_district_id: str,
+        normalized_records: list[dict[str, Any]],
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_core_upsert (
+                  account_number text PRIMARY KEY,
+                  cad_property_id text,
+                  situs_address text,
+                  situs_city text,
+                  situs_zip text,
+                  owner_name text,
+                  parcel_property_type_code text,
+                  property_class_code text,
+                  neighborhood_code text,
+                  subdivision_name text,
+                  school_district_name text,
+                  source_record_hash text,
+                  normalized_address text,
+                  cad_owner_name text,
+                  cad_owner_name_normalized text,
+                  characteristics_property_type_code text,
+                  characteristics_property_class_code text,
+                  characteristics_neighborhood_code text,
+                  characteristics_subdivision_name text,
+                  characteristics_school_district_name text,
+                  homestead_flag boolean,
+                  owner_occupied_flag boolean,
+                  primary_use_code text,
+                  neighborhood_group text,
+                  effective_age integer,
+                  land_value numeric,
+                  improvement_value numeric,
+                  market_value numeric,
+                  assessed_value numeric,
+                  capped_value numeric,
+                  appraised_value numeric,
+                  exemption_value_total numeric,
+                  notice_value numeric,
+                  certified_value numeric,
+                  prior_year_market_value numeric,
+                  prior_year_assessed_value numeric
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_core_upsert")
+            with cursor.copy(
+                """
+                COPY tmp_property_roll_core_upsert (
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  situs_zip,
+                  owner_name,
+                  parcel_property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  source_record_hash,
+                  normalized_address,
+                  cad_owner_name,
+                  cad_owner_name_normalized,
+                  characteristics_property_type_code,
+                  characteristics_property_class_code,
+                  characteristics_neighborhood_code,
+                  characteristics_subdivision_name,
+                  characteristics_school_district_name,
+                  homestead_flag,
+                  owner_occupied_flag,
+                  primary_use_code,
+                  neighborhood_group,
+                  effective_age,
+                  land_value,
+                  improvement_value,
+                  market_value,
+                  assessed_value,
+                  capped_value,
+                  appraised_value,
+                  exemption_value_total,
+                  notice_value,
+                  certified_value,
+                  prior_year_market_value,
+                  prior_year_assessed_value
+                ) FROM STDIN
+                """
+            ) as copy:
+                for record in normalized_records:
+                    parcel = record["parcel"]
+                    address = record["address"]
+                    characteristics = record["characteristics"]
+                    assessment = record["assessment"]
+                    copy.write_row(
+                        (
+                            parcel["account_number"],
+                            parcel.get("cad_property_id"),
+                            parcel["situs_address"],
+                            parcel["situs_city"],
+                            parcel["situs_zip"],
+                            parcel["owner_name"],
+                            parcel.get("property_type_code", "sfr"),
+                            parcel.get("property_class_code"),
+                            parcel.get("neighborhood_code"),
+                            parcel.get("subdivision_name"),
+                            parcel.get("school_district_name"),
+                            parcel["source_record_hash"],
+                            address["normalized_address"],
+                            parcel.get("owner_name"),
+                            normalize_owner_name(parcel.get("owner_name")),
+                            characteristics.get("property_type_code", "sfr"),
+                            characteristics.get("property_class_code"),
+                            characteristics.get("neighborhood_code"),
+                            characteristics.get("subdivision_name"),
+                            characteristics.get("school_district_name"),
+                            characteristics.get("homestead_flag", False),
+                            characteristics.get("owner_occupied_flag", False),
+                            characteristics.get("primary_use_code"),
+                            characteristics.get("neighborhood_group"),
+                            characteristics.get("effective_age"),
+                            assessment.get("land_value"),
+                            assessment.get("improvement_value"),
+                            assessment.get("market_value"),
+                            assessment.get("assessed_value"),
+                            assessment.get("capped_value"),
+                            assessment.get("appraised_value"),
+                            assessment.get("exemption_value_total"),
+                            assessment.get("notice_value"),
+                            assessment.get("certified_value"),
+                            assessment.get("prior_year_market_value"),
+                            assessment.get("prior_year_assessed_value"),
+                        )
+                    )
+
+            cursor.execute(
+                """
+                INSERT INTO parcels (
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  owner_name,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  %s,
+                  %s,
+                  %s,
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  'TX',
+                  situs_zip,
+                  owner_name,
+                  parcel_property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  %s,
+                  source_record_hash
+                FROM tmp_property_roll_core_upsert
+                ON CONFLICT (county_id, account_number)
+                DO UPDATE SET
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  tax_year = EXCLUDED.tax_year,
+                  cad_property_id = EXCLUDED.cad_property_id,
+                  situs_address = EXCLUDED.situs_address,
+                  situs_city = EXCLUDED.situs_city,
+                  situs_state = EXCLUDED.situs_state,
+                  situs_zip = EXCLUDED.situs_zip,
+                  owner_name = EXCLUDED.owner_name,
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (county_id, appraisal_district_id, tax_year, source_system_id),
+            )
+            cursor.execute(
+                """
+                UPDATE parcel_addresses pa
+                SET is_current = false
+                FROM parcels p
+                JOIN tmp_property_roll_core_upsert t
+                  ON t.account_number = p.account_number
+                WHERE pa.parcel_id = p.parcel_id
+                  AND p.county_id = %s
+                """,
+                (county_id,),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_addresses (
+                  parcel_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  normalized_address,
+                  is_current,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  t.situs_address,
+                  t.situs_city,
+                  'TX',
+                  t.situs_zip,
+                  t.normalized_address,
+                  true,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                """,
+                (source_system_id, county_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_year_snapshots (
+                  parcel_id,
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  source_system_id,
+                  import_batch_id,
+                  job_run_id,
+                  cad_owner_name,
+                  cad_owner_name_normalized,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  %s,
+                  %s,
+                  t.account_number,
+                  %s,
+                  %s,
+                  %s,
+                  t.cad_owner_name,
+                  t.cad_owner_name_normalized,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  county_id = EXCLUDED.county_id,
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  account_number = EXCLUDED.account_number,
+                  source_system_id = EXCLUDED.source_system_id,
+                  import_batch_id = EXCLUDED.import_batch_id,
+                  job_run_id = EXCLUDED.job_run_id,
+                  cad_owner_name = EXCLUDED.cad_owner_name,
+                  cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (
+                    county_id,
+                    appraisal_district_id,
+                    tax_year,
+                    source_system_id,
+                    import_batch_id,
+                    job_run_id,
+                    county_id,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO property_characteristics (
+                  parcel_year_snapshot_id,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  homestead_flag,
+                  owner_occupied_flag,
+                  primary_use_code,
+                  neighborhood_group,
+                  effective_age
+                )
+                SELECT
+                  pys.parcel_year_snapshot_id,
+                  t.characteristics_property_type_code,
+                  t.characteristics_property_class_code,
+                  t.characteristics_neighborhood_code,
+                  t.characteristics_subdivision_name,
+                  t.characteristics_school_district_name,
+                  t.homestead_flag,
+                  t.owner_occupied_flag,
+                  t.primary_use_code,
+                  t.neighborhood_group,
+                  t.effective_age
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                JOIN parcel_year_snapshots pys
+                  ON pys.parcel_id = p.parcel_id
+                 AND pys.tax_year = %s
+                ON CONFLICT (parcel_year_snapshot_id)
+                DO UPDATE SET
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  owner_occupied_flag = EXCLUDED.owner_occupied_flag,
+                  primary_use_code = EXCLUDED.primary_use_code,
+                  neighborhood_group = EXCLUDED.neighborhood_group,
+                  effective_age = EXCLUDED.effective_age,
+                  updated_at = now()
+                """,
+                (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_assessments (
+                  parcel_id,
+                  tax_year,
+                  land_value,
+                  improvement_value,
+                  market_value,
+                  assessed_value,
+                  capped_value,
+                  appraised_value,
+                  exemption_value_total,
+                  notice_value,
+                  certified_value,
+                  prior_year_market_value,
+                  prior_year_assessed_value,
+                  homestead_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  t.land_value,
+                  t.improvement_value,
+                  t.market_value,
+                  t.assessed_value,
+                  t.capped_value,
+                  t.appraised_value,
+                  t.exemption_value_total,
+                  t.notice_value,
+                  t.certified_value,
+                  t.prior_year_market_value,
+                  t.prior_year_assessed_value,
+                  t.homestead_flag,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_value = EXCLUDED.land_value,
+                  improvement_value = EXCLUDED.improvement_value,
+                  market_value = EXCLUDED.market_value,
+                  assessed_value = EXCLUDED.assessed_value,
+                  capped_value = EXCLUDED.capped_value,
+                  appraised_value = EXCLUDED.appraised_value,
+                  exemption_value_total = EXCLUDED.exemption_value_total,
+                  notice_value = EXCLUDED.notice_value,
+                  certified_value = EXCLUDED.certified_value,
+                  prior_year_market_value = EXCLUDED.prior_year_market_value,
+                  prior_year_assessed_value = EXCLUDED.prior_year_assessed_value,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (tax_year, source_system_id, county_id),
+            )
 
     def upsert_deed_records(
         self,
