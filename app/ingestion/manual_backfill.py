@@ -28,6 +28,9 @@ class ManualImportRegistrationResult:
     file_format: str
     source_filename: str
     checksum: str
+    skipped_duplicate: bool = False
+    existing_status: str | None = None
+    existing_publish_state: str | None = None
 
 
 def register_manual_import(
@@ -71,6 +74,32 @@ def register_manual_import(
 
     with get_connection() as connection:
         repository = IngestionRepository(connection)
+        duplicate = repository.find_duplicate_raw_file(
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+            checksum=checksum,
+        )
+        if duplicate is not None:
+            if dry_run:
+                connection.rollback()
+            else:
+                connection.commit()
+            return ManualImportRegistrationResult(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                import_batch_id=duplicate.import_batch_id,
+                raw_file_id=duplicate.raw_file_id,
+                storage_path=storage_path,
+                source_system_code=acquired.source_system_code,
+                file_format=adapter.detect_file_format(acquired),
+                source_filename=source_path.name,
+                checksum=checksum,
+                skipped_duplicate=True,
+                existing_status=duplicate.status,
+                existing_publish_state=duplicate.publish_state,
+            )
         source_system_id = repository.fetch_source_system_id(acquired.source_system_code)
         import_batch_id = repository.create_import_batch(
             source_system_id=source_system_id,

@@ -100,6 +100,25 @@ Repeat for:
 
 Do the same for `fort_bend` with the matching county files.
 
+### PR2 bounded backfill orchestration
+
+When the adapter-ready files already exist under a ready-file root, use the bounded backfill runner instead of registering each dataset by hand:
+
+```bash
+python3 -m infra.scripts.run_historical_backfill \
+  --counties harris fort_bend \
+  --tax-years 2025 2024 2023 2022 \
+  --dataset-types property_roll tax_rates \
+  --ready-root ~/county-data/2025/ready
+```
+
+Notes:
+
+- The runner reuses the existing `register_manual_import`, `job_load_staging`, and `job_normalize` path.
+- Duplicate ready files are reused idempotently. If the same checksum already published successfully, the runner reports the existing batch and skips re-ingest.
+- Publish still blocks when staging validation or publish-control checks fail.
+- `property_roll` rollback manifests now include newly inserted accounts so first-time historical publishes can be rolled back safely.
+
 ## 4. Fixture-backed year
 
 For `2026`, the existing fixture-backed workflow still works:

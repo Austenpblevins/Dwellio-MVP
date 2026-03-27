@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -540,6 +541,9 @@ class IngestionLifecycleService:
                 dry_run_flag=dry_run,
                 metadata_json={"dataset_type": dataset_type},
             )
+            savepoint_name = "normalize_publish_attempt"
+            with connection.cursor() as cursor:
+                cursor.execute(f"SAVEPOINT {savepoint_name}")
             staging_row_count = (
                 repository.count_staging_rows(
                     import_batch_id=batch.import_batch_id,
@@ -599,6 +603,27 @@ class IngestionLifecycleService:
                                 record["parcel"]["account_number"] for record in property_roll_records
                             ],
                         )
+                        publish_control_findings = self._build_publish_control_findings(
+                            dataset_type=dataset_type,
+                            tax_year=tax_year,
+                            normalized_records=property_roll_records,
+                            rollback_manifest=rollback_chunk,
+                        )
+                        if any(
+                            finding["severity"] == "error" for finding in publish_control_findings
+                        ):
+                            self._block_publish_after_savepoint(
+                                connection=connection,
+                                repository=repository,
+                                job_run_id=job_run_id,
+                                batch=batch,
+                                county_id=county_id,
+                                tax_year=tax_year,
+                                dataset_type=dataset_type,
+                                findings=publish_control_findings,
+                                savepoint_name=savepoint_name,
+                                dry_run=dry_run,
+                            )
                         rollback_manifest["entries"].extend(rollback_chunk.get("entries", []))
                         chunk_targets = repository.upsert_property_roll_records(
                             county_id=county_id,
@@ -661,6 +686,25 @@ class IngestionLifecycleService:
                         record["taxing_unit"]["unit_code"] for record in normalized["tax_rates"]
                     ],
                 )
+                publish_control_findings = self._build_publish_control_findings(
+                    dataset_type=dataset_type,
+                    tax_year=tax_year,
+                    normalized_records=normalized["tax_rates"],
+                    rollback_manifest=rollback_manifest,
+                )
+                if any(finding["severity"] == "error" for finding in publish_control_findings):
+                    self._block_publish_after_savepoint(
+                        connection=connection,
+                        repository=repository,
+                        job_run_id=job_run_id,
+                        batch=batch,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        dataset_type=dataset_type,
+                        findings=publish_control_findings,
+                        savepoint_name=savepoint_name,
+                        dry_run=dry_run,
+                    )
                 canonical_targets = repository.upsert_tax_rate_records(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -683,6 +727,25 @@ class IngestionLifecycleService:
                     tax_year=tax_year,
                     normalized_records=normalized["deeds"],
                 )
+                publish_control_findings = self._build_publish_control_findings(
+                    dataset_type=dataset_type,
+                    tax_year=tax_year,
+                    normalized_records=normalized["deeds"],
+                    rollback_manifest=rollback_manifest,
+                )
+                if any(finding["severity"] == "error" for finding in publish_control_findings):
+                    self._block_publish_after_savepoint(
+                        connection=connection,
+                        repository=repository,
+                        job_run_id=job_run_id,
+                        batch=batch,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        dataset_type=dataset_type,
+                        findings=publish_control_findings,
+                        savepoint_name=savepoint_name,
+                        dry_run=dry_run,
+                    )
                 canonical_targets = repository.upsert_deed_records(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -1292,6 +1355,276 @@ class IngestionLifecycleService:
             connection.rollback()
             return
         connection.commit()
+
+    def _build_publish_control_findings(
+        self,
+        *,
+        dataset_type: str,
+        tax_year: int,
+        normalized_records: list[dict[str, Any]],
+        rollback_manifest: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
+        if dataset_type == "property_roll":
+            account_numbers = [
+                str(record.get("parcel", {}).get("account_number") or "")
+                for record in normalized_records
+            ]
+            duplicate_accounts = {
+                account_number
+                for account_number, count in Counter(account_numbers).items()
+                if account_number and count > 1
+            }
+            rollback_accounts = {
+                str(entry.get("account_number") or "")
+                for entry in rollback_manifest.get("entries", [])
+            }
+            missing_rollback_accounts = sorted(
+                account_number
+                for account_number in account_numbers
+                if account_number and account_number not in rollback_accounts
+            )
+
+            if not normalized_records:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="EMPTY_NORMALIZED_BATCH",
+                        message="property_roll normalized batch is empty.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                    )
+                )
+            for account_number in sorted(duplicate_accounts):
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="DUPLICATE_NORMALIZED_ACCOUNT_NUMBER",
+                        message=f"Duplicate normalized property_roll account_number {account_number}.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={"account_number": account_number},
+                    )
+                )
+            for account_number in missing_rollback_accounts:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="ROLLBACK_MANIFEST_MISSING_ACCOUNT",
+                        message=(
+                            f"Rollback manifest is missing property_roll account_number {account_number}."
+                        ),
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={"account_number": account_number},
+                    )
+                )
+        elif dataset_type == "tax_rates":
+            unit_keys = [
+                (
+                    str(record.get("taxing_unit", {}).get("unit_code") or ""),
+                    str(record.get("tax_rate", {}).get("rate_component") or "ad_valorem"),
+                )
+                for record in normalized_records
+            ]
+            duplicate_keys = {
+                unit_key for unit_key, count in Counter(unit_keys).items() if unit_key[0] and count > 1
+            }
+            rollback_units = {
+                str(entry.get("unit_code") or "") for entry in rollback_manifest.get("entries", [])
+            }
+            missing_rollback_units = sorted(
+                unit_code
+                for unit_code, _rate_component in unit_keys
+                if unit_code and unit_code not in rollback_units
+            )
+
+            if not normalized_records:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="EMPTY_NORMALIZED_BATCH",
+                        message="tax_rates normalized batch is empty.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                    )
+                )
+            for unit_code, rate_component in sorted(duplicate_keys):
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="DUPLICATE_NORMALIZED_UNIT_RATE_COMPONENT",
+                        message=(
+                            f"Duplicate normalized tax_rate key unit_code={unit_code} "
+                            f"rate_component={rate_component}."
+                        ),
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={
+                            "unit_code": unit_code,
+                            "rate_component": rate_component,
+                        },
+                    )
+                )
+            for unit_code in missing_rollback_units:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="ROLLBACK_MANIFEST_MISSING_UNIT",
+                        message=f"Rollback manifest is missing tax-rate unit_code {unit_code}.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={"unit_code": unit_code},
+                    )
+                )
+        elif dataset_type == "deeds":
+            instrument_numbers = [
+                str(record.get("deed_record", {}).get("instrument_number") or "")
+                for record in normalized_records
+            ]
+            duplicate_instruments = {
+                instrument_number
+                for instrument_number, count in Counter(instrument_numbers).items()
+                if instrument_number and count > 1
+            }
+            rollback_instruments = {
+                str(entry.get("instrument_number") or "")
+                for entry in rollback_manifest.get("deed_entries", [])
+            }
+            missing_rollback_instruments = sorted(
+                instrument_number
+                for instrument_number in instrument_numbers
+                if instrument_number and instrument_number not in rollback_instruments
+            )
+
+            if not normalized_records:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="EMPTY_NORMALIZED_BATCH",
+                        message="deeds normalized batch is empty.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                    )
+                )
+            for instrument_number in sorted(duplicate_instruments):
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="DUPLICATE_NORMALIZED_INSTRUMENT_NUMBER",
+                        message=f"Duplicate normalized deed instrument_number {instrument_number}.",
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={"instrument_number": instrument_number},
+                    )
+                )
+            for instrument_number in missing_rollback_instruments:
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="ROLLBACK_MANIFEST_MISSING_INSTRUMENT",
+                        message=(
+                            f"Rollback manifest is missing deed instrument_number {instrument_number}."
+                        ),
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json={"instrument_number": instrument_number},
+                    )
+                )
+
+        if not findings:
+            findings.append(
+                {
+                    "validation_code": "PUBLISH_CONTROLS_OK",
+                    "message": f"Publish controls passed for {dataset_type}.",
+                    "severity": "info",
+                    "validation_scope": "publish_control",
+                    "entity_table": None,
+                    "details_json": {
+                        "dataset_type": dataset_type,
+                        "tax_year": tax_year,
+                        "normalized_record_count": len(normalized_records),
+                    },
+                }
+            )
+        return findings
+
+    def _publish_control_finding(
+        self,
+        *,
+        validation_code: str,
+        message: str,
+        dataset_type: str,
+        tax_year: int,
+        details_json: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "validation_code": validation_code,
+            "message": message,
+            "severity": "error",
+            "validation_scope": "publish_control",
+            "entity_table": None,
+            "details_json": {
+                "dataset_type": dataset_type,
+                "tax_year": tax_year,
+                **(details_json or {}),
+            },
+        }
+
+    def _block_publish_after_savepoint(
+        self,
+        *,
+        connection: Any,
+        repository: IngestionRepository,
+        job_run_id: str,
+        batch: ImportBatchRecord,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+        findings: list[dict[str, Any]],
+        savepoint_name: str,
+        dry_run: bool,
+    ) -> None:
+        error_findings = [finding for finding in findings if finding["severity"] == "error"]
+        with connection.cursor() as cursor:
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+
+        message = (
+            f"Publish blocked because {len(error_findings)} publish-control error finding(s) exist "
+            f"for {county_id}/{dataset_type}/{tax_year}."
+        )
+        repository.insert_validation_results(
+            job_run_id=job_run_id,
+            import_batch_id=batch.import_batch_id,
+            raw_file_id=batch.raw_file_id,
+            county_id=county_id,
+            tax_year=tax_year,
+            findings=error_findings
+            + [
+                {
+                    "validation_code": "PUBLISH_BLOCKED_PUBLISH_CONTROLS",
+                    "message": message,
+                    "severity": "error",
+                    "validation_scope": "publish",
+                    "entity_table": None,
+                    "details_json": {
+                        "dataset_type": dataset_type,
+                        "publish_control_error_count": len(error_findings),
+                    },
+                }
+            ],
+        )
+        repository.update_import_batch(
+            batch.import_batch_id,
+            status="publish_blocked",
+            error_count=len(error_findings),
+            publish_state="blocked_publish_controls",
+            status_reason=message,
+        )
+        repository.complete_job_run(
+            job_run_id,
+            status="failed",
+            row_count=0,
+            error_message=message,
+            metadata_json={
+                "dataset_type": dataset_type,
+                "publish_blocked": True,
+                "publish_control_error_count": len(error_findings),
+            },
+        )
+        self._finalize_connection(connection, dry_run=dry_run)
+        raise RuntimeError(message)
 
     def _refresh_tax_assignments(
         self,

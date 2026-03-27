@@ -2507,11 +2507,17 @@ class IngestionRepository:
             """,
             (county_id, requested_accounts),
         )
+        parcel_by_account = {row["account_number"]: row for row in parcel_rows}
         if not parcel_rows:
-            return {"dataset_type": "property_roll", "entries": []}
+            return {
+                "dataset_type": "property_roll",
+                "entries": [
+                    {"account_number": account_number, "prior_state": None}
+                    for account_number in requested_accounts
+                ],
+            }
 
         parcel_ids = [row["parcel_id"] for row in parcel_rows]
-        parcel_by_account = {row["account_number"]: row for row in parcel_rows}
 
         addresses_by_parcel = self._group_rows_by_key(
             self._fetch_rows(
@@ -2644,6 +2650,7 @@ class IngestionRepository:
         for account_number in requested_accounts:
             parcel_row = parcel_by_account.get(account_number)
             if parcel_row is None:
+                entries.append({"account_number": account_number, "prior_state": None})
                 continue
 
             parcel_id = parcel_row["parcel_id"]

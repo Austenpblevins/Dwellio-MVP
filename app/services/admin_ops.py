@@ -299,7 +299,11 @@ class AdminOpsService:
             dataset_type=result.dataset_type,
             import_batch_id=result.import_batch_id,
             message=(
-                "Registered manual import in dry-run mode."
+                "Found matching manual import in dry-run mode."
+                if request.dry_run and result.skipped_duplicate
+                else "Found matching manual import and reused the existing import batch."
+                if result.skipped_duplicate
+                else "Registered manual import in dry-run mode."
                 if request.dry_run
                 else "Registered manual import and raw file metadata."
             ),
