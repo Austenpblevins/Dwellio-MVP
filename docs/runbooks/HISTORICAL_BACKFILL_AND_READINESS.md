@@ -42,6 +42,39 @@ Interpretation:
 
 ## 3. Backfill a historical year from real county files
 
+If the county download is still in raw export shape, convert it into the existing adapter-ready contract first:
+
+```bash
+python3 -m infra.scripts.convert_2025_real_sources
+```
+
+Required raw inputs for the current PR1 real-source promotion flow:
+
+- `~/county-data/2025/raw/2025 Harris_Real_acct_owner/real_acct.txt`
+- `~/county-data/2025/raw/2025 Harris_Real_acct_owner/owners.txt`
+- `~/county-data/2025/raw/2025 Harris_Real_building_land/building_res.txt`
+- `~/county-data/2025/raw/2025 Harris_Real_building_land/land.txt`
+- `~/county-data/2025/raw/2025 Harris Roll Source_Real_jur_exempt/jur_tax_dist_exempt_value_rate.txt`
+- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_PropertyExport.txt`
+- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_OwnerExport.txt`
+- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_ExemptionExport.txt`
+- `~/county-data/2025/raw/WebsiteResidentialSegs-7-22.csv`
+- `~/county-data/2025/raw/2025 Fort Bend Tax Rate Source.csv`
+
+That command writes:
+
+- `~/county-data/2025/ready/harris_property_roll_2025.json`
+- `~/county-data/2025/ready/harris_tax_rates_2025.json`
+- `~/county-data/2025/ready/fort_bend_property_roll_2025.csv`
+- `~/county-data/2025/ready/fort_bend_tax_rates_2025.csv`
+
+Verification:
+
+- The conversion command runs the existing Harris and Fort Bend adapter parsers and validators against those generated ready files unless you pass `--skip-verify`.
+- The Fort Bend converter preserves the county export values and residential segment enrichment, but leaves `hs_amt` and `ov65_amt` blank because the specified raw exports include exemption presence codes, not authoritative numeric exemption amounts.
+- The Harris converter preserves assessed, appraised, market, and prior-year values from `real_acct.txt`, uses the first owner row from `owners.txt`, and leaves unsupported fixture-only fields like bath counts and story counts unset rather than guessing.
+- Both property-roll converters drop raw records that do not include the adapter-required situs/site address, city, zip, or market value fields instead of emitting known-invalid ready rows.
+
 Register the downloaded file into the standard raw/import-batch lifecycle:
 
 ```bash
@@ -66,6 +99,25 @@ Repeat for:
 - `deeds`
 
 Do the same for `fort_bend` with the matching county files.
+
+### PR2 bounded backfill orchestration
+
+When the adapter-ready files already exist under a ready-file root, use the bounded backfill runner instead of registering each dataset by hand:
+
+```bash
+python3 -m infra.scripts.run_historical_backfill \
+  --counties harris fort_bend \
+  --tax-years 2025 2024 2023 2022 \
+  --dataset-types property_roll tax_rates \
+  --ready-root ~/county-data/2025/ready
+```
+
+Notes:
+
+- The runner reuses the existing `register_manual_import`, `job_load_staging`, and `job_normalize` path.
+- Duplicate ready files are reused idempotently. If the same checksum already published successfully, the runner reports the existing batch and skips re-ingest.
+- Publish still blocks when staging validation or publish-control checks fail.
+- `property_roll` rollback manifests now include newly inserted accounts so first-time historical publishes can be rolled back safely.
 
 ## 4. Fixture-backed year
 

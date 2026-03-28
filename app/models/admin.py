@@ -13,11 +13,19 @@ class AdminCountyYearDatasetReadiness(DwellioBaseModel):
     access_method: str
     availability_status: str
     raw_file_count: int
+    latest_import_batch_id: str | None = None
     latest_import_status: str | None = None
     latest_status_reason: str | None = None
     latest_publish_state: str | None = None
     stage_status: str
     blockers: list[str]
+    latest_activity_at: datetime | None = None
+    freshness_status: str = "unknown"
+    freshness_sla_days: int | None = None
+    freshness_age_days: int | None = None
+    recent_failed_job_count: int = 0
+    validation_error_count: int = 0
+    validation_regression: bool = False
 
 
 class AdminCountyYearDerivedReadiness(DwellioBaseModel):
@@ -49,6 +57,20 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     quote_row_count: int
 
 
+class AdminCountyYearOperationalReadiness(DwellioBaseModel):
+    quality_score: int = 0
+    quality_status: str = "unknown"
+    freshness_status: str = "unknown"
+    freshness_sla_days: int | None = None
+    freshness_age_days: int | None = None
+    latest_activity_at: datetime | None = None
+    recent_failed_job_count: int = 0
+    validation_error_count: int = 0
+    validation_regression_count: int = 0
+    searchable_ready: bool = False
+    alerts: list[str] = Field(default_factory=list)
+
+
 class AdminCountyYearReadiness(DwellioBaseModel):
     county_id: str
     tax_year: int
@@ -60,6 +82,20 @@ class AdminCountyYearReadiness(DwellioBaseModel):
     blockers: list[str]
     datasets: list[AdminCountyYearDatasetReadiness]
     derived: AdminCountyYearDerivedReadiness
+    operational: AdminCountyYearOperationalReadiness = Field(
+        default_factory=AdminCountyYearOperationalReadiness
+    )
+
+
+class AdminCountyYearReadinessKpiSummary(DwellioBaseModel):
+    total_year_count: int = 0
+    healthy_year_count: int = 0
+    warning_year_count: int = 0
+    critical_year_count: int = 0
+    stale_year_count: int = 0
+    searchable_year_count: int = 0
+    failed_job_count: int = 0
+    validation_regression_count: int = 0
 
 
 class AdminCountyYearReadinessDashboard(DwellioBaseModel):
@@ -67,6 +103,9 @@ class AdminCountyYearReadinessDashboard(DwellioBaseModel):
     county_id: str
     tax_years: list[int]
     readiness_rows: list[AdminCountyYearReadiness]
+    kpi_summary: AdminCountyYearReadinessKpiSummary = Field(
+        default_factory=AdminCountyYearReadinessKpiSummary
+    )
 
 
 class AdminSearchScoreComponents(DwellioBaseModel):

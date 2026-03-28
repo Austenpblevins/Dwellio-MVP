@@ -14,6 +14,8 @@ For each county-year, the admin readiness API and page distinguish:
 - dataset availability expectations from county adapter config
 - source data acquired as raw files
 - canonical publish progress from import batches
+- operational freshness and validation regression signals
+- recent failed job counts and alertable blockers
 - derived/read-model readiness for:
   - `parcel_summary_view`
   - `search_documents`
@@ -53,6 +55,17 @@ Dataset-level blocker examples:
 - `source_not_acquired`
 - `staging_validation_failed`
 - `canonical_publish_pending`
+- `stale_source_activity`
+- `recent_job_failures`
+- `validation_regression`
+
+Operational KPI examples:
+
+- `quality_score` and `quality_status`
+- `freshness_status`, `freshness_age_days`, and `freshness_sla_days`
+- `recent_failed_job_count`
+- `validation_regression_count`
+- `alerts`
 
 Derived/downstream blocker examples:
 
@@ -68,6 +81,21 @@ Derived/downstream blocker examples:
 2. Review dataset-level blockers first.
 3. Confirm `parcel_summary_view` and `search_documents` are ready before deeper QA.
 4. Treat feature/comp/quote readiness as downstream signals, not guarantees that public quote behavior is complete.
+5. Use the operational KPI section to decide whether the year is alertable even when canonical publish technically succeeded.
+
+## Operator CLI helpers
+
+Machine-readable readiness KPI report:
+
+```bash
+python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years 2025 2024 2023
+```
+
+Ingestion-to-searchable smoke verification:
+
+```bash
+python3 -m infra.scripts.verify_ingestion_to_searchable --county-id harris --tax-year 2025
+```
 
 ## Intentional limitations
 

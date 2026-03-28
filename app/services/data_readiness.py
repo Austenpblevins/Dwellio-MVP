@@ -71,6 +71,7 @@ class DataReadinessService:
     def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
         config = load_county_adapter_config(county_id)
         with get_connection() as connection:
+            self._prepare_readiness_session(connection)
             tax_year_known = self._tax_year_exists(connection, tax_year=tax_year)
             datasets = [
                 self._build_dataset_readiness(
@@ -96,6 +97,12 @@ class DataReadinessService:
             datasets=datasets,
             derived=derived,
         )
+
+    def _prepare_readiness_session(self, connection: object) -> None:
+        # Readiness/reporting queries hit wide derived views; disabling parallel gather
+        # keeps local and constrained Postgres instances from exhausting shared memory.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
 
     def _build_dataset_readiness(
         self,

@@ -48,6 +48,8 @@ Current observability and inspectability paths:
 - `job_runs` for job lifecycle tracking
 - `import_batches`, `raw_files`, `validation_results`, and `lineage_records` for ingestion/debug review
 - admin readiness dashboard for county-year status
+- readiness KPI reporting for freshness, validation regressions, and recent failed jobs
+- ingestion-to-searchable smoke verification for county-year traceability
 - admin search inspect route for internal ranking diagnostics
 - case and packet admin pages for internal workflow review
 

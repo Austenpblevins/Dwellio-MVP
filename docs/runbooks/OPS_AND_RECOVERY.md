@@ -105,6 +105,8 @@ Admin smoke:
 ```bash
 curl -H 'x-dwellio-admin-token: dev-admin-token' 'http://localhost:8000/admin/cases?county_id=harris&tax_year=2026'
 curl -H 'x-dwellio-admin-token: dev-admin-token' 'http://localhost:8000/admin/packets?county_id=harris&tax_year=2026'
+python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years 2026 2025
+python3 -m infra.scripts.verify_ingestion_to_searchable --county-id harris --tax-year 2025
 ```
 
 Automated smoke-oriented pytest commands:
@@ -146,7 +148,7 @@ python3 -m app.jobs.cli job_refresh_quote_cache --county-id harris --tax-year 20
 
 ## 7. Practical limitations
 
-- Harris and Fort Bend ingestion remains fixture-backed in the current repo.
+- Harris and Fort Bend now support PR1 real-source local-file workflows, but operator smoke checks still depend on the local county-year files and database state present on the machine running them.
 - Public lead creation is not fully wired beyond the canonical route contract.
 - Full packet generation, PDF assembly, and filing automation remain deferred.
 - Real-data quote readiness still depends on local dataset completeness for a given county-year.

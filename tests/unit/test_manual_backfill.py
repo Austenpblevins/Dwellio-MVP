@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.ingestion.manual_backfill import register_manual_import
+from app.ingestion.repository import DuplicateRawFileRecord
 
 
 def test_register_manual_import_registers_batch_and_raw_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -38,6 +39,9 @@ def test_register_manual_import_registers_batch_and_raw_file(monkeypatch: pytest
         def update_import_batch(self, import_batch_id: str, **kwargs) -> None:
             assert import_batch_id == "batch-1"
             assert kwargs["status"] == "fetched"
+
+        def find_duplicate_raw_file(self, **kwargs) -> None:
+            return None
 
     class StubConnection:
         def __enter__(self) -> StubConnection:
@@ -88,3 +92,56 @@ def test_register_manual_import_rejects_unsupported_file_extension(
         )
 
     assert "Unsupported file format" in str(exc_info.value)
+
+
+def test_register_manual_import_reuses_existing_batch_for_duplicate_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "fort_bend_2024_tax_rates.csv"
+    source_file.write_text("unit_code,rate_value\n001,0.02\n", encoding="utf-8")
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_duplicate_raw_file(self, **kwargs) -> DuplicateRawFileRecord | None:
+            assert kwargs["county_id"] == "fort_bend"
+            assert kwargs["tax_year"] == 2024
+            assert kwargs["dataset_type"] == "tax_rates"
+            return DuplicateRawFileRecord(
+                import_batch_id="batch-existing",
+                raw_file_id="raw-existing",
+                status="normalized",
+                publish_state="published",
+                source_filename=source_file.name,
+                row_count=12,
+            )
+
+    class StubConnection:
+        def __enter__(self) -> StubConnection:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def commit(self) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.ingestion.manual_backfill.get_connection", lambda: StubConnection())
+    monkeypatch.setattr("app.ingestion.manual_backfill.IngestionRepository", StubRepository)
+
+    result = register_manual_import(
+        county_id="fort_bend",
+        tax_year=2024,
+        dataset_type="tax_rates",
+        source_file_path=str(source_file),
+    )
+
+    assert result.import_batch_id == "batch-existing"
+    assert result.raw_file_id == "raw-existing"
+    assert result.skipped_duplicate is True
+    assert result.existing_status == "normalized"
+    assert result.existing_publish_state == "published"

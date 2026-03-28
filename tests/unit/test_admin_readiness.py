@@ -3,7 +3,13 @@ from __future__ import annotations
 from app.api.admin import get_county_year_readiness
 from app.models.admin import AdminCountyYearReadinessDashboard
 from app.models.parcel import ParcelSummaryResponse
-from app.services.admin_readiness import AdminReadinessService
+from datetime import datetime, timezone
+
+from app.services.admin_readiness import (
+    AdminOperationalMetricsProvider,
+    AdminReadinessService,
+    DatasetOperationalMetrics,
+)
 from app.services.data_readiness import (
     CountyTaxYearReadiness,
     DatasetYearReadiness,
@@ -143,9 +149,53 @@ class StubDataReadinessService:
         )
 
 
+class StubOperationalMetricsProvider:
+    def build_dataset_metrics(
+        self,
+        connection,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+    ) -> DatasetOperationalMetrics:
+        assert county_id == "harris"
+        if tax_year == 2025 and dataset_type == "property_roll":
+            return DatasetOperationalMetrics(
+                freshness_status="fresh",
+                freshness_sla_days=30,
+                freshness_age_days=7,
+            )
+        if tax_year == 2025 and dataset_type == "deeds":
+            return DatasetOperationalMetrics(
+                freshness_status="stale",
+                freshness_sla_days=30,
+                freshness_age_days=65,
+                recent_failed_job_count=1,
+                validation_error_count=2,
+                validation_regression=True,
+            )
+        if tax_year == 2024 and dataset_type == "property_roll":
+            return DatasetOperationalMetrics(
+                freshness_status="fresh",
+                freshness_sla_days=90,
+                freshness_age_days=10,
+            )
+        return DatasetOperationalMetrics()
+
+
+class NullConnection:
+    def __enter__(self) -> NullConnection:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
 def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     dashboard = AdminReadinessService(
-        data_readiness_service=StubDataReadinessService()
+        data_readiness_service=StubDataReadinessService(),
+        operational_metrics_provider=StubOperationalMetricsProvider(),
+        connection_factory=lambda: NullConnection(),
     ).build_dashboard(county_id="harris", tax_years=[2025])
 
     assert dashboard.access_scope == "internal"
@@ -156,6 +206,11 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert row.trend_delta == 10
     assert "manual_backfill_required" in row.blockers
     assert "search_read_model_not_ready" not in row.blockers
+    assert row.operational.quality_status == "critical"
+    assert row.operational.validation_regression_count == 1
+    assert "deeds_validation_regression" in row.operational.alerts
+    assert dashboard.kpi_summary.critical_year_count == 1
+    assert dashboard.kpi_summary.validation_regression_count == 1
 
 
 def test_get_county_year_readiness_wraps_service(monkeypatch) -> None:
@@ -206,11 +261,39 @@ def test_admin_readiness_marks_publish_blocked_dataset() -> None:
             latest_publish_state="blocked_validation",
             staged=False,
             canonical_published=False,
-        )
+        ),
+        DatasetOperationalMetrics(
+            freshness_status="stale",
+            freshness_sla_days=30,
+            freshness_age_days=45,
+            recent_failed_job_count=1,
+            validation_error_count=2,
+            validation_regression=True,
+        ),
     )
 
     assert dataset.stage_status == "publish_blocked"
     assert "publish_blocked_validation" in dataset.blockers
+    assert "stale_source_activity" in dataset.blockers
+    assert "recent_job_failures" in dataset.blockers
+    assert "validation_regression" in dataset.blockers
     assert dataset.latest_status_reason == (
         "Publish blocked because 2 validation error finding(s) exist for import batch batch-1."
     )
+    assert dataset.freshness_status == "stale"
+    assert dataset.validation_regression is True
+
+
+def test_operational_metrics_provider_applies_sla_windows() -> None:
+    provider = AdminOperationalMetricsProvider(
+        now_fn=lambda: datetime(2026, 3, 27, tzinfo=timezone.utc)
+    )
+
+    assert provider._freshness_sla_days(tax_year=2026) == 14
+    assert provider._freshness_sla_days(tax_year=2025) == 30
+    assert provider._freshness_sla_days(tax_year=2022) == 90
+    assert provider._freshness_status(
+        latest_activity_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        freshness_age_days=54,
+        freshness_sla_days=30,
+    ) == "stale"

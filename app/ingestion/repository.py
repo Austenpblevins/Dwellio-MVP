@@ -586,6 +586,85 @@ class IngestionRepository:
             for row in rows
         ]
 
+    def iterate_staging_rows(
+        self,
+        *,
+        import_batch_id: str,
+        dataset_type: str,
+        chunk_size: int,
+    ) -> Iterable[list[dict[str, Any]]]:
+        table_name, id_column = self.resolve_staging_table(dataset_type)
+        last_seen_id: str | None = None
+
+        while True:
+            with self.connection.cursor() as cursor:
+                if last_seen_id is None:
+                    cursor.execute(
+                        f"""
+                        SELECT {id_column}, raw_payload, row_hash
+                        FROM {table_name}
+                        WHERE import_batch_id = %s
+                        ORDER BY {id_column} ASC
+                        LIMIT %s
+                        """,
+                        (import_batch_id, chunk_size),
+                    )
+                else:
+                    cursor.execute(
+                        f"""
+                        SELECT {id_column}, raw_payload, row_hash
+                        FROM {table_name}
+                        WHERE import_batch_id = %s
+                          AND {id_column} > %s
+                        ORDER BY {id_column} ASC
+                        LIMIT %s
+                        """,
+                        (import_batch_id, last_seen_id, chunk_size),
+                    )
+                rows = cursor.fetchall()
+
+            if not rows:
+                return
+
+            chunk = [
+                {
+                    "staging_table": table_name,
+                    "staging_row_id": str(row[id_column]),
+                    "raw_payload": row["raw_payload"],
+                    "row_hash": row["row_hash"],
+                }
+                for row in rows
+            ]
+            last_seen_id = chunk[-1]["staging_row_id"]
+            yield chunk
+
+    def count_staging_rows(self, *, import_batch_id: str, dataset_type: str) -> int:
+        table_name, _ = self.resolve_staging_table(dataset_type)
+        row = self._fetch_optional_row(
+            f"""
+            SELECT count(*) AS count
+            FROM {table_name}
+            WHERE import_batch_id = %s
+            """,
+            (import_batch_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
+    def count_property_roll_rows_for_import_batch(self, *, import_batch_id: str) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_year_snapshots
+            WHERE import_batch_id = %s
+            """,
+            (import_batch_id,),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def insert_validation_results(
         self,
         *,
@@ -596,25 +675,28 @@ class IngestionRepository:
         tax_year: int,
         findings: Iterable[dict[str, Any]],
     ) -> None:
+        rows = list(findings)
+        if not rows:
+            return
         with self.connection.cursor() as cursor:
-            for finding in findings:
-                cursor.execute(
-                    """
-                    INSERT INTO validation_results (
-                      job_run_id,
-                      import_batch_id,
-                      raw_file_id,
-                      county_id,
-                      tax_year,
-                      validation_scope,
-                      severity,
-                      entity_table,
-                      validation_code,
-                      message,
-                      details_json
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
+            cursor.executemany(
+                """
+                INSERT INTO validation_results (
+                  job_run_id,
+                  import_batch_id,
+                  raw_file_id,
+                  county_id,
+                  tax_year,
+                  validation_scope,
+                  severity,
+                  entity_table,
+                  validation_code,
+                  message,
+                  details_json
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
                     (
                         job_run_id,
                         import_batch_id,
@@ -627,28 +709,33 @@ class IngestionRepository:
                         finding["validation_code"],
                         finding["message"],
                         Jsonb(finding.get("details_json", {})),
-                    ),
-                )
+                    )
+                    for finding in rows
+                ],
+            )
 
     def insert_lineage_records(self, records: Iterable[dict[str, Any]]) -> None:
+        rows = list(records)
+        if not rows:
+            return
         with self.connection.cursor() as cursor:
-            for record in records:
-                cursor.execute(
-                    """
-                    INSERT INTO lineage_records (
-                      job_run_id,
-                      import_batch_id,
-                      raw_file_id,
-                      relation_type,
-                      source_table,
-                      source_id,
-                      target_table,
-                      target_id,
-                      source_record_hash,
-                      details_json
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
+            cursor.executemany(
+                """
+                INSERT INTO lineage_records (
+                  job_run_id,
+                  import_batch_id,
+                  raw_file_id,
+                  relation_type,
+                  source_table,
+                  source_id,
+                  target_table,
+                  target_id,
+                  source_record_hash,
+                  details_json
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
                     (
                         record.get("job_run_id"),
                         record.get("import_batch_id"),
@@ -660,8 +747,10 @@ class IngestionRepository:
                         record.get("target_id"),
                         record.get("source_record_hash"),
                         Jsonb(record.get("details_json", {})),
-                    ),
-                )
+                    )
+                    for record in rows
+                ],
+            )
 
     def upsert_property_roll_records(
         self,
@@ -672,57 +761,72 @@ class IngestionRepository:
         job_run_id: str,
         source_system_id: str,
         normalized_records: list[dict[str, Any]],
+        include_detail_tables: bool = True,
     ) -> list[dict[str, str]]:
         appraisal_district_id = self.fetch_appraisal_district_id(county_id)
         lineage_records: list[dict[str, str]] = []
+        if not normalized_records:
+            return lineage_records
 
-        for record in normalized_records:
-            with self.connection.cursor() as cursor:
-                parcel = record["parcel"]
-                cursor.execute(
-                    """
-                    INSERT INTO parcels (
-                      county_id,
-                      appraisal_district_id,
-                      tax_year,
-                      account_number,
-                      cad_property_id,
-                      situs_address,
-                      situs_city,
-                      situs_state,
-                      situs_zip,
-                      owner_name,
-                      property_type_code,
-                      property_class_code,
-                      neighborhood_code,
-                      subdivision_name,
-                      school_district_name,
-                      source_system_id,
-                      source_record_hash
-                    )
-                    VALUES (
-                      %s, %s, %s, %s, %s, %s, %s, 'TX', %s, %s, %s, %s, %s, %s, %s, %s, %s
-                    )
-                    ON CONFLICT (county_id, account_number)
-                    DO UPDATE SET
-                      appraisal_district_id = EXCLUDED.appraisal_district_id,
-                      tax_year = EXCLUDED.tax_year,
-                      cad_property_id = EXCLUDED.cad_property_id,
-                      situs_address = EXCLUDED.situs_address,
-                      situs_city = EXCLUDED.situs_city,
-                      situs_state = EXCLUDED.situs_state,
-                      situs_zip = EXCLUDED.situs_zip,
-                      owner_name = EXCLUDED.owner_name,
-                      property_type_code = EXCLUDED.property_type_code,
-                      property_class_code = EXCLUDED.property_class_code,
-                      neighborhood_code = EXCLUDED.neighborhood_code,
-                      subdivision_name = EXCLUDED.subdivision_name,
-                      school_district_name = EXCLUDED.school_district_name,
-                      source_system_id = EXCLUDED.source_system_id,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    RETURNING parcel_id
-                    """,
+        if not include_detail_tables:
+            self._bulk_upsert_property_roll_core_records(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+                appraisal_district_id=appraisal_district_id,
+                normalized_records=normalized_records,
+            )
+            return lineage_records
+
+        account_numbers = [record["parcel"]["account_number"] for record in normalized_records]
+
+        with self.connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO parcels (
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  owner_name,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (
+                  %s, %s, %s, %s, %s, %s, %s, 'TX', %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (county_id, account_number)
+                DO UPDATE SET
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  tax_year = EXCLUDED.tax_year,
+                  cad_property_id = EXCLUDED.cad_property_id,
+                  situs_address = EXCLUDED.situs_address,
+                  situs_city = EXCLUDED.situs_city,
+                  situs_state = EXCLUDED.situs_state,
+                  situs_zip = EXCLUDED.situs_zip,
+                  owner_name = EXCLUDED.owner_name,
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                [
                     (
                         county_id,
                         appraisal_district_id,
@@ -740,73 +844,92 @@ class IngestionRepository:
                         parcel.get("school_district_name"),
                         source_system_id,
                         parcel["source_record_hash"],
-                    ),
-                )
-                parcel_id = str(cursor.fetchone()["parcel_id"])
-
-                cursor.execute(
-                    "UPDATE parcel_addresses SET is_current = false WHERE parcel_id = %s",
-                    (parcel_id,),
-                )
-                address = record["address"]
-                cursor.execute(
-                    """
-                    INSERT INTO parcel_addresses (
-                      parcel_id,
-                      situs_address,
-                      situs_city,
-                      situs_state,
-                      situs_zip,
-                      normalized_address,
-                      is_current,
-                      source_system_id,
-                      source_record_hash
                     )
-                    VALUES (%s, %s, %s, 'TX', %s, %s, true, %s, %s)
-                    """,
+                    for record in normalized_records
+                    for parcel in [record["parcel"]]
+                ],
+            )
+            cursor.execute(
+                """
+                SELECT parcel_id, account_number
+                FROM parcels
+                WHERE county_id = %s
+                  AND account_number = ANY(%s)
+                """,
+                (county_id, account_numbers),
+            )
+            parcel_ids_by_account = {
+                row["account_number"]: str(row["parcel_id"]) for row in cursor.fetchall()
+            }
+            parcel_ids = list(parcel_ids_by_account.values())
+
+            if parcel_ids:
+                cursor.execute(
+                    "UPDATE parcel_addresses SET is_current = false WHERE parcel_id = ANY(%s)",
+                    (parcel_ids,),
+                )
+            cursor.executemany(
+                """
+                INSERT INTO parcel_addresses (
+                  parcel_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  normalized_address,
+                  is_current,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, 'TX', %s, %s, true, %s, %s)
+                """,
+                [
                     (
-                        parcel_id,
+                        parcel_ids_by_account[parcel["account_number"]],
                         address["situs_address"],
                         address["situs_city"],
                         address["situs_zip"],
                         address["normalized_address"],
                         source_system_id,
                         parcel["source_record_hash"],
-                    ),
-                )
-
-                cursor.execute(
-                    """
-                    INSERT INTO parcel_year_snapshots (
-                      parcel_id,
-                      county_id,
-                      appraisal_district_id,
-                      tax_year,
-                      account_number,
-                      source_system_id,
-                      import_batch_id,
-                      job_run_id,
-                      cad_owner_name,
-                      cad_owner_name_normalized,
-                      source_record_hash
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_id, tax_year)
-                    DO UPDATE SET
-                      county_id = EXCLUDED.county_id,
-                      appraisal_district_id = EXCLUDED.appraisal_district_id,
-                      account_number = EXCLUDED.account_number,
-                      source_system_id = EXCLUDED.source_system_id,
-                      import_batch_id = EXCLUDED.import_batch_id,
-                      job_run_id = EXCLUDED.job_run_id,
-                      cad_owner_name = EXCLUDED.cad_owner_name,
-                      cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    RETURNING parcel_year_snapshot_id
-                    """,
+                    for record in normalized_records
+                    for parcel, address in [(record["parcel"], record["address"])]
+                ],
+            )
+
+            cursor.executemany(
+                """
+                INSERT INTO parcel_year_snapshots (
+                  parcel_id,
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  source_system_id,
+                  import_batch_id,
+                  job_run_id,
+                  cad_owner_name,
+                  cad_owner_name_normalized,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  county_id = EXCLUDED.county_id,
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  account_number = EXCLUDED.account_number,
+                  source_system_id = EXCLUDED.source_system_id,
+                  import_batch_id = EXCLUDED.import_batch_id,
+                  job_run_id = EXCLUDED.job_run_id,
+                  cad_owner_name = EXCLUDED.cad_owner_name,
+                  cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                [
                     (
-                        parcel_id,
+                        parcel_ids_by_account[parcel["account_number"]],
                         county_id,
                         appraisal_district_id,
                         tax_year,
@@ -817,43 +940,61 @@ class IngestionRepository:
                         parcel.get("owner_name"),
                         normalize_owner_name(parcel.get("owner_name")),
                         parcel["source_record_hash"],
-                    ),
-                )
-                snapshot_id = str(cursor.fetchone()["parcel_year_snapshot_id"])
-
-                characteristics = record["characteristics"]
-                cursor.execute(
-                    """
-                    INSERT INTO property_characteristics (
-                      parcel_year_snapshot_id,
-                      property_type_code,
-                      property_class_code,
-                      neighborhood_code,
-                      subdivision_name,
-                      school_district_name,
-                      homestead_flag,
-                      owner_occupied_flag,
-                      primary_use_code,
-                      neighborhood_group,
-                      effective_age
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_year_snapshot_id)
-                    DO UPDATE SET
-                      property_type_code = EXCLUDED.property_type_code,
-                      property_class_code = EXCLUDED.property_class_code,
-                      neighborhood_code = EXCLUDED.neighborhood_code,
-                      subdivision_name = EXCLUDED.subdivision_name,
-                      school_district_name = EXCLUDED.school_district_name,
-                      homestead_flag = EXCLUDED.homestead_flag,
-                      owner_occupied_flag = EXCLUDED.owner_occupied_flag,
-                      primary_use_code = EXCLUDED.primary_use_code,
-                      neighborhood_group = EXCLUDED.neighborhood_group,
-                      effective_age = EXCLUDED.effective_age,
-                      updated_at = now()
-                    """,
+                    for record in normalized_records
+                    for parcel in [record["parcel"]]
+                ],
+            )
+            cursor.execute(
+                """
+                SELECT pys.parcel_year_snapshot_id, pys.parcel_id, p.account_number
+                FROM parcel_year_snapshots pys
+                JOIN parcels p ON p.parcel_id = pys.parcel_id
+                WHERE p.county_id = %s
+                  AND pys.tax_year = %s
+                  AND p.account_number = ANY(%s)
+                """,
+                (county_id, tax_year, account_numbers),
+            )
+            snapshot_ids_by_account = {
+                row["account_number"]: str(row["parcel_year_snapshot_id"])
+                for row in cursor.fetchall()
+            }
+            snapshot_ids = list(snapshot_ids_by_account.values())
+
+            cursor.executemany(
+                """
+                INSERT INTO property_characteristics (
+                  parcel_year_snapshot_id,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  homestead_flag,
+                  owner_occupied_flag,
+                  primary_use_code,
+                  neighborhood_group,
+                  effective_age
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (parcel_year_snapshot_id)
+                DO UPDATE SET
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  owner_occupied_flag = EXCLUDED.owner_occupied_flag,
+                  primary_use_code = EXCLUDED.primary_use_code,
+                  neighborhood_group = EXCLUDED.neighborhood_group,
+                  effective_age = EXCLUDED.effective_age,
+                  updated_at = now()
+                """,
+                [
                     (
-                        snapshot_id,
+                        snapshot_ids_by_account[parcel["account_number"]],
                         characteristics.get("property_type_code", "sfr"),
                         characteristics.get("property_class_code"),
                         characteristics.get("neighborhood_code"),
@@ -864,262 +1005,136 @@ class IngestionRepository:
                         characteristics.get("primary_use_code"),
                         characteristics.get("neighborhood_group"),
                         characteristics.get("effective_age"),
-                    ),
+                    )
+                    for record in normalized_records
+                    for parcel, characteristics in [(record["parcel"], record["characteristics"])]
+                ],
+            )
+
+            if snapshot_ids and include_detail_tables:
+                cursor.execute(
+                    "DELETE FROM improvements WHERE parcel_year_snapshot_id = ANY(%s)",
+                    (snapshot_ids,),
+                )
+                cursor.execute(
+                    "DELETE FROM land_segments WHERE parcel_year_snapshot_id = ANY(%s)",
+                    (snapshot_ids,),
+                )
+                cursor.execute(
+                    "DELETE FROM value_components WHERE parcel_year_snapshot_id = ANY(%s)",
+                    (snapshot_ids,),
                 )
 
-                cursor.execute(
-                    "DELETE FROM improvements WHERE parcel_year_snapshot_id = %s", (snapshot_id,)
-                )
-                for improvement in record["improvements"]:
-                    cursor.execute(
-                        """
-                        INSERT INTO improvements (
-                          parcel_year_snapshot_id,
-                          improvement_type,
-                          building_label,
-                          living_area_sf,
-                          year_built,
-                          effective_year_built,
-                          effective_age,
-                          bedrooms,
-                          full_baths,
-                          half_baths,
-                          stories,
-                          quality_code,
-                          condition_code,
-                          garage_spaces,
-                          pool_flag,
-                          source_system_id,
-                          source_record_hash
+            improvement_rows: list[tuple[Any, ...]] = []
+            parcel_improvement_rows: list[tuple[Any, ...]] = []
+            land_segment_rows: list[tuple[Any, ...]] = []
+            parcel_land_rows: list[tuple[Any, ...]] = []
+            value_component_rows: list[tuple[Any, ...]] = []
+            assessment_rows: list[tuple[Any, ...]] = []
+            exemption_rows: list[tuple[Any, ...]] = []
+
+            for record in normalized_records:
+                parcel = record["parcel"]
+                account_number = parcel["account_number"]
+                parcel_id = parcel_ids_by_account[account_number]
+                snapshot_id = snapshot_ids_by_account[account_number]
+                source_record_hash = parcel["source_record_hash"]
+                characteristics = record["characteristics"]
+
+                if include_detail_tables:
+                    for improvement in record["improvements"]:
+                        improvement_rows.append(
+                            (
+                                snapshot_id,
+                                improvement.get("improvement_type", "primary_structure"),
+                                improvement.get("building_label", "Main"),
+                                improvement.get("living_area_sf"),
+                                improvement.get("year_built"),
+                                improvement.get("effective_year_built"),
+                                improvement.get("effective_age"),
+                                improvement.get("bedrooms"),
+                                improvement.get("full_baths"),
+                                improvement.get("half_baths"),
+                                improvement.get("stories"),
+                                improvement.get("quality_code"),
+                                improvement.get("condition_code"),
+                                improvement.get("garage_spaces"),
+                                improvement.get("pool_flag"),
+                                source_system_id,
+                                source_record_hash,
+                            )
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
+
+                    primary_improvement = record["improvements"][0]
+                    parcel_improvement_rows.append(
                         (
-                            snapshot_id,
-                            improvement.get("improvement_type", "primary_structure"),
-                            improvement.get("building_label", "Main"),
-                            improvement.get("living_area_sf"),
-                            improvement.get("year_built"),
-                            improvement.get("effective_year_built"),
-                            improvement.get("effective_age"),
-                            improvement.get("bedrooms"),
-                            improvement.get("full_baths"),
-                            improvement.get("half_baths"),
-                            improvement.get("stories"),
-                            improvement.get("quality_code"),
-                            improvement.get("condition_code"),
-                            improvement.get("garage_spaces"),
-                            improvement.get("pool_flag"),
+                            parcel_id,
+                            tax_year,
+                            primary_improvement.get("living_area_sf"),
+                            primary_improvement.get("year_built"),
+                            primary_improvement.get("effective_year_built"),
+                            primary_improvement.get("effective_age"),
+                            primary_improvement.get("bedrooms"),
+                            primary_improvement.get("full_baths"),
+                            primary_improvement.get("half_baths"),
+                            primary_improvement.get("stories"),
+                            primary_improvement.get("quality_code"),
+                            primary_improvement.get("condition_code"),
+                            primary_improvement.get("garage_spaces"),
+                            primary_improvement.get("pool_flag"),
                             source_system_id,
-                            parcel["source_record_hash"],
-                        ),
-                    )
-
-                primary_improvement = record["improvements"][0]
-                cursor.execute(
-                    """
-                    INSERT INTO parcel_improvements (
-                      parcel_id,
-                      tax_year,
-                      living_area_sf,
-                      year_built,
-                      effective_year_built,
-                      effective_age,
-                      bedrooms,
-                      full_baths,
-                      half_baths,
-                      stories,
-                      quality_code,
-                      condition_code,
-                      garage_spaces,
-                      pool_flag,
-                      source_system_id,
-                      source_record_hash
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_id, tax_year)
-                    DO UPDATE SET
-                      living_area_sf = EXCLUDED.living_area_sf,
-                      year_built = EXCLUDED.year_built,
-                      effective_year_built = EXCLUDED.effective_year_built,
-                      effective_age = EXCLUDED.effective_age,
-                      bedrooms = EXCLUDED.bedrooms,
-                      full_baths = EXCLUDED.full_baths,
-                      half_baths = EXCLUDED.half_baths,
-                      stories = EXCLUDED.stories,
-                      quality_code = EXCLUDED.quality_code,
-                      condition_code = EXCLUDED.condition_code,
-                      garage_spaces = EXCLUDED.garage_spaces,
-                      pool_flag = EXCLUDED.pool_flag,
-                      source_system_id = EXCLUDED.source_system_id,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    """,
-                    (
-                        parcel_id,
-                        tax_year,
-                        primary_improvement.get("living_area_sf"),
-                        primary_improvement.get("year_built"),
-                        primary_improvement.get("effective_year_built"),
-                        primary_improvement.get("effective_age"),
-                        primary_improvement.get("bedrooms"),
-                        primary_improvement.get("full_baths"),
-                        primary_improvement.get("half_baths"),
-                        primary_improvement.get("stories"),
-                        primary_improvement.get("quality_code"),
-                        primary_improvement.get("condition_code"),
-                        primary_improvement.get("garage_spaces"),
-                        primary_improvement.get("pool_flag"),
-                        source_system_id,
-                        parcel["source_record_hash"],
-                    ),
-                )
-
-                cursor.execute(
-                    "DELETE FROM land_segments WHERE parcel_year_snapshot_id = %s", (snapshot_id,)
-                )
-                for segment in record["land_segments"]:
-                    cursor.execute(
-                        """
-                        INSERT INTO land_segments (
-                          parcel_year_snapshot_id,
-                          segment_num,
-                          land_type_code,
-                          land_sf,
-                          land_acres,
-                          frontage_sf,
-                          depth_sf,
-                          market_value,
-                          ag_use_value,
-                          source_system_id,
-                          source_record_hash
+                            source_record_hash,
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            snapshot_id,
-                            segment.get("segment_num", 1),
-                            segment.get("land_type_code"),
-                            segment.get("land_sf"),
-                            segment.get("land_acres"),
-                            segment.get("frontage_sf"),
-                            segment.get("depth_sf"),
-                            segment.get("market_value"),
-                            segment.get("ag_use_value"),
-                            source_system_id,
-                            parcel["source_record_hash"],
-                        ),
                     )
 
-                primary_land = record["land_segments"][0]
-                cursor.execute(
-                    """
-                    INSERT INTO parcel_lands (
-                      parcel_id,
-                      tax_year,
-                      land_sf,
-                      land_acres,
-                      frontage_sf,
-                      depth_sf,
-                      source_system_id,
-                      source_record_hash
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_id, tax_year)
-                    DO UPDATE SET
-                      land_sf = EXCLUDED.land_sf,
-                      land_acres = EXCLUDED.land_acres,
-                      frontage_sf = EXCLUDED.frontage_sf,
-                      depth_sf = EXCLUDED.depth_sf,
-                      source_system_id = EXCLUDED.source_system_id,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    """,
-                    (
-                        parcel_id,
-                        tax_year,
-                        primary_land.get("land_sf"),
-                        primary_land.get("land_acres"),
-                        primary_land.get("frontage_sf"),
-                        primary_land.get("depth_sf"),
-                        source_system_id,
-                        parcel["source_record_hash"],
-                    ),
-                )
-
-                cursor.execute(
-                    "DELETE FROM value_components WHERE parcel_year_snapshot_id = %s",
-                    (snapshot_id,),
-                )
-                for component in record["value_components"]:
-                    cursor.execute(
-                        """
-                        INSERT INTO value_components (
-                          parcel_year_snapshot_id,
-                          component_code,
-                          component_label,
-                          component_category,
-                          market_value,
-                          assessed_value,
-                          taxable_value,
-                          source_system_id,
-                          source_record_hash
+                    for segment in record["land_segments"]:
+                        land_segment_rows.append(
+                            (
+                                snapshot_id,
+                                segment.get("segment_num", 1),
+                                segment.get("land_type_code"),
+                                segment.get("land_sf"),
+                                segment.get("land_acres"),
+                                segment.get("frontage_sf"),
+                                segment.get("depth_sf"),
+                                segment.get("market_value"),
+                                segment.get("ag_use_value"),
+                                source_system_id,
+                                source_record_hash,
+                            )
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
+
+                    primary_land = record["land_segments"][0]
+                    parcel_land_rows.append(
                         (
-                            snapshot_id,
-                            component["component_code"],
-                            component.get("component_label"),
-                            component.get("component_category"),
-                            component.get("market_value"),
-                            component.get("assessed_value"),
-                            component.get("taxable_value"),
+                            parcel_id,
+                            tax_year,
+                            primary_land.get("land_sf"),
+                            primary_land.get("land_acres"),
+                            primary_land.get("frontage_sf"),
+                            primary_land.get("depth_sf"),
                             source_system_id,
-                            parcel["source_record_hash"],
-                        ),
+                            source_record_hash,
+                        )
                     )
+
+                    for component in record["value_components"]:
+                        value_component_rows.append(
+                            (
+                                snapshot_id,
+                                component["component_code"],
+                                component.get("component_label"),
+                                component.get("component_category"),
+                                component.get("market_value"),
+                                component.get("assessed_value"),
+                                component.get("taxable_value"),
+                                source_system_id,
+                                source_record_hash,
+                            )
+                        )
 
                 assessment = record["assessment"]
-                cursor.execute(
-                    """
-                    INSERT INTO parcel_assessments (
-                      parcel_id,
-                      tax_year,
-                      land_value,
-                      improvement_value,
-                      market_value,
-                      assessed_value,
-                      capped_value,
-                      appraised_value,
-                      exemption_value_total,
-                      notice_value,
-                      certified_value,
-                      prior_year_market_value,
-                      prior_year_assessed_value,
-                      homestead_flag,
-                      source_system_id,
-                      source_record_hash
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_id, tax_year)
-                    DO UPDATE SET
-                      land_value = EXCLUDED.land_value,
-                      improvement_value = EXCLUDED.improvement_value,
-                      market_value = EXCLUDED.market_value,
-                      assessed_value = EXCLUDED.assessed_value,
-                      capped_value = EXCLUDED.capped_value,
-                      appraised_value = EXCLUDED.appraised_value,
-                      exemption_value_total = EXCLUDED.exemption_value_total,
-                      notice_value = EXCLUDED.notice_value,
-                      certified_value = EXCLUDED.certified_value,
-                      prior_year_market_value = EXCLUDED.prior_year_market_value,
-                      prior_year_assessed_value = EXCLUDED.prior_year_assessed_value,
-                      homestead_flag = EXCLUDED.homestead_flag,
-                      source_system_id = EXCLUDED.source_system_id,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    """,
+                assessment_rows.append(
                     (
                         parcel_id,
                         tax_year,
@@ -1136,64 +1151,650 @@ class IngestionRepository:
                         assessment.get("prior_year_assessed_value"),
                         characteristics.get("homestead_flag", False),
                         source_system_id,
-                        parcel["source_record_hash"],
-                    ),
-                )
-
-                cursor.execute(
-                    "DELETE FROM parcel_exemptions WHERE parcel_id = %s AND tax_year = %s",
-                    (parcel_id, tax_year),
-                )
-                for exemption in normalize_parcel_exemptions(record.get("exemptions", [])):
-                    cursor.execute(
-                        """
-                        INSERT INTO parcel_exemptions (
-                          parcel_id,
-                          tax_year,
-                          exemption_type_code,
-                          exemption_amount,
-                          raw_exemption_codes,
-                          source_entry_count,
-                          amount_missing_flag,
-                          granted_flag,
-                          source_system_id,
-                          source_record_hash
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (parcel_id, tax_year, exemption_type_code)
-                        DO UPDATE SET
-                          exemption_amount = EXCLUDED.exemption_amount,
-                          raw_exemption_codes = EXCLUDED.raw_exemption_codes,
-                          source_entry_count = EXCLUDED.source_entry_count,
-                          amount_missing_flag = EXCLUDED.amount_missing_flag,
-                          granted_flag = EXCLUDED.granted_flag,
-                          source_system_id = EXCLUDED.source_system_id,
-                          source_record_hash = EXCLUDED.source_record_hash,
-                          updated_at = now()
-                        """,
-                        (
-                            parcel_id,
-                            tax_year,
-                            exemption["exemption_type_code"],
-                            exemption["exemption_amount"],
-                            exemption.get("raw_exemption_codes", []),
-                            exemption.get("source_entry_count", 1),
-                            exemption.get("amount_missing_flag", False),
-                            exemption.get("granted_flag", True),
-                            source_system_id,
-                            parcel["source_record_hash"],
-                        ),
+                        source_record_hash,
                     )
+                )
 
+                if include_detail_tables:
+                    for exemption in normalize_parcel_exemptions(record.get("exemptions", [])):
+                        exemption_rows.append(
+                            (
+                                parcel_id,
+                                tax_year,
+                                exemption["exemption_type_code"],
+                                exemption["exemption_amount"],
+                                exemption.get("raw_exemption_codes", []),
+                                exemption.get("source_entry_count", 1),
+                                exemption.get("amount_missing_flag", False),
+                                exemption.get("granted_flag", True),
+                                source_system_id,
+                                source_record_hash,
+                            )
+                        )
+
+            if improvement_rows and include_detail_tables:
+                cursor.executemany(
+                    """
+                    INSERT INTO improvements (
+                      parcel_year_snapshot_id,
+                      improvement_type,
+                      building_label,
+                      living_area_sf,
+                      year_built,
+                      effective_year_built,
+                      effective_age,
+                      bedrooms,
+                      full_baths,
+                      half_baths,
+                      stories,
+                      quality_code,
+                      condition_code,
+                      garage_spaces,
+                      pool_flag,
+                      source_system_id,
+                      source_record_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    improvement_rows,
+                )
+            if include_detail_tables:
+                cursor.executemany(
+                """
+                INSERT INTO parcel_improvements (
+                  parcel_id,
+                  tax_year,
+                  living_area_sf,
+                  year_built,
+                  effective_year_built,
+                  effective_age,
+                  bedrooms,
+                  full_baths,
+                  half_baths,
+                  stories,
+                  quality_code,
+                  condition_code,
+                  garage_spaces,
+                  pool_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  living_area_sf = EXCLUDED.living_area_sf,
+                  year_built = EXCLUDED.year_built,
+                  effective_year_built = EXCLUDED.effective_year_built,
+                  effective_age = EXCLUDED.effective_age,
+                  bedrooms = EXCLUDED.bedrooms,
+                  full_baths = EXCLUDED.full_baths,
+                  half_baths = EXCLUDED.half_baths,
+                  stories = EXCLUDED.stories,
+                  quality_code = EXCLUDED.quality_code,
+                  condition_code = EXCLUDED.condition_code,
+                  garage_spaces = EXCLUDED.garage_spaces,
+                  pool_flag = EXCLUDED.pool_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                    parcel_improvement_rows,
+                )
+
+            if land_segment_rows and include_detail_tables:
+                cursor.executemany(
+                    """
+                    INSERT INTO land_segments (
+                      parcel_year_snapshot_id,
+                      segment_num,
+                      land_type_code,
+                      land_sf,
+                      land_acres,
+                      frontage_sf,
+                      depth_sf,
+                      market_value,
+                      ag_use_value,
+                      source_system_id,
+                      source_record_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    land_segment_rows,
+                )
+            if include_detail_tables:
+                cursor.executemany(
+                """
+                INSERT INTO parcel_lands (
+                  parcel_id,
+                  tax_year,
+                  land_sf,
+                  land_acres,
+                  frontage_sf,
+                  depth_sf,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_sf = EXCLUDED.land_sf,
+                  land_acres = EXCLUDED.land_acres,
+                  frontage_sf = EXCLUDED.frontage_sf,
+                  depth_sf = EXCLUDED.depth_sf,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                    parcel_land_rows,
+                )
+
+            if value_component_rows and include_detail_tables:
+                cursor.executemany(
+                    """
+                    INSERT INTO value_components (
+                      parcel_year_snapshot_id,
+                      component_code,
+                      component_label,
+                      component_category,
+                      market_value,
+                      assessed_value,
+                      taxable_value,
+                      source_system_id,
+                      source_record_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    value_component_rows,
+                )
+            cursor.executemany(
+                """
+                INSERT INTO parcel_assessments (
+                  parcel_id,
+                  tax_year,
+                  land_value,
+                  improvement_value,
+                  market_value,
+                  assessed_value,
+                  capped_value,
+                  appraised_value,
+                  exemption_value_total,
+                  notice_value,
+                  certified_value,
+                  prior_year_market_value,
+                  prior_year_assessed_value,
+                  homestead_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_value = EXCLUDED.land_value,
+                  improvement_value = EXCLUDED.improvement_value,
+                  market_value = EXCLUDED.market_value,
+                  assessed_value = EXCLUDED.assessed_value,
+                  capped_value = EXCLUDED.capped_value,
+                  appraised_value = EXCLUDED.appraised_value,
+                  exemption_value_total = EXCLUDED.exemption_value_total,
+                  notice_value = EXCLUDED.notice_value,
+                  certified_value = EXCLUDED.certified_value,
+                  prior_year_market_value = EXCLUDED.prior_year_market_value,
+                  prior_year_assessed_value = EXCLUDED.prior_year_assessed_value,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                assessment_rows,
+            )
+
+            if parcel_ids and include_detail_tables:
+                cursor.execute(
+                    "DELETE FROM parcel_exemptions WHERE parcel_id = ANY(%s) AND tax_year = %s",
+                    (parcel_ids, tax_year),
+                )
+            if exemption_rows and include_detail_tables:
+                cursor.executemany(
+                    """
+                    INSERT INTO parcel_exemptions (
+                      parcel_id,
+                      tax_year,
+                      exemption_type_code,
+                      exemption_amount,
+                      raw_exemption_codes,
+                      source_entry_count,
+                      amount_missing_flag,
+                      granted_flag,
+                      source_system_id,
+                      source_record_hash
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    exemption_rows,
+                )
+
+        for account_number in account_numbers:
             lineage_records.append(
                 {
                     "target_table": "parcel_year_snapshots",
-                    "target_id": snapshot_id,
-                    "parcel_id": parcel_id,
+                    "target_id": snapshot_ids_by_account[account_number],
+                    "parcel_id": parcel_ids_by_account[account_number],
                 }
             )
 
         return lineage_records
+
+    def _bulk_upsert_property_roll_core_records(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+        appraisal_district_id: str,
+        normalized_records: list[dict[str, Any]],
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_core_upsert (
+                  account_number text PRIMARY KEY,
+                  cad_property_id text,
+                  situs_address text,
+                  situs_city text,
+                  situs_zip text,
+                  owner_name text,
+                  parcel_property_type_code text,
+                  property_class_code text,
+                  neighborhood_code text,
+                  subdivision_name text,
+                  school_district_name text,
+                  source_record_hash text,
+                  normalized_address text,
+                  cad_owner_name text,
+                  cad_owner_name_normalized text,
+                  characteristics_property_type_code text,
+                  characteristics_property_class_code text,
+                  characteristics_neighborhood_code text,
+                  characteristics_subdivision_name text,
+                  characteristics_school_district_name text,
+                  homestead_flag boolean,
+                  owner_occupied_flag boolean,
+                  primary_use_code text,
+                  neighborhood_group text,
+                  effective_age integer,
+                  land_value numeric,
+                  improvement_value numeric,
+                  market_value numeric,
+                  assessed_value numeric,
+                  capped_value numeric,
+                  appraised_value numeric,
+                  exemption_value_total numeric,
+                  notice_value numeric,
+                  certified_value numeric,
+                  prior_year_market_value numeric,
+                  prior_year_assessed_value numeric
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_core_upsert")
+            with cursor.copy(
+                """
+                COPY tmp_property_roll_core_upsert (
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  situs_zip,
+                  owner_name,
+                  parcel_property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  source_record_hash,
+                  normalized_address,
+                  cad_owner_name,
+                  cad_owner_name_normalized,
+                  characteristics_property_type_code,
+                  characteristics_property_class_code,
+                  characteristics_neighborhood_code,
+                  characteristics_subdivision_name,
+                  characteristics_school_district_name,
+                  homestead_flag,
+                  owner_occupied_flag,
+                  primary_use_code,
+                  neighborhood_group,
+                  effective_age,
+                  land_value,
+                  improvement_value,
+                  market_value,
+                  assessed_value,
+                  capped_value,
+                  appraised_value,
+                  exemption_value_total,
+                  notice_value,
+                  certified_value,
+                  prior_year_market_value,
+                  prior_year_assessed_value
+                ) FROM STDIN
+                """
+            ) as copy:
+                for record in normalized_records:
+                    parcel = record["parcel"]
+                    address = record["address"]
+                    characteristics = record["characteristics"]
+                    assessment = record["assessment"]
+                    copy.write_row(
+                        (
+                            parcel["account_number"],
+                            parcel.get("cad_property_id"),
+                            parcel["situs_address"],
+                            parcel["situs_city"],
+                            parcel["situs_zip"],
+                            parcel["owner_name"],
+                            parcel.get("property_type_code", "sfr"),
+                            parcel.get("property_class_code"),
+                            parcel.get("neighborhood_code"),
+                            parcel.get("subdivision_name"),
+                            parcel.get("school_district_name"),
+                            parcel["source_record_hash"],
+                            address["normalized_address"],
+                            parcel.get("owner_name"),
+                            normalize_owner_name(parcel.get("owner_name")),
+                            characteristics.get("property_type_code", "sfr"),
+                            characteristics.get("property_class_code"),
+                            characteristics.get("neighborhood_code"),
+                            characteristics.get("subdivision_name"),
+                            characteristics.get("school_district_name"),
+                            characteristics.get("homestead_flag", False),
+                            characteristics.get("owner_occupied_flag", False),
+                            characteristics.get("primary_use_code"),
+                            characteristics.get("neighborhood_group"),
+                            characteristics.get("effective_age"),
+                            assessment.get("land_value"),
+                            assessment.get("improvement_value"),
+                            assessment.get("market_value"),
+                            assessment.get("assessed_value"),
+                            assessment.get("capped_value"),
+                            assessment.get("appraised_value"),
+                            assessment.get("exemption_value_total"),
+                            assessment.get("notice_value"),
+                            assessment.get("certified_value"),
+                            assessment.get("prior_year_market_value"),
+                            assessment.get("prior_year_assessed_value"),
+                        )
+                    )
+
+            cursor.execute(
+                """
+                INSERT INTO parcels (
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  owner_name,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  %s,
+                  %s,
+                  %s,
+                  account_number,
+                  cad_property_id,
+                  situs_address,
+                  situs_city,
+                  'TX',
+                  situs_zip,
+                  owner_name,
+                  parcel_property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  %s,
+                  source_record_hash
+                FROM tmp_property_roll_core_upsert
+                ON CONFLICT (county_id, account_number)
+                DO UPDATE SET
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  tax_year = EXCLUDED.tax_year,
+                  cad_property_id = EXCLUDED.cad_property_id,
+                  situs_address = EXCLUDED.situs_address,
+                  situs_city = EXCLUDED.situs_city,
+                  situs_state = EXCLUDED.situs_state,
+                  situs_zip = EXCLUDED.situs_zip,
+                  owner_name = EXCLUDED.owner_name,
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (county_id, appraisal_district_id, tax_year, source_system_id),
+            )
+            cursor.execute(
+                """
+                UPDATE parcel_addresses pa
+                SET is_current = false
+                FROM parcels p
+                JOIN tmp_property_roll_core_upsert t
+                  ON t.account_number = p.account_number
+                WHERE pa.parcel_id = p.parcel_id
+                  AND p.county_id = %s
+                """,
+                (county_id,),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_addresses (
+                  parcel_id,
+                  situs_address,
+                  situs_city,
+                  situs_state,
+                  situs_zip,
+                  normalized_address,
+                  is_current,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  t.situs_address,
+                  t.situs_city,
+                  'TX',
+                  t.situs_zip,
+                  t.normalized_address,
+                  true,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                """,
+                (source_system_id, county_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_year_snapshots (
+                  parcel_id,
+                  county_id,
+                  appraisal_district_id,
+                  tax_year,
+                  account_number,
+                  source_system_id,
+                  import_batch_id,
+                  job_run_id,
+                  cad_owner_name,
+                  cad_owner_name_normalized,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  %s,
+                  %s,
+                  t.account_number,
+                  %s,
+                  %s,
+                  %s,
+                  t.cad_owner_name,
+                  t.cad_owner_name_normalized,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  county_id = EXCLUDED.county_id,
+                  appraisal_district_id = EXCLUDED.appraisal_district_id,
+                  account_number = EXCLUDED.account_number,
+                  source_system_id = EXCLUDED.source_system_id,
+                  import_batch_id = EXCLUDED.import_batch_id,
+                  job_run_id = EXCLUDED.job_run_id,
+                  cad_owner_name = EXCLUDED.cad_owner_name,
+                  cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (
+                    county_id,
+                    appraisal_district_id,
+                    tax_year,
+                    source_system_id,
+                    import_batch_id,
+                    job_run_id,
+                    county_id,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO property_characteristics (
+                  parcel_year_snapshot_id,
+                  property_type_code,
+                  property_class_code,
+                  neighborhood_code,
+                  subdivision_name,
+                  school_district_name,
+                  homestead_flag,
+                  owner_occupied_flag,
+                  primary_use_code,
+                  neighborhood_group,
+                  effective_age
+                )
+                SELECT
+                  pys.parcel_year_snapshot_id,
+                  t.characteristics_property_type_code,
+                  t.characteristics_property_class_code,
+                  t.characteristics_neighborhood_code,
+                  t.characteristics_subdivision_name,
+                  t.characteristics_school_district_name,
+                  t.homestead_flag,
+                  t.owner_occupied_flag,
+                  t.primary_use_code,
+                  t.neighborhood_group,
+                  t.effective_age
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                JOIN parcel_year_snapshots pys
+                  ON pys.parcel_id = p.parcel_id
+                 AND pys.tax_year = %s
+                ON CONFLICT (parcel_year_snapshot_id)
+                DO UPDATE SET
+                  property_type_code = EXCLUDED.property_type_code,
+                  property_class_code = EXCLUDED.property_class_code,
+                  neighborhood_code = EXCLUDED.neighborhood_code,
+                  subdivision_name = EXCLUDED.subdivision_name,
+                  school_district_name = EXCLUDED.school_district_name,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  owner_occupied_flag = EXCLUDED.owner_occupied_flag,
+                  primary_use_code = EXCLUDED.primary_use_code,
+                  neighborhood_group = EXCLUDED.neighborhood_group,
+                  effective_age = EXCLUDED.effective_age,
+                  updated_at = now()
+                """,
+                (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_assessments (
+                  parcel_id,
+                  tax_year,
+                  land_value,
+                  improvement_value,
+                  market_value,
+                  assessed_value,
+                  capped_value,
+                  appraised_value,
+                  exemption_value_total,
+                  notice_value,
+                  certified_value,
+                  prior_year_market_value,
+                  prior_year_assessed_value,
+                  homestead_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  t.land_value,
+                  t.improvement_value,
+                  t.market_value,
+                  t.assessed_value,
+                  t.capped_value,
+                  t.appraised_value,
+                  t.exemption_value_total,
+                  t.notice_value,
+                  t.certified_value,
+                  t.prior_year_market_value,
+                  t.prior_year_assessed_value,
+                  t.homestead_flag,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_value = EXCLUDED.land_value,
+                  improvement_value = EXCLUDED.improvement_value,
+                  market_value = EXCLUDED.market_value,
+                  assessed_value = EXCLUDED.assessed_value,
+                  capped_value = EXCLUDED.capped_value,
+                  appraised_value = EXCLUDED.appraised_value,
+                  exemption_value_total = EXCLUDED.exemption_value_total,
+                  notice_value = EXCLUDED.notice_value,
+                  certified_value = EXCLUDED.certified_value,
+                  prior_year_market_value = EXCLUDED.prior_year_market_value,
+                  prior_year_assessed_value = EXCLUDED.prior_year_assessed_value,
+                  homestead_flag = EXCLUDED.homestead_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (tax_year, source_system_id, county_id),
+            )
 
     def upsert_deed_records(
         self,
@@ -1892,122 +2493,184 @@ class IngestionRepository:
         tax_year: int,
         account_numbers: Iterable[str],
     ) -> dict[str, Any]:
-        entries: list[dict[str, Any]] = []
-        for account_number in account_numbers:
-            parcel_row = self._fetch_optional_row(
+        requested_accounts = sorted({account_number for account_number in account_numbers if account_number})
+        if not requested_accounts:
+            return {"dataset_type": "property_roll", "entries": []}
+
+        parcel_rows = self._fetch_rows(
+            """
+            SELECT *
+            FROM parcels
+            WHERE county_id = %s
+              AND account_number = ANY(%s)
+            ORDER BY account_number ASC
+            """,
+            (county_id, requested_accounts),
+        )
+        parcel_by_account = {row["account_number"]: row for row in parcel_rows}
+        if not parcel_rows:
+            return {
+                "dataset_type": "property_roll",
+                "entries": [
+                    {"account_number": account_number, "prior_state": None}
+                    for account_number in requested_accounts
+                ],
+            }
+
+        parcel_ids = [row["parcel_id"] for row in parcel_rows]
+
+        addresses_by_parcel = self._group_rows_by_key(
+            self._fetch_rows(
                 """
                 SELECT *
-                FROM parcels
-                WHERE county_id = %s
-                  AND account_number = %s
+                FROM parcel_addresses
+                WHERE parcel_id = ANY(%s)
+                ORDER BY created_at ASC, parcel_address_id ASC
                 """,
-                (county_id, account_number),
+                (parcel_ids,),
+            ),
+            "parcel_id",
+        )
+        parcel_improvements = self._rows_by_key(
+            self._fetch_rows(
+                """
+                SELECT *
+                FROM parcel_improvements
+                WHERE parcel_id = ANY(%s)
+                  AND tax_year = %s
+                """,
+                (parcel_ids, tax_year),
+            ),
+            "parcel_id",
+        )
+        parcel_lands = self._rows_by_key(
+            self._fetch_rows(
+                """
+                SELECT *
+                FROM parcel_lands
+                WHERE parcel_id = ANY(%s)
+                  AND tax_year = %s
+                """,
+                (parcel_ids, tax_year),
+            ),
+            "parcel_id",
+        )
+        parcel_assessments = self._rows_by_key(
+            self._fetch_rows(
+                """
+                SELECT *
+                FROM parcel_assessments
+                WHERE parcel_id = ANY(%s)
+                  AND tax_year = %s
+                """,
+                (parcel_ids, tax_year),
+            ),
+            "parcel_id",
+        )
+        parcel_exemptions = self._group_rows_by_key(
+            self._fetch_rows(
+                """
+                SELECT *
+                FROM parcel_exemptions
+                WHERE parcel_id = ANY(%s)
+                  AND tax_year = %s
+                ORDER BY exemption_type_code ASC
+                """,
+                (parcel_ids, tax_year),
+            ),
+            "parcel_id",
+        )
+        snapshot_rows = self._fetch_rows(
+            """
+            SELECT *
+            FROM parcel_year_snapshots
+            WHERE parcel_id = ANY(%s)
+              AND tax_year = %s
+            """,
+            (parcel_ids, tax_year),
+        )
+        snapshots_by_parcel = {row["parcel_id"]: row for row in snapshot_rows}
+        snapshot_ids = [row["parcel_year_snapshot_id"] for row in snapshot_rows]
+
+        if snapshot_ids:
+            characteristics_by_snapshot = self._rows_by_key(
+                self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM property_characteristics
+                    WHERE parcel_year_snapshot_id = ANY(%s)
+                    """,
+                    (snapshot_ids,),
+                ),
+                "parcel_year_snapshot_id",
             )
+            improvements_by_snapshot = self._group_rows_by_key(
+                self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM improvements
+                    WHERE parcel_year_snapshot_id = ANY(%s)
+                    ORDER BY created_at ASC, improvement_id ASC
+                    """,
+                    (snapshot_ids,),
+                ),
+                "parcel_year_snapshot_id",
+            )
+            land_segments_by_snapshot = self._group_rows_by_key(
+                self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM land_segments
+                    WHERE parcel_year_snapshot_id = ANY(%s)
+                    ORDER BY segment_num ASC, land_segment_id ASC
+                    """,
+                    (snapshot_ids,),
+                ),
+                "parcel_year_snapshot_id",
+            )
+            value_components_by_snapshot = self._group_rows_by_key(
+                self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM value_components
+                    WHERE parcel_year_snapshot_id = ANY(%s)
+                    ORDER BY component_code ASC
+                    """,
+                    (snapshot_ids,),
+                ),
+                "parcel_year_snapshot_id",
+            )
+        else:
+            characteristics_by_snapshot = {}
+            improvements_by_snapshot = {}
+            land_segments_by_snapshot = {}
+            value_components_by_snapshot = {}
+
+        entries: list[dict[str, Any]] = []
+        for account_number in requested_accounts:
+            parcel_row = parcel_by_account.get(account_number)
             if parcel_row is None:
                 entries.append({"account_number": account_number, "prior_state": None})
                 continue
 
             parcel_id = parcel_row["parcel_id"]
-            snapshot_row = self._fetch_optional_row(
-                """
-                SELECT *
-                FROM parcel_year_snapshots
-                WHERE parcel_id = %s
-                  AND tax_year = %s
-                """,
-                (parcel_id, tax_year),
-            )
+            snapshot_row = snapshots_by_parcel.get(parcel_id)
+            snapshot_id = None if snapshot_row is None else snapshot_row["parcel_year_snapshot_id"]
             prior_state: dict[str, Any] = {
                 "parcel": parcel_row,
-                "parcel_addresses": self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM parcel_addresses
-                    WHERE parcel_id = %s
-                    ORDER BY created_at ASC, parcel_address_id ASC
-                    """,
-                    (parcel_id,),
-                ),
-                "parcel_improvement": self._fetch_optional_row(
-                    """
-                    SELECT *
-                    FROM parcel_improvements
-                    WHERE parcel_id = %s
-                      AND tax_year = %s
-                    """,
-                    (parcel_id, tax_year),
-                ),
-                "parcel_land": self._fetch_optional_row(
-                    """
-                    SELECT *
-                    FROM parcel_lands
-                    WHERE parcel_id = %s
-                      AND tax_year = %s
-                    """,
-                    (parcel_id, tax_year),
-                ),
-                "parcel_assessment": self._fetch_optional_row(
-                    """
-                    SELECT *
-                    FROM parcel_assessments
-                    WHERE parcel_id = %s
-                      AND tax_year = %s
-                    """,
-                    (parcel_id, tax_year),
-                ),
-                "parcel_exemptions": self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM parcel_exemptions
-                    WHERE parcel_id = %s
-                      AND tax_year = %s
-                    ORDER BY exemption_type_code ASC
-                    """,
-                    (parcel_id, tax_year),
-                ),
+                "parcel_addresses": addresses_by_parcel.get(parcel_id, []),
+                "parcel_improvement": parcel_improvements.get(parcel_id),
+                "parcel_land": parcel_lands.get(parcel_id),
+                "parcel_assessment": parcel_assessments.get(parcel_id),
+                "parcel_exemptions": parcel_exemptions.get(parcel_id, []),
                 "parcel_year_snapshot": snapshot_row,
-                "property_characteristics": None,
-                "improvements": [],
-                "land_segments": [],
-                "value_components": [],
+                "property_characteristics": (
+                    None if snapshot_id is None else characteristics_by_snapshot.get(snapshot_id)
+                ),
+                "improvements": [] if snapshot_id is None else improvements_by_snapshot.get(snapshot_id, []),
+                "land_segments": [] if snapshot_id is None else land_segments_by_snapshot.get(snapshot_id, []),
+                "value_components": [] if snapshot_id is None else value_components_by_snapshot.get(snapshot_id, []),
             }
-            if snapshot_row is not None:
-                snapshot_id = snapshot_row["parcel_year_snapshot_id"]
-                prior_state["property_characteristics"] = self._fetch_optional_row(
-                    """
-                    SELECT *
-                    FROM property_characteristics
-                    WHERE parcel_year_snapshot_id = %s
-                    """,
-                    (snapshot_id,),
-                )
-                prior_state["improvements"] = self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM improvements
-                    WHERE parcel_year_snapshot_id = %s
-                    ORDER BY created_at ASC, improvement_id ASC
-                    """,
-                    (snapshot_id,),
-                )
-                prior_state["land_segments"] = self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM land_segments
-                    WHERE parcel_year_snapshot_id = %s
-                    ORDER BY segment_num ASC, land_segment_id ASC
-                    """,
-                    (snapshot_id,),
-                )
-                prior_state["value_components"] = self._fetch_rows(
-                    """
-                    SELECT *
-                    FROM value_components
-                    WHERE parcel_year_snapshot_id = %s
-                    ORDER BY component_code ASC
-                    """,
-                    (snapshot_id,),
-                )
             entries.append({"account_number": account_number, "prior_state": prior_state})
 
         return {"dataset_type": "property_roll", "entries": entries}
@@ -3123,6 +3786,23 @@ class IngestionRepository:
             cursor.execute(query, params)
             rows = cursor.fetchall()
         return [self._serialize_row(row) for row in rows]
+
+    def _group_rows_by_key(
+        self,
+        rows: list[dict[str, Any]],
+        key_name: str,
+    ) -> dict[Any, list[dict[str, Any]]]:
+        grouped: dict[Any, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(row.get(key_name), []).append(row)
+        return grouped
+
+    def _rows_by_key(
+        self,
+        rows: list[dict[str, Any]],
+        key_name: str,
+    ) -> dict[Any, dict[str, Any]]:
+        return {row.get(key_name): row for row in rows}
 
     def _serialize_row(self, row: dict[str, Any]) -> dict[str, Any]:
         return {key: self._jsonable(value) for key, value in row.items()}

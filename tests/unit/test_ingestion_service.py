@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
+
 from app.county_adapters.common.base import AcquiredDataset, PublishResult, StagingRow
 from app.ingestion.repository import ImportBatchRecord
 from app.ingestion.service import IngestionLifecycleService, PipelineStepResult
@@ -31,6 +33,9 @@ class RecordingConnection:
         self.commit_calls = 0
         self.rollback_calls = 0
 
+    def cursor(self) -> SavepointCursor:
+        return SavepointCursor()
+
     def commit(self) -> None:
         self.commit_calls += 1
 
@@ -40,6 +45,22 @@ class RecordingConnection:
 
 @contextmanager
 def recording_connection():
+    yield RecordingConnection()
+
+
+class SavepointCursor:
+    def __enter__(self) -> SavepointCursor:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, query: str, params=None) -> None:
+        return None
+
+
+@contextmanager
+def savepoint_connection():
     yield RecordingConnection()
 
 
@@ -276,7 +297,11 @@ def test_normalize_supports_deeds_and_refreshes_owner_reconciliation(monkeypatch
             ]
 
         def capture_deed_rollback_manifest(self, **kwargs) -> dict[str, object]:
-            return {"dataset_type": "deeds"}
+            return {
+                "dataset_type": "deeds",
+                "deed_entries": [{"instrument_number": "INST-1", "prior_state": None}],
+                "parcel_entries": [],
+            }
 
         def upsert_deed_records(self, **kwargs) -> list[dict[str, str]]:
             return [
@@ -398,6 +423,110 @@ def test_normalize_blocks_publish_when_validation_failed(monkeypatch) -> None:
     )
     assert completed_runs[0]["status"] == "failed"
     assert inserted_findings[0]["validation_code"] == "PUBLISH_BLOCKED_VALIDATION_FAILED"
+
+
+def test_normalize_blocks_publish_when_publish_controls_fail(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+    updates: list[dict[str, object]] = []
+    completed_runs: list[dict[str, object]] = []
+    inserted_findings: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2025/property_roll/example.json",
+                original_filename="harris-property_roll-2025.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def count_validation_errors(self, **kwargs) -> int:
+            return 0
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-normalize"
+
+        def count_staging_rows(self, **kwargs) -> int:
+            return 1
+
+        def count_property_roll_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
+        def iterate_staging_rows(self, **kwargs):
+            yield [
+                {
+                    "staging_table": "stg_county_property_raw",
+                    "staging_row_id": "stage-1",
+                    "raw_payload": {"account_number": "1001001001001"},
+                    "row_hash": "hash-1",
+                }
+            ]
+
+        def capture_property_roll_rollback_manifest(self, **kwargs) -> dict[str, object]:
+            return {"dataset_type": "property_roll", "entries": []}
+
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted_findings.extend(kwargs["findings"])
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            updates.append(kwargs)
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            completed_runs.append(kwargs)
+
+    class StubAdapter:
+        def normalize_staging_to_canonical(self, dataset_type: str, staging_rows):
+            assert dataset_type == "property_roll"
+            return {
+                "property_roll": [
+                    {
+                        "parcel": {
+                            "account_number": "1001001001001",
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "owner_name": "Jane Doe",
+                            "source_record_hash": "hash-1",
+                        },
+                        "address": {
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "normalized_address": "123 MAIN ST",
+                        },
+                        "characteristics": {},
+                        "improvements": [],
+                        "land_segments": [],
+                        "value_components": [],
+                        "assessment": {"market_value": 300000},
+                        "exemptions": [],
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", savepoint_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    service.adapter = StubAdapter()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        service.normalize(
+            county_id="harris",
+            tax_year=2025,
+            dataset_type="property_roll",
+        )
+
+    assert "publish-control error finding(s)" in str(exc_info.value)
+    assert updates[0]["status"] == "publish_blocked"
+    assert updates[0]["publish_state"] == "blocked_publish_controls"
+    assert completed_runs[0]["status"] == "failed"
+    assert inserted_findings[0]["validation_code"] == "ROLLBACK_MANIFEST_MISSING_ACCOUNT"
 
 
 def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:

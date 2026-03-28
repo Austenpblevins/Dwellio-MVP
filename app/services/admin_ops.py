@@ -299,7 +299,11 @@ class AdminOpsService:
             dataset_type=result.dataset_type,
             import_batch_id=result.import_batch_id,
             message=(
-                "Registered manual import in dry-run mode."
+                "Found matching manual import in dry-run mode."
+                if request.dry_run and result.skipped_duplicate
+                else "Found matching manual import and reused the existing import batch."
+                if result.skipped_duplicate
+                else "Registered manual import in dry-run mode."
                 if request.dry_run
                 else "Registered manual import and raw file metadata."
             ),
@@ -407,15 +411,15 @@ class AdminOpsService:
                   LIMIT 1
                 ) latest_job ON true
                 WHERE ib.county_id = %s
-                  AND (%s IS NULL OR ib.tax_year = %s)
+                  AND (%s::integer IS NULL OR ib.tax_year = %s::integer)
                   AND (
-                    %s IS NULL
-                    OR ib.dataset_type = %s
+                    %s::text IS NULL
+                    OR ib.dataset_type = %s::text
                     OR EXISTS (
                       SELECT 1
                       FROM raw_files rf_filter
                       WHERE rf_filter.import_batch_id = ib.import_batch_id
-                        AND rf_filter.file_kind = %s
+                        AND rf_filter.file_kind = %s::text
                     )
                   )
                 GROUP BY
@@ -505,10 +509,10 @@ class AdminOpsService:
                 FROM raw_files rf
                 JOIN source_systems ss
                   ON ss.source_system_id = rf.source_system_id
-                WHERE (%s IS NULL OR rf.county_id = %s)
-                  AND (%s IS NULL OR rf.tax_year = %s)
-                  AND (%s IS NULL OR rf.file_kind = %s)
-                  AND (%s IS NULL OR rf.import_batch_id = %s)
+                WHERE (%s::text IS NULL OR rf.county_id = %s::text)
+                  AND (%s::integer IS NULL OR rf.tax_year = %s::integer)
+                  AND (%s::text IS NULL OR rf.file_kind = %s::text)
+                  AND (%s::uuid IS NULL OR rf.import_batch_id = %s::uuid)
                 ORDER BY rf.created_at DESC, rf.raw_file_id DESC
                 LIMIT %s
                 """,
@@ -584,7 +588,7 @@ class AdminOpsService:
                   created_at
                 FROM validation_results
                 WHERE import_batch_id = %s
-                  AND (%s IS NULL OR severity = %s)
+                  AND (%s::text IS NULL OR severity::text = %s::text)
                 ORDER BY created_at DESC, validation_result_id DESC
                 LIMIT %s
                 """,
