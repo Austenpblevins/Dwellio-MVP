@@ -14,7 +14,9 @@ class StubCursor:
         return None
 
     def execute(self, sql: str, params: tuple[object, ...] | None = None) -> None:
-        if "FROM tax_years WHERE tax_year = %s" in sql:
+        if "SET LOCAL max_parallel_workers_per_gather = 0" in sql:
+            self._row = None
+        elif "FROM tax_years WHERE tax_year = %s" in sql:
             self._row = {"present": 1}
         elif "FROM import_batches ib" in sql:
             if params == ("harris", 2025, "property_roll"):
