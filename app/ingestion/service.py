@@ -563,13 +563,28 @@ class IngestionLifecycleService:
                 if bulk_property_roll_mode
                 else 0
             )
+            existing_bulk_property_roll_improvement_rows = (
+                repository.count_property_roll_improvement_rows_for_import_batch(
+                    import_batch_id=batch.import_batch_id,
+                    tax_year=tax_year,
+                )
+                if bulk_property_roll_mode
+                else 0
+            )
             canonical_targets: list[dict[str, str]] = []
             property_roll_row_count = 0
             rollback_manifest: dict[str, Any]
 
             if dataset_type == "property_roll":
                 rollback_manifest = {"dataset_type": "property_roll", "entries": []}
-                if existing_bulk_property_roll_rows > 0:
+                # Bulk-mode recovery should only short-circuit once the canonical parcel-year
+                # summaries are materially complete; snapshot rows alone are not enough for
+                # parcel_summary_view / instant-quote support.
+                if (
+                    existing_bulk_property_roll_rows > 0
+                    and existing_bulk_property_roll_improvement_rows
+                    >= existing_bulk_property_roll_rows
+                ):
                     property_roll_row_count = existing_bulk_property_roll_rows
                     logger.info(
                         "property_roll bulk normalize recovery mode detected committed canonical rows",
@@ -578,9 +593,27 @@ class IngestionLifecycleService:
                             "tax_year": tax_year,
                             "import_batch_id": batch.import_batch_id,
                             "existing_bulk_property_roll_rows": existing_bulk_property_roll_rows,
+                            "existing_bulk_property_roll_improvement_rows": (
+                                existing_bulk_property_roll_improvement_rows
+                            ),
                         },
                     )
                 else:
+                    if bulk_property_roll_mode and existing_bulk_property_roll_rows > 0:
+                        logger.info(
+                            "property_roll bulk normalize rerun detected missing canonical improvement summaries",
+                            extra={
+                                "county_id": county_id,
+                                "tax_year": tax_year,
+                                "import_batch_id": batch.import_batch_id,
+                                "existing_bulk_property_roll_rows": (
+                                    existing_bulk_property_roll_rows
+                                ),
+                                "existing_bulk_property_roll_improvement_rows": (
+                                    existing_bulk_property_roll_improvement_rows
+                                ),
+                            },
+                        )
                     processed_property_roll_rows = 0
                     for staged_rows in repository.iterate_staging_rows(
                         import_batch_id=batch.import_batch_id,

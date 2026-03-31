@@ -665,6 +665,28 @@ class IngestionRepository:
             return 0
         return int(row["count"] or 0)
 
+    def count_property_roll_improvement_rows_for_import_batch(
+        self,
+        *,
+        import_batch_id: str,
+        tax_year: int,
+    ) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_improvements pi
+            JOIN parcel_year_snapshots pys
+              ON pys.parcel_id = pi.parcel_id
+             AND pys.tax_year = pi.tax_year
+            WHERE pys.import_batch_id = %s
+              AND pys.tax_year = %s
+            """,
+            (import_batch_id, tax_year),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def insert_validation_results(
         self,
         *,
@@ -1041,8 +1063,10 @@ class IngestionRepository:
                 source_record_hash = parcel["source_record_hash"]
                 characteristics = record["characteristics"]
 
+                improvements = list(record.get("improvements") or [])
+
                 if include_detail_tables:
-                    for improvement in record["improvements"]:
+                    for improvement in improvements:
                         improvement_rows.append(
                             (
                                 snapshot_id,
@@ -1065,7 +1089,11 @@ class IngestionRepository:
                             )
                         )
 
-                    primary_improvement = record["improvements"][0]
+                # parcel_improvements is part of the canonical parcel-year summary path, so we
+                # keep this summary row populated even when bulk property-roll mode skips the
+                # heavier per-snapshot detail tables.
+                if improvements:
+                    primary_improvement = improvements[0]
                     parcel_improvement_rows.append(
                         (
                             parcel_id,
@@ -1087,6 +1115,7 @@ class IngestionRepository:
                         )
                     )
 
+                if include_detail_tables:
                     for segment in record["land_segments"]:
                         land_segment_rows.append(
                             (
@@ -1198,7 +1227,7 @@ class IngestionRepository:
                     """,
                     improvement_rows,
                 )
-            if include_detail_tables:
+            if parcel_improvement_rows:
                 cursor.executemany(
                 """
                 INSERT INTO parcel_improvements (
@@ -1424,6 +1453,18 @@ class IngestionRepository:
                   primary_use_code text,
                   neighborhood_group text,
                   effective_age integer,
+                  living_area_sf numeric,
+                  year_built integer,
+                  effective_year_built integer,
+                  improvement_effective_age integer,
+                  bedrooms integer,
+                  full_baths numeric,
+                  half_baths numeric,
+                  stories numeric,
+                  quality_code text,
+                  condition_code text,
+                  garage_spaces numeric,
+                  pool_flag boolean,
                   land_value numeric,
                   improvement_value numeric,
                   market_value numeric,
@@ -1467,6 +1508,18 @@ class IngestionRepository:
                   primary_use_code,
                   neighborhood_group,
                   effective_age,
+                  living_area_sf,
+                  year_built,
+                  effective_year_built,
+                  improvement_effective_age,
+                  bedrooms,
+                  full_baths,
+                  half_baths,
+                  stories,
+                  quality_code,
+                  condition_code,
+                  garage_spaces,
+                  pool_flag,
                   land_value,
                   improvement_value,
                   market_value,
@@ -1485,6 +1538,8 @@ class IngestionRepository:
                     parcel = record["parcel"]
                     address = record["address"]
                     characteristics = record["characteristics"]
+                    improvements = list(record.get("improvements") or [])
+                    primary_improvement = improvements[0] if improvements else {}
                     assessment = record["assessment"]
                     copy.write_row(
                         (
@@ -1513,6 +1568,18 @@ class IngestionRepository:
                             characteristics.get("primary_use_code"),
                             characteristics.get("neighborhood_group"),
                             characteristics.get("effective_age"),
+                            primary_improvement.get("living_area_sf"),
+                            primary_improvement.get("year_built"),
+                            primary_improvement.get("effective_year_built"),
+                            primary_improvement.get("effective_age"),
+                            primary_improvement.get("bedrooms"),
+                            primary_improvement.get("full_baths"),
+                            primary_improvement.get("half_baths"),
+                            primary_improvement.get("stories"),
+                            primary_improvement.get("quality_code"),
+                            primary_improvement.get("condition_code"),
+                            primary_improvement.get("garage_spaces"),
+                            primary_improvement.get("pool_flag"),
                             assessment.get("land_value"),
                             assessment.get("improvement_value"),
                             assessment.get("market_value"),
@@ -1733,6 +1800,67 @@ class IngestionRepository:
                   updated_at = now()
                 """,
                 (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_improvements (
+                  parcel_id,
+                  tax_year,
+                  living_area_sf,
+                  year_built,
+                  effective_year_built,
+                  effective_age,
+                  bedrooms,
+                  full_baths,
+                  half_baths,
+                  stories,
+                  quality_code,
+                  condition_code,
+                  garage_spaces,
+                  pool_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  t.living_area_sf,
+                  t.year_built,
+                  t.effective_year_built,
+                  t.improvement_effective_age,
+                  t.bedrooms,
+                  t.full_baths,
+                  t.half_baths,
+                  t.stories,
+                  t.quality_code,
+                  t.condition_code,
+                  t.garage_spaces,
+                  t.pool_flag,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  living_area_sf = EXCLUDED.living_area_sf,
+                  year_built = EXCLUDED.year_built,
+                  effective_year_built = EXCLUDED.effective_year_built,
+                  effective_age = EXCLUDED.effective_age,
+                  bedrooms = EXCLUDED.bedrooms,
+                  full_baths = EXCLUDED.full_baths,
+                  half_baths = EXCLUDED.half_baths,
+                  stories = EXCLUDED.stories,
+                  quality_code = EXCLUDED.quality_code,
+                  condition_code = EXCLUDED.condition_code,
+                  garage_spaces = EXCLUDED.garage_spaces,
+                  pool_flag = EXCLUDED.pool_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (tax_year, source_system_id, county_id),
             )
             cursor.execute(
                 """
