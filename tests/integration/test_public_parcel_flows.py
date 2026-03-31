@@ -16,7 +16,14 @@ from app.models.parcel import (
     ParcelTaxSummary,
     ParcelValueSummary,
 )
-from app.models.quote import QuoteExplanationResponse, QuoteResponse
+from app.models.quote import (
+    InstantQuoteEstimate,
+    InstantQuoteExplanation,
+    InstantQuoteResponse,
+    InstantQuoteSubject,
+    QuoteExplanationResponse,
+    QuoteResponse,
+)
 
 
 class StubAddressResolverService:
@@ -165,6 +172,56 @@ class StubQuoteReadService:
         )
 
 
+class StubInstantQuoteService:
+    def get_quote(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_number: str,
+    ) -> InstantQuoteResponse:
+        return InstantQuoteResponse(
+            supported=True,
+            county_id=county_id,
+            tax_year=tax_year,
+            requested_tax_year=tax_year,
+            served_tax_year=tax_year,
+            tax_year_fallback_applied=False,
+            tax_year_fallback_reason=None,
+            data_freshness_label="current_year",
+            account_number=account_number,
+            basis_code="assessment_basis_segment_blend",
+            subject=InstantQuoteSubject(
+                parcel_id=uuid4(),
+                address="101 Main St, Houston, TX 77002",
+                neighborhood_code="NBHD-1",
+                school_district_name="Houston ISD",
+                property_type_code="sfr",
+                property_class_code="A1",
+                living_area_sf=2200,
+                year_built=2001,
+                notice_value=350000,
+                homestead_flag=True,
+                freeze_flag=False,
+            ),
+            estimate=InstantQuoteEstimate(
+                savings_range_low=700,
+                savings_range_high=1500,
+                savings_midpoint_display=1100,
+                estimate_bucket="500_to_1499",
+                estimate_strength_label="medium",
+                tax_protection_limited=False,
+            ),
+            explanation=InstantQuoteExplanation(
+                methodology="segment_within_neighborhood",
+                estimate_strength_label="medium",
+                summary="This fast estimate blends neighborhood and segment assessment patterns for a public-safe savings range.",
+                bullets=["The estimate uses 25 nearby assessment peers from the same neighborhood."],
+            ),
+            disclaimers=["Instant quote is a fast estimate for protest opportunity, not a final valuation."],
+        )
+
+
 def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     lead_id = uuid4()
 
@@ -191,6 +248,7 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     monkeypatch.setattr("app.api.search.AddressResolverService", StubAddressResolverService)
     monkeypatch.setattr("app.api.parcel.ParcelSummaryService", StubParcelSummaryService)
     monkeypatch.setattr("app.api.quote.QuoteReadService", StubQuoteReadService)
+    monkeypatch.setattr("app.api.quote.InstantQuoteService", StubInstantQuoteService)
     monkeypatch.setattr("app.api.routes.leads.create_lead", stub_create_lead)
 
     client = TestClient(app)
@@ -225,6 +283,14 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert "comp_candidates" not in quote_payload
     assert "agent_remarks" not in quote_payload
     assert "listing_history" not in quote_payload
+
+    instant_quote_response = client.get("/quote/instant/harris/2026/1001001001001")
+    assert instant_quote_response.status_code == 200
+    instant_quote_payload = instant_quote_response.json()
+    assert instant_quote_payload["supported"] is True
+    assert instant_quote_payload["estimate"]["savings_range_low"] == 700
+    assert "confidence_score" not in instant_quote_payload
+    assert "target_psf" not in instant_quote_payload
 
     explanation_response = client.get("/quote/harris/2026/1001001001001/explanation")
     assert explanation_response.status_code == 200

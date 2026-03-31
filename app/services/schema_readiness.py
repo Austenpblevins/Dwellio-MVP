@@ -41,6 +41,9 @@ MIGRATION_HINTS: dict[str, str] = {
         "Apply migration 0039_historical_validation_yoy_trends before running this job."
     ),
     "view:v_quote_read_model": "Apply migration 0025_views_quote_read_model before running this job.",
+    "view:instant_quote_subject_view": (
+        "Apply migration 0044_stage17_instant_quote_service before running this job."
+    ),
     "table:parcel_features": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidate_pools": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidates": "Apply migration 0019_features_comps before running this job.",
@@ -51,6 +54,12 @@ MIGRATION_HINTS: dict[str, str] = {
     "table:quote_explanations": "Apply migration 0020_valuation_quote before running this job.",
     "table:protest_recommendations": "Apply migration 0020_valuation_quote before running this job.",
     "table:decision_tree_results": "Apply migration 0020_valuation_quote before running this job.",
+    "table:instant_quote_neighborhood_stats": (
+        "Apply migration 0044_stage17_instant_quote_service before running this job."
+    ),
+    "table:instant_quote_segment_stats": (
+        "Apply migration 0044_stage17_instant_quote_service before running this job."
+    ),
 }
 
 JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
@@ -103,6 +112,17 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             "protest_recommendations",
         ),
         required_views=("parcel_summary_view", "v_quote_read_model"),
+        required_columns=(("tax_years", "valuation_date"),),
+        require_tax_year_valuation_date=True,
+    ),
+    "job_refresh_instant_quote": SchemaReadinessSpec(
+        job_name="job_refresh_instant_quote",
+        required_tables=(
+            "tax_years",
+            "instant_quote_neighborhood_stats",
+            "instant_quote_segment_stats",
+        ),
+        required_views=("parcel_summary_view", "instant_quote_subject_view"),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     ),

@@ -33,6 +33,10 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     parcel_year_trend_ready: bool = False
     neighborhood_stats_ready: bool = False
     neighborhood_year_trend_ready: bool = False
+    instant_quote_subject_ready: bool = False
+    instant_quote_neighborhood_stats_ready: bool = False
+    instant_quote_segment_stats_ready: bool = False
+    instant_quote_ready: bool = False
     search_support_ready: bool
     feature_ready: bool
     comp_ready: bool
@@ -46,6 +50,9 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     parcel_year_trend_row_count: int = 0
     neighborhood_stats_row_count: int = 0
     neighborhood_year_trend_row_count: int = 0
+    instant_quote_subject_row_count: int = 0
+    instant_quote_neighborhood_stats_row_count: int = 0
+    instant_quote_segment_stats_row_count: int = 0
     search_document_row_count: int
     parcel_feature_row_count: int
     comp_pool_row_count: int

@@ -34,19 +34,26 @@ class TaxYearDerivedReadiness:
     parcel_year_trend_ready: bool
     neighborhood_stats_ready: bool
     neighborhood_year_trend_ready: bool
-    search_support_ready: bool
-    feature_ready: bool
-    comp_ready: bool
-    valuation_ready: bool
-    savings_ready: bool
-    decision_tree_ready: bool
-    explanation_ready: bool
-    recommendation_ready: bool
-    quote_ready: bool
+    instant_quote_subject_ready: bool = False
+    instant_quote_neighborhood_stats_ready: bool = False
+    instant_quote_segment_stats_ready: bool = False
+    instant_quote_ready: bool = False
+    search_support_ready: bool = False
+    feature_ready: bool = False
+    comp_ready: bool = False
+    valuation_ready: bool = False
+    savings_ready: bool = False
+    decision_tree_ready: bool = False
+    explanation_ready: bool = False
+    recommendation_ready: bool = False
+    quote_ready: bool = False
     parcel_summary_row_count: int = 0
     parcel_year_trend_row_count: int = 0
     neighborhood_stats_row_count: int = 0
     neighborhood_year_trend_row_count: int = 0
+    instant_quote_subject_row_count: int = 0
+    instant_quote_neighborhood_stats_row_count: int = 0
+    instant_quote_segment_stats_row_count: int = 0
     search_document_row_count: int = 0
     parcel_feature_row_count: int = 0
     comp_pool_row_count: int = 0
@@ -165,6 +172,13 @@ class DataReadinessService:
         parcel_year_trend_exists = self._view_exists(connection, "parcel_year_trend_view")
         neighborhood_stats_exists = self._table_exists(connection, "neighborhood_stats")
         neighborhood_year_trend_exists = self._view_exists(connection, "neighborhood_year_trend_view")
+        instant_quote_subject_exists = self._view_exists(connection, "instant_quote_subject_view")
+        instant_quote_neighborhood_stats_exists = self._table_exists(
+            connection, "instant_quote_neighborhood_stats"
+        )
+        instant_quote_segment_stats_exists = self._table_exists(
+            connection, "instant_quote_segment_stats"
+        )
         search_documents_exists = self._table_exists(connection, "search_documents")
         parcel_features_exists = self._table_exists(connection, "parcel_features")
         comp_pools_exists = self._table_exists(connection, "comp_candidate_pools")
@@ -209,6 +223,43 @@ class DataReadinessService:
                 (county_id, tax_year),
             )
             if neighborhood_year_trend_exists
+            else 0
+        )
+        instant_quote_subject_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM instant_quote_subject_view WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if instant_quote_subject_exists
+            else 0
+        )
+        instant_quote_neighborhood_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_neighborhood_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_neighborhood_stats_exists
+            else 0
+        )
+        instant_quote_segment_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_segment_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_segment_stats_exists
             else 0
         )
         search_document_row_count = (
@@ -326,6 +377,14 @@ class DataReadinessService:
             parcel_year_trend_ready=parcel_year_trend_row_count > 0,
             neighborhood_stats_ready=neighborhood_stats_row_count > 0,
             neighborhood_year_trend_ready=neighborhood_year_trend_row_count > 0,
+            instant_quote_subject_ready=instant_quote_subject_row_count > 0,
+            instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
+            instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
+            instant_quote_ready=(
+                instant_quote_subject_row_count > 0
+                and instant_quote_neighborhood_stats_row_count > 0
+                and instant_quote_segment_stats_row_count > 0
+            ),
             search_support_ready=search_document_row_count > 0,
             feature_ready=parcel_feature_row_count > 0,
             comp_ready=comp_pool_row_count > 0,
@@ -339,6 +398,9 @@ class DataReadinessService:
             parcel_year_trend_row_count=parcel_year_trend_row_count,
             neighborhood_stats_row_count=neighborhood_stats_row_count,
             neighborhood_year_trend_row_count=neighborhood_year_trend_row_count,
+            instant_quote_subject_row_count=instant_quote_subject_row_count,
+            instant_quote_neighborhood_stats_row_count=instant_quote_neighborhood_stats_row_count,
+            instant_quote_segment_stats_row_count=instant_quote_segment_stats_row_count,
             search_document_row_count=search_document_row_count,
             parcel_feature_row_count=parcel_feature_row_count,
             comp_pool_row_count=comp_pool_row_count,

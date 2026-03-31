@@ -55,6 +55,10 @@ Current observability and inspectability paths:
 
 Structured logging exists across jobs and service entry points, but a centralized metrics/error platform is still an operational follow-on step.
 
+Instant-quote telemetry note:
+- request-path structured logs are synchronous
+- detailed instant-quote request-log persistence is best-effort in a bounded background executor so public routes do not block on telemetry inserts
+
 ## Security boundaries
 
 Public-safe boundary:

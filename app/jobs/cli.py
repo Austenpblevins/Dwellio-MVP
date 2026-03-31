@@ -13,6 +13,7 @@ from app.jobs import (
     job_normalize,
     job_packet_refresh,
     job_refresh_quote_cache,
+    job_refresh_instant_quote,
     job_rollback_publish,
     job_run_ingestion,
     job_sales_ingestion,
@@ -36,6 +37,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "job_comp_candidates": job_comp_candidates.run,
     "job_score_models": job_score_models.run,
     "job_score_savings": job_score_savings.run,
+    "job_refresh_instant_quote": job_refresh_instant_quote.run,
     "job_refresh_quote_cache": job_refresh_quote_cache.run,
     "job_packet_refresh": job_packet_refresh.run,
 }
