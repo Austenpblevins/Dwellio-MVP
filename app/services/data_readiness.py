@@ -8,6 +8,8 @@ from app.county_adapters.common.config_loader import (
 )
 from app.db.connection import get_connection
 
+INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = 20
+
 
 @dataclass(frozen=True)
 class DatasetYearReadiness:
@@ -54,6 +56,9 @@ class TaxYearDerivedReadiness:
     instant_quote_subject_row_count: int = 0
     instant_quote_neighborhood_stats_row_count: int = 0
     instant_quote_segment_stats_row_count: int = 0
+    instant_quote_supportable_row_count: int = 0
+    instant_quote_supported_neighborhood_stats_row_count: int = 0
+    instant_quote_supported_segment_stats_row_count: int = 0
     search_document_row_count: int = 0
     parcel_feature_row_count: int = 0
     comp_pool_row_count: int = 0
@@ -262,6 +267,51 @@ class DataReadinessService:
             if instant_quote_segment_stats_exists
             else 0
         )
+        instant_quote_supportable_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_subject_view
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_blocker_code IS NULL
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_subject_exists
+            else 0
+        )
+        instant_quote_supported_neighborhood_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_neighborhood_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_threshold_met IS TRUE
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_neighborhood_stats_exists
+            else 0
+        )
+        instant_quote_supported_segment_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_segment_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_threshold_met IS TRUE
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_segment_stats_exists
+            else 0
+        )
         search_document_row_count = (
             self._count_rows(
                 connection,
@@ -381,9 +431,8 @@ class DataReadinessService:
             instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
             instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
             instant_quote_ready=(
-                instant_quote_subject_row_count > 0
-                and instant_quote_neighborhood_stats_row_count > 0
-                and instant_quote_segment_stats_row_count > 0
+                instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
+                and instant_quote_supported_neighborhood_stats_row_count > 0
             ),
             search_support_ready=search_document_row_count > 0,
             feature_ready=parcel_feature_row_count > 0,
@@ -401,6 +450,13 @@ class DataReadinessService:
             instant_quote_subject_row_count=instant_quote_subject_row_count,
             instant_quote_neighborhood_stats_row_count=instant_quote_neighborhood_stats_row_count,
             instant_quote_segment_stats_row_count=instant_quote_segment_stats_row_count,
+            instant_quote_supportable_row_count=instant_quote_supportable_row_count,
+            instant_quote_supported_neighborhood_stats_row_count=(
+                instant_quote_supported_neighborhood_stats_row_count
+            ),
+            instant_quote_supported_segment_stats_row_count=(
+                instant_quote_supported_segment_stats_row_count
+            ),
             search_document_row_count=search_document_row_count,
             parcel_feature_row_count=parcel_feature_row_count,
             comp_pool_row_count=comp_pool_row_count,

@@ -53,6 +53,9 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_subject_row_count: int = 0
     instant_quote_neighborhood_stats_row_count: int = 0
     instant_quote_segment_stats_row_count: int = 0
+    instant_quote_supportable_row_count: int = 0
+    instant_quote_supported_neighborhood_stats_row_count: int = 0
+    instant_quote_supported_segment_stats_row_count: int = 0
     search_document_row_count: int
     parcel_feature_row_count: int
     comp_pool_row_count: int

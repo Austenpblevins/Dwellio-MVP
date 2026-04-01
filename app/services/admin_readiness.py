@@ -347,6 +347,13 @@ class AdminReadinessService:
                 instant_quote_subject_row_count=readiness.derived.instant_quote_subject_row_count,
                 instant_quote_neighborhood_stats_row_count=readiness.derived.instant_quote_neighborhood_stats_row_count,
                 instant_quote_segment_stats_row_count=readiness.derived.instant_quote_segment_stats_row_count,
+                instant_quote_supportable_row_count=readiness.derived.instant_quote_supportable_row_count,
+                instant_quote_supported_neighborhood_stats_row_count=(
+                    readiness.derived.instant_quote_supported_neighborhood_stats_row_count
+                ),
+                instant_quote_supported_segment_stats_row_count=(
+                    readiness.derived.instant_quote_supported_segment_stats_row_count
+                ),
                 search_document_row_count=readiness.derived.search_document_row_count,
                 parcel_feature_row_count=readiness.derived.parcel_feature_row_count,
                 comp_pool_row_count=readiness.derived.comp_pool_row_count,
@@ -571,6 +578,8 @@ class AdminReadinessService:
             alerts.append("parcel_summary_not_ready")
         if not readiness.derived.search_support_ready:
             alerts.append("search_read_model_not_ready")
+        if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
+            alerts.append("instant_quote_support_too_thin")
         if not searchable_ready:
             alerts.append("ingestion_to_searchable_incomplete")
         return list(dict.fromkeys(alerts))
@@ -600,4 +609,6 @@ class AdminReadinessService:
             blockers.append("comp_layer_not_ready")
         if not readiness.derived.quote_ready:
             blockers.append("quote_read_model_not_ready")
+        if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
+            blockers.append("instant_quote_public_support_thin")
         return list(dict.fromkeys(blockers))

@@ -36,6 +36,8 @@ class StubCursor:
             self._row = {
                 "present": table_name
                 in {
+                    "instant_quote_neighborhood_stats",
+                    "instant_quote_segment_stats",
                     "search_documents",
                     "parcel_features",
                     "comp_candidate_pools",
@@ -52,6 +54,7 @@ class StubCursor:
             self._row = {
                 "present": view_name
                 in {
+                    "instant_quote_subject_view",
                     "parcel_summary_view",
                     "parcel_year_trend_view",
                     "neighborhood_year_trend_view",
@@ -65,6 +68,18 @@ class StubCursor:
         elif "FROM neighborhood_stats" in sql:
             self._row = {"count": 3}
         elif "FROM neighborhood_year_trend_view" in sql:
+            self._row = {"count": 2}
+        elif "FROM instant_quote_subject_view" in sql and "support_blocker_code IS NULL" in sql:
+            self._row = {"count": 12}
+        elif "FROM instant_quote_subject_view" in sql:
+            self._row = {"count": 18}
+        elif "FROM instant_quote_neighborhood_stats" in sql and "support_threshold_met IS TRUE" in sql:
+            self._row = {"count": 0}
+        elif "FROM instant_quote_neighborhood_stats" in sql:
+            self._row = {"count": 3}
+        elif "FROM instant_quote_segment_stats" in sql and "support_threshold_met IS TRUE" in sql:
+            self._row = {"count": 0}
+        elif "FROM instant_quote_segment_stats" in sql:
             self._row = {"count": 2}
         elif "FROM search_documents" in sql:
             self._row = {"count": 2}
@@ -119,6 +134,13 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.parcel_year_trend_ready is True
     assert readiness.derived.neighborhood_stats_ready is True
     assert readiness.derived.neighborhood_year_trend_ready is True
+    assert readiness.derived.instant_quote_subject_ready is True
+    assert readiness.derived.instant_quote_neighborhood_stats_ready is True
+    assert readiness.derived.instant_quote_segment_stats_ready is True
+    assert readiness.derived.instant_quote_supportable_row_count == 12
+    assert readiness.derived.instant_quote_supported_neighborhood_stats_row_count == 0
+    assert readiness.derived.instant_quote_supported_segment_stats_row_count == 0
+    assert readiness.derived.instant_quote_ready is False
     assert readiness.derived.search_support_ready is True
     assert readiness.derived.feature_ready is False
     assert readiness.derived.valuation_ready is True

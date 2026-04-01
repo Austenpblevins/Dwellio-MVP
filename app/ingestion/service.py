@@ -964,6 +964,15 @@ class IngestionLifecycleService:
             try:
                 with get_connection() as post_commit_connection:
                     post_commit_repository = IngestionRepository(post_commit_connection)
+                    self._refresh_tax_assignments(
+                        repository=post_commit_repository,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        import_batch_id=batch.import_batch_id,
+                        job_run_id=job_run_id,
+                        source_system_id=batch.source_system_id,
+                        force=False,
+                    )
                     self._refresh_search_documents(
                         repository=post_commit_repository,
                         county_id=county_id,
@@ -978,12 +987,16 @@ class IngestionLifecycleService:
                         findings=[
                             {
                                 "validation_code": "SEARCH_REFRESH_OK",
-                                "message": "Search documents refreshed after bulk property_roll publish.",
+                                "message": (
+                                    "Tax assignments and search documents refreshed after "
+                                    "bulk property_roll publish."
+                                ),
                                 "severity": "info",
                                 "validation_scope": "publish",
                                 "entity_table": "search_documents",
                                 "details_json": {
                                     "dataset_type": dataset_type,
+                                    "post_commit_tax_assignment_refresh": True,
                                     "post_commit_refresh": True,
                                 },
                             }
@@ -1009,6 +1022,7 @@ class IngestionLifecycleService:
                             "publish_result": publish_result.details_json,
                             "rollback_manifest": rollback_manifest,
                             "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
                         },
                     )
@@ -1023,7 +1037,7 @@ class IngestionLifecycleService:
                         error_count=1,
                         publish_state=publish_result.publish_state,
                         publish_version=publish_result.publish_version,
-                        status_reason=f"post_commit_search_refresh_failed: {exc}",
+                        status_reason=f"post_commit_refresh_failed: {exc}",
                     )
                     error_repository.complete_job_run(
                         job_run_id,
@@ -1037,8 +1051,9 @@ class IngestionLifecycleService:
                             "publish_result": publish_result.details_json,
                             "rollback_manifest": rollback_manifest,
                             "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
-                            "post_commit_search_refresh_failed": True,
+                            "post_commit_refresh_failed": True,
                         },
                     )
                     self._finalize_connection(error_connection, dry_run=False)

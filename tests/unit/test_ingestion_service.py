@@ -534,6 +534,7 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
 ) -> None:
     service = IngestionLifecycleService()
     upsert_calls: list[dict[str, object]] = []
+    tax_refresh_calls: list[dict[str, object]] = []
     search_refresh_calls: list[dict[str, object]] = []
     updates: list[dict[str, object]] = []
     completed_runs: list[dict[str, object]] = []
@@ -638,7 +639,11 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
     monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
     monkeypatch.setattr(service, "_build_publish_control_findings", lambda **kwargs: [])
-    monkeypatch.setattr(service, "_refresh_tax_assignments", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_refresh_tax_assignments",
+        lambda **kwargs: tax_refresh_calls.append(kwargs),
+    )
     monkeypatch.setattr(service, "_refresh_owner_reconciliation", lambda **kwargs: None)
     monkeypatch.setattr(
         service, "_refresh_search_documents", lambda **kwargs: search_refresh_calls.append(kwargs)
@@ -653,9 +658,13 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
 
     assert result.row_count == 1
     assert upsert_calls[0]["include_detail_tables"] is False
+    assert tax_refresh_calls
+    assert tax_refresh_calls[0]["import_batch_id"] == "batch-1"
     assert search_refresh_calls
     assert updates[-1]["status"] == "normalized"
     assert completed_runs[-1]["status"] == "succeeded"
+    assert completed_runs[-1]["metadata_json"]["post_commit_tax_assignment_refresh"] is True
+    assert completed_runs[-1]["metadata_json"]["post_commit_search_refresh"] is True
 
 
 def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
