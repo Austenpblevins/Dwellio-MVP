@@ -7,6 +7,8 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     versions = [migration.version for migration in discover_migrations()]
     assert "0044" in versions
     assert "0045" in versions
+    assert "0046" in versions
+    assert "0047" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -31,3 +33,21 @@ def test_stage17_instant_quote_serving_cache_migration_contains_required_table_a
     assert "idx_instant_quote_subject_cache_lookup" in sql
     assert "idx_instant_quote_subject_cache_neighborhood" in sql
     assert "idx_instant_quote_subject_cache_segment" in sql
+
+
+def test_stage17_instant_quote_refresh_runs_migration_contains_required_table_and_indexes() -> None:
+    migration_path = MIGRATIONS_DIR / "0046_stage17_instant_quote_refresh_runs.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS instant_quote_refresh_runs" in sql
+    assert "refresh_status text NOT NULL DEFAULT 'running'" in sql
+    assert "validation_report jsonb" in sql
+    assert "idx_instant_quote_refresh_runs_lookup" in sql
+
+
+def test_stage17_instant_quote_subject_cache_scope_index_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0047_stage17_instant_quote_subject_cache_scope_index.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "idx_instant_quote_subject_cache_scope" in sql
+    assert "ON instant_quote_subject_cache(county_id, tax_year, parcel_id)" in sql

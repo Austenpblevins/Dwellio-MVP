@@ -39,6 +39,11 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_segment_stats_ready: bool = False
     instant_quote_asset_ready: bool = False
     instant_quote_ready: bool = False
+    instant_quote_refresh_status: str | None = None
+    instant_quote_last_refresh_at: datetime | None = None
+    instant_quote_last_validated_at: datetime | None = None
+    instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_supported_public_quote_exists: bool = False
     search_support_ready: bool
     feature_ready: bool
     comp_ready: bool
@@ -356,3 +361,42 @@ class AdminMutationResult(DwellioBaseModel):
     job_run_id: str | None = None
     publish_version: str | None = None
     message: str
+
+
+class AdminCountyYearWorkflowStep(DwellioBaseModel):
+    step_code: str
+    phase: str
+    title: str
+    status: str
+    summary: str
+    blockers: list[str] = Field(default_factory=list)
+    recommended_action: str | None = None
+    commands: list[str] = Field(default_factory=list)
+    related_dataset_type: str | None = None
+    related_import_batch_id: str | None = None
+
+
+class AdminCountyYearWorkflowValidationCandidate(DwellioBaseModel):
+    tax_year: int
+    readiness_score: int
+    recommended_for_qa: bool
+    parcel_summary_ready: bool
+    quote_ready: bool
+    instant_quote_ready: bool
+    caveats: list[str] = Field(default_factory=list)
+
+
+class AdminCountyYearWorkflow(DwellioBaseModel):
+    access_scope: str = "internal"
+    county_id: str
+    tax_year: int
+    overall_status: str
+    readiness_score: int
+    searchable_ready: bool
+    preferred_validation_year: int | None = None
+    summary: str
+    alerts: list[str] = Field(default_factory=list)
+    steps: list[AdminCountyYearWorkflowStep] = Field(default_factory=list)
+    validation_candidates: list[AdminCountyYearWorkflowValidationCandidate] = Field(
+        default_factory=list
+    )

@@ -368,6 +368,13 @@ class AdminReadinessService:
                 instant_quote_segment_stats_ready=readiness.derived.instant_quote_segment_stats_ready,
                 instant_quote_asset_ready=readiness.derived.instant_quote_asset_ready,
                 instant_quote_ready=readiness.derived.instant_quote_ready,
+                instant_quote_refresh_status=readiness.derived.instant_quote_refresh_status,
+                instant_quote_last_refresh_at=readiness.derived.instant_quote_last_refresh_at,
+                instant_quote_last_validated_at=readiness.derived.instant_quote_last_validated_at,
+                instant_quote_cache_view_row_delta=readiness.derived.instant_quote_cache_view_row_delta,
+                instant_quote_supported_public_quote_exists=(
+                    readiness.derived.instant_quote_supported_public_quote_exists
+                ),
                 search_support_ready=readiness.derived.search_support_ready,
                 feature_ready=readiness.derived.feature_ready,
                 comp_ready=readiness.derived.comp_ready,
@@ -624,6 +631,10 @@ class AdminReadinessService:
             alerts.append("parcel_summary_not_ready")
         if not readiness.derived.search_support_ready:
             alerts.append("search_read_model_not_ready")
+        if readiness.derived.instant_quote_refresh_status not in {None, "completed"}:
+            alerts.append("instant_quote_refresh_incomplete")
+        if (readiness.derived.instant_quote_cache_view_row_delta or 0) != 0:
+            alerts.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             alerts.append("instant_quote_support_too_thin")
         if not searchable_ready:
@@ -655,6 +666,10 @@ class AdminReadinessService:
             blockers.append("comp_layer_not_ready")
         if not readiness.derived.quote_ready:
             blockers.append("quote_read_model_not_ready")
+        if readiness.derived.instant_quote_refresh_status not in {None, "completed"}:
+            blockers.append("instant_quote_refresh_incomplete")
+        if (readiness.derived.instant_quote_cache_view_row_delta or 0) != 0:
+            blockers.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             blockers.append("instant_quote_public_support_thin")
         return list(dict.fromkeys(blockers))

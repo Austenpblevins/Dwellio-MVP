@@ -44,6 +44,12 @@ MIGRATION_HINTS: dict[str, str] = {
     "view:instant_quote_subject_view": (
         "Apply migration 0044_stage17_instant_quote_service before running this job."
     ),
+    "table:instant_quote_subject_cache": (
+        "Apply migration 0045_stage17_instant_quote_serving_cache before running this job."
+    ),
+    "table:instant_quote_refresh_runs": (
+        "Apply migration 0046_stage17_instant_quote_refresh_runs before running this job."
+    ),
     "table:parcel_features": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidate_pools": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidates": "Apply migration 0019_features_comps before running this job.",
@@ -119,10 +125,25 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
         job_name="job_refresh_instant_quote",
         required_tables=(
             "tax_years",
+            "instant_quote_subject_cache",
             "instant_quote_neighborhood_stats",
             "instant_quote_segment_stats",
+            "instant_quote_refresh_runs",
         ),
         required_views=("parcel_summary_view", "instant_quote_subject_view"),
+        required_columns=(("tax_years", "valuation_date"),),
+        require_tax_year_valuation_date=True,
+    ),
+    "job_validate_instant_quote": SchemaReadinessSpec(
+        job_name="job_validate_instant_quote",
+        required_tables=(
+            "tax_years",
+            "instant_quote_subject_cache",
+            "instant_quote_neighborhood_stats",
+            "instant_quote_segment_stats",
+            "instant_quote_refresh_runs",
+        ),
+        required_views=("parcel_summary_view",),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     ),

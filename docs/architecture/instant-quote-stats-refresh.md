@@ -10,8 +10,16 @@ Inputs:
 - upstream `parcel_assessments`
 
 Outputs:
+- `instant_quote_subject_cache`
 - `instant_quote_neighborhood_stats`
 - `instant_quote_segment_stats`
+- `instant_quote_refresh_runs`
+
+Refresh order:
+1. rebuild `instant_quote_subject_cache` from `instant_quote_subject_view`
+2. rebuild `instant_quote_neighborhood_stats` from supportable cache rows
+3. rebuild `instant_quote_segment_stats` from supportable cache rows
+4. run `job_validate_instant_quote` to attach a validation report to the latest county-year refresh run
 
 Population rules:
 - residential single-family only
@@ -29,5 +37,11 @@ Minimum support:
 - segment support target: `8`
 
 Indexes:
+- subject serving cache scope index by `county_id + tax_year + parcel_id`
 - neighborhood lookup by `county_id + tax_year + neighborhood_code + property_type_code`
 - segment lookup by `county_id + tax_year + neighborhood_code + property_type_code + size_bucket + age_bucket`
+
+Operational checks:
+- compare `source_view_row_count` to `subject_cache_row_count` in `instant_quote_refresh_runs`
+- treat non-zero `cache_view_row_delta` as a serving-layer mismatch warning
+- use `validated_at` plus `validation_report.supported_public_quote_exists` as the latest county-year validation gate

@@ -5,6 +5,7 @@ import statistics
 from atexit import register as register_atexit
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from time import perf_counter
 from threading import BoundedSemaphore
 from typing import Any, Literal
@@ -74,17 +75,47 @@ class DistributionSummary:
 @dataclass(frozen=True)
 class InstantQuoteRefreshSummary:
     subject_row_count: int = 0
+    supportable_subject_row_count: int = 0
     neighborhood_stats_count: int = 0
+    supported_neighborhood_stats_count: int = 0
     segment_stats_count: int = 0
+    supported_segment_stats_count: int = 0
     excluded_subject_count: int = 0
+    cache_rebuild_duration_ms: int = 0
+    neighborhood_stats_refresh_duration_ms: int = 0
+    segment_stats_refresh_duration_ms: int = 0
+    total_refresh_duration_ms: int = 0
+    cache_view_row_delta: int = 0
 
     def as_log_extra(self) -> dict[str, int]:
         return {
             "subject_row_count": self.subject_row_count,
+            "supportable_subject_row_count": self.supportable_subject_row_count,
             "neighborhood_stats_count": self.neighborhood_stats_count,
+            "supported_neighborhood_stats_count": self.supported_neighborhood_stats_count,
             "segment_stats_count": self.segment_stats_count,
+            "supported_segment_stats_count": self.supported_segment_stats_count,
             "excluded_subject_count": self.excluded_subject_count,
+            "cache_rebuild_duration_ms": self.cache_rebuild_duration_ms,
+            "neighborhood_stats_refresh_duration_ms": self.neighborhood_stats_refresh_duration_ms,
+            "segment_stats_refresh_duration_ms": self.segment_stats_refresh_duration_ms,
+            "total_refresh_duration_ms": self.total_refresh_duration_ms,
+            "cache_view_row_delta": self.cache_view_row_delta,
         }
+
+
+@dataclass(frozen=True)
+class _SubjectCacheRefreshMetrics:
+    source_view_row_count: int
+    subject_cache_row_count: int
+    supportable_subject_row_count: int
+    cache_view_row_delta: int
+
+
+@dataclass(frozen=True)
+class _StatsRefreshMetrics:
+    total_row_count: int
+    supported_row_count: int
 
 
 @dataclass(frozen=True)
@@ -195,105 +226,59 @@ class InstantQuoteRefreshService:
         county_id: str | None = None,
         tax_year: int | None = None,
     ) -> InstantQuoteRefreshSummary:
-        self._refresh_subject_cache(county_id=county_id, tax_year=tax_year)
-        subject_rows = self._fetch_subject_rows(county_id=county_id, tax_year=tax_year)
-        neighborhood_payloads = self._build_neighborhood_payloads(subject_rows)
-        segment_payloads = self._build_segment_payloads(subject_rows)
-
-        with get_connection() as connection:
-            self._prepare_refresh_session(connection)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    DELETE FROM instant_quote_segment_stats
-                    WHERE (%s::text IS NULL OR county_id = %s)
-                      AND (%s::integer IS NULL OR tax_year = %s)
-                    """,
-                    (county_id, county_id, tax_year, tax_year),
-                )
-                cursor.execute(
-                    """
-                    DELETE FROM instant_quote_neighborhood_stats
-                    WHERE (%s::text IS NULL OR county_id = %s)
-                      AND (%s::integer IS NULL OR tax_year = %s)
-                    """,
-                    (county_id, county_id, tax_year, tax_year),
-                )
-
-                for payload in neighborhood_payloads:
-                    cursor.execute(
-                        """
-                        INSERT INTO instant_quote_neighborhood_stats (
-                          county_id,
-                          tax_year,
-                          neighborhood_code,
-                          property_type_code,
-                          parcel_count,
-                          trimmed_parcel_count,
-                          excluded_parcel_count,
-                          p10_assessed_psf,
-                          p25_assessed_psf,
-                          p50_assessed_psf,
-                          p75_assessed_psf,
-                          p90_assessed_psf,
-                          mean_assessed_psf,
-                          median_assessed_psf,
-                          stddev_assessed_psf,
-                          coefficient_of_variation,
-                          support_level,
-                          support_threshold_met,
-                          trim_method_code
-                        )
-                        VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        """,
-                        payload,
-                    )
-
-                for payload in segment_payloads:
-                    cursor.execute(
-                        """
-                        INSERT INTO instant_quote_segment_stats (
-                          county_id,
-                          tax_year,
-                          neighborhood_code,
-                          property_type_code,
-                          size_bucket,
-                          age_bucket,
-                          parcel_count,
-                          trimmed_parcel_count,
-                          excluded_parcel_count,
-                          p10_assessed_psf,
-                          p25_assessed_psf,
-                          p50_assessed_psf,
-                          p75_assessed_psf,
-                          p90_assessed_psf,
-                          mean_assessed_psf,
-                          median_assessed_psf,
-                          stddev_assessed_psf,
-                          coefficient_of_variation,
-                          support_level,
-                          support_threshold_met,
-                          trim_method_code
-                        )
-                        VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                        )
-                        """,
-                        payload,
-                    )
-            connection.commit()
-
-        excluded_subject_count = sum(
-            1 for row in subject_rows if row.get("support_blocker_code") is not None
+        refresh_started_at = datetime.now(timezone.utc)
+        refresh_run_id = self._start_refresh_run(
+            county_id=county_id,
+            tax_year=tax_year,
+            refresh_started_at=refresh_started_at,
         )
-        return InstantQuoteRefreshSummary(
-            subject_row_count=len(subject_rows),
-            neighborhood_stats_count=len(neighborhood_payloads),
-            segment_stats_count=len(segment_payloads),
-            excluded_subject_count=excluded_subject_count,
-        )
+        total_started_at = perf_counter()
+
+        try:
+            cache_started_at = perf_counter()
+            cache_metrics = self._refresh_subject_cache(county_id=county_id, tax_year=tax_year)
+            cache_duration_ms = int((perf_counter() - cache_started_at) * 1000)
+
+            neighborhood_started_at = perf_counter()
+            neighborhood_metrics = self._refresh_neighborhood_stats(
+                county_id=county_id,
+                tax_year=tax_year,
+            )
+            neighborhood_duration_ms = int((perf_counter() - neighborhood_started_at) * 1000)
+
+            segment_started_at = perf_counter()
+            segment_metrics = self._refresh_segment_stats(
+                county_id=county_id,
+                tax_year=tax_year,
+            )
+            segment_duration_ms = int((perf_counter() - segment_started_at) * 1000)
+
+            summary = InstantQuoteRefreshSummary(
+                subject_row_count=cache_metrics.subject_cache_row_count,
+                supportable_subject_row_count=cache_metrics.supportable_subject_row_count,
+                neighborhood_stats_count=neighborhood_metrics.total_row_count,
+                supported_neighborhood_stats_count=neighborhood_metrics.supported_row_count,
+                segment_stats_count=segment_metrics.total_row_count,
+                supported_segment_stats_count=segment_metrics.supported_row_count,
+                excluded_subject_count=max(
+                    cache_metrics.subject_cache_row_count - cache_metrics.supportable_subject_row_count,
+                    0,
+                ),
+                cache_rebuild_duration_ms=cache_duration_ms,
+                neighborhood_stats_refresh_duration_ms=neighborhood_duration_ms,
+                segment_stats_refresh_duration_ms=segment_duration_ms,
+                total_refresh_duration_ms=int((perf_counter() - total_started_at) * 1000),
+                cache_view_row_delta=cache_metrics.cache_view_row_delta,
+            )
+            self._complete_refresh_run(
+                refresh_run_id=refresh_run_id,
+                summary=summary,
+                source_view_row_count=cache_metrics.source_view_row_count,
+            )
+            return summary
+        except Exception as exc:
+            self._fail_refresh_run(refresh_run_id=refresh_run_id, error_message=str(exc))
+            raise
 
     def _prepare_refresh_session(self, connection: object) -> None:
         # Local Postgres environments used for county-scale refreshes can exhaust
@@ -307,18 +292,74 @@ class InstantQuoteRefreshService:
         *,
         county_id: str | None,
         tax_year: int | None,
-    ) -> None:
+    ) -> _SubjectCacheRefreshMetrics:
         with get_connection() as connection:
             self._prepare_refresh_session(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    DELETE FROM instant_quote_subject_cache
+                    DROP TABLE IF EXISTS tmp_instant_quote_subject_refresh
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TEMP TABLE tmp_instant_quote_subject_refresh ON COMMIT DROP AS
+                    SELECT
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      account_number,
+                      address,
+                      situs_address,
+                      situs_city,
+                      situs_state,
+                      situs_zip,
+                      neighborhood_code,
+                      school_district_name,
+                      property_type_code,
+                      property_class_code,
+                      living_area_sf,
+                      year_built,
+                      assessed_value,
+                      capped_value,
+                      notice_value,
+                      land_value,
+                      improvement_value,
+                      assessment_basis_value,
+                      effective_tax_rate,
+                      effective_tax_rate_source_method,
+                      completeness_score,
+                      public_summary_ready_flag,
+                      homestead_flag,
+                      over65_flag,
+                      disabled_flag,
+                      disabled_veteran_flag,
+                      freeze_flag,
+                      exemption_type_codes,
+                      warning_codes,
+                      size_bucket,
+                      age_bucket,
+                      support_blocker_code,
+                      subject_assessed_psf
+                    FROM instant_quote_subject_view
                     WHERE (%s::text IS NULL OR county_id = %s)
                       AND (%s::integer IS NULL OR tax_year = %s)
                     """,
                     (county_id, county_id, tax_year, tax_year),
                 )
+                cursor.execute(
+                    """
+                    CREATE UNIQUE INDEX idx_tmp_instant_quote_subject_refresh_key
+                      ON tmp_instant_quote_subject_refresh(parcel_id, tax_year)
+                    """
+                )
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::integer AS count
+                    FROM tmp_instant_quote_subject_refresh
+                    """
+                )
+                source_view_row_count = int((cursor.fetchone() or {}).get("count") or 0)
                 cursor.execute(
                     """
                     INSERT INTO instant_quote_subject_cache (
@@ -398,140 +439,580 @@ class InstantQuoteRefreshService:
                       support_blocker_code,
                       subject_assessed_psf,
                       now()
-                    FROM instant_quote_subject_view
+                    FROM tmp_instant_quote_subject_refresh
+                    ON CONFLICT (parcel_id, tax_year) DO UPDATE
+                    SET county_id = EXCLUDED.county_id,
+                        account_number = EXCLUDED.account_number,
+                        address = EXCLUDED.address,
+                        situs_address = EXCLUDED.situs_address,
+                        situs_city = EXCLUDED.situs_city,
+                        situs_state = EXCLUDED.situs_state,
+                        situs_zip = EXCLUDED.situs_zip,
+                        neighborhood_code = EXCLUDED.neighborhood_code,
+                        school_district_name = EXCLUDED.school_district_name,
+                        property_type_code = EXCLUDED.property_type_code,
+                        property_class_code = EXCLUDED.property_class_code,
+                        living_area_sf = EXCLUDED.living_area_sf,
+                        year_built = EXCLUDED.year_built,
+                        assessed_value = EXCLUDED.assessed_value,
+                        capped_value = EXCLUDED.capped_value,
+                        notice_value = EXCLUDED.notice_value,
+                        land_value = EXCLUDED.land_value,
+                        improvement_value = EXCLUDED.improvement_value,
+                        assessment_basis_value = EXCLUDED.assessment_basis_value,
+                        effective_tax_rate = EXCLUDED.effective_tax_rate,
+                        effective_tax_rate_source_method = EXCLUDED.effective_tax_rate_source_method,
+                        completeness_score = EXCLUDED.completeness_score,
+                        public_summary_ready_flag = EXCLUDED.public_summary_ready_flag,
+                        homestead_flag = EXCLUDED.homestead_flag,
+                        over65_flag = EXCLUDED.over65_flag,
+                        disabled_flag = EXCLUDED.disabled_flag,
+                        disabled_veteran_flag = EXCLUDED.disabled_veteran_flag,
+                        freeze_flag = EXCLUDED.freeze_flag,
+                        exemption_type_codes = EXCLUDED.exemption_type_codes,
+                        warning_codes = EXCLUDED.warning_codes,
+                        size_bucket = EXCLUDED.size_bucket,
+                        age_bucket = EXCLUDED.age_bucket,
+                        support_blocker_code = EXCLUDED.support_blocker_code,
+                        subject_assessed_psf = EXCLUDED.subject_assessed_psf,
+                        refreshed_at = now()
+                    WHERE (
+                      instant_quote_subject_cache.county_id,
+                      instant_quote_subject_cache.account_number,
+                      instant_quote_subject_cache.address,
+                      instant_quote_subject_cache.situs_address,
+                      instant_quote_subject_cache.situs_city,
+                      instant_quote_subject_cache.situs_state,
+                      instant_quote_subject_cache.situs_zip,
+                      instant_quote_subject_cache.neighborhood_code,
+                      instant_quote_subject_cache.school_district_name,
+                      instant_quote_subject_cache.property_type_code,
+                      instant_quote_subject_cache.property_class_code,
+                      instant_quote_subject_cache.living_area_sf,
+                      instant_quote_subject_cache.year_built,
+                      instant_quote_subject_cache.assessed_value,
+                      instant_quote_subject_cache.capped_value,
+                      instant_quote_subject_cache.notice_value,
+                      instant_quote_subject_cache.land_value,
+                      instant_quote_subject_cache.improvement_value,
+                      instant_quote_subject_cache.assessment_basis_value,
+                      instant_quote_subject_cache.effective_tax_rate,
+                      instant_quote_subject_cache.effective_tax_rate_source_method,
+                      instant_quote_subject_cache.completeness_score,
+                      instant_quote_subject_cache.public_summary_ready_flag,
+                      instant_quote_subject_cache.homestead_flag,
+                      instant_quote_subject_cache.over65_flag,
+                      instant_quote_subject_cache.disabled_flag,
+                      instant_quote_subject_cache.disabled_veteran_flag,
+                      instant_quote_subject_cache.freeze_flag,
+                      instant_quote_subject_cache.exemption_type_codes,
+                      instant_quote_subject_cache.warning_codes,
+                      instant_quote_subject_cache.size_bucket,
+                      instant_quote_subject_cache.age_bucket,
+                      instant_quote_subject_cache.support_blocker_code,
+                      instant_quote_subject_cache.subject_assessed_psf
+                    ) IS DISTINCT FROM (
+                      EXCLUDED.county_id,
+                      EXCLUDED.account_number,
+                      EXCLUDED.address,
+                      EXCLUDED.situs_address,
+                      EXCLUDED.situs_city,
+                      EXCLUDED.situs_state,
+                      EXCLUDED.situs_zip,
+                      EXCLUDED.neighborhood_code,
+                      EXCLUDED.school_district_name,
+                      EXCLUDED.property_type_code,
+                      EXCLUDED.property_class_code,
+                      EXCLUDED.living_area_sf,
+                      EXCLUDED.year_built,
+                      EXCLUDED.assessed_value,
+                      EXCLUDED.capped_value,
+                      EXCLUDED.notice_value,
+                      EXCLUDED.land_value,
+                      EXCLUDED.improvement_value,
+                      EXCLUDED.assessment_basis_value,
+                      EXCLUDED.effective_tax_rate,
+                      EXCLUDED.effective_tax_rate_source_method,
+                      EXCLUDED.completeness_score,
+                      EXCLUDED.public_summary_ready_flag,
+                      EXCLUDED.homestead_flag,
+                      EXCLUDED.over65_flag,
+                      EXCLUDED.disabled_flag,
+                      EXCLUDED.disabled_veteran_flag,
+                      EXCLUDED.freeze_flag,
+                      EXCLUDED.exemption_type_codes,
+                      EXCLUDED.warning_codes,
+                      EXCLUDED.size_bucket,
+                      EXCLUDED.age_bucket,
+                      EXCLUDED.support_blocker_code,
+                      EXCLUDED.subject_assessed_psf
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM instant_quote_subject_cache cache
+                    WHERE (%s::text IS NULL OR cache.county_id = %s)
+                      AND (%s::integer IS NULL OR cache.tax_year = %s)
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM tmp_instant_quote_subject_refresh source
+                        WHERE source.parcel_id = cache.parcel_id
+                          AND source.tax_year = cache.tax_year
+                      )
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+                cursor.execute(
+                    """
+                    SELECT
+                      COUNT(*)::integer AS subject_cache_row_count,
+                      COUNT(*) FILTER (WHERE support_blocker_code IS NULL)::integer AS supportable_subject_row_count
+                    FROM instant_quote_subject_cache
                     WHERE (%s::text IS NULL OR county_id = %s)
                       AND (%s::integer IS NULL OR tax_year = %s)
                     """,
                     (county_id, county_id, tax_year, tax_year),
                 )
+                counts = cursor.fetchone() or {}
             connection.commit()
+        subject_cache_row_count = int(counts.get("subject_cache_row_count") or 0)
+        supportable_subject_row_count = int(counts.get("supportable_subject_row_count") or 0)
+        return _SubjectCacheRefreshMetrics(
+            source_view_row_count=int(source_view_row_count or 0),
+            subject_cache_row_count=subject_cache_row_count,
+            supportable_subject_row_count=supportable_subject_row_count,
+            cache_view_row_delta=subject_cache_row_count - int(source_view_row_count or 0),
+        )
 
-    def _fetch_subject_rows(
+    def _refresh_neighborhood_stats(
         self,
         *,
         county_id: str | None,
         tax_year: int | None,
-    ) -> list[dict[str, Any]]:
+    ) -> _StatsRefreshMetrics:
         with get_connection() as connection:
             self._prepare_refresh_session(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT *
-                    FROM instant_quote_subject_cache
+                    DELETE FROM instant_quote_neighborhood_stats
                     WHERE (%s::text IS NULL OR county_id = %s)
                       AND (%s::integer IS NULL OR tax_year = %s)
-                    ORDER BY county_id, tax_year, neighborhood_code, account_number
                     """,
                     (county_id, county_id, tax_year, tax_year),
                 )
-                return list(cursor.fetchall())
-
-    def _build_neighborhood_payloads(self, subject_rows: list[dict[str, Any]]) -> list[tuple[object, ...]]:
-        grouped: dict[tuple[str, int, str], list[float]] = {}
-        for row in subject_rows:
-            if row.get("property_type_code") not in SUPPORTED_PROPERTY_TYPES:
-                continue
-            if row.get("support_blocker_code") is not None:
-                continue
-            neighborhood_code = row.get("neighborhood_code")
-            subject_assessed_psf = _as_float(row.get("subject_assessed_psf"))
-            if neighborhood_code is None or subject_assessed_psf is None or subject_assessed_psf <= 0:
-                continue
-            key = (str(row["county_id"]), int(row["tax_year"]), str(neighborhood_code))
-            grouped.setdefault(key, []).append(subject_assessed_psf)
-
-        payloads: list[tuple[object, ...]] = []
-        for (county_id, tax_year, neighborhood_code), values in sorted(grouped.items()):
-            summary = calculate_distribution_stats(values)
-            if summary is None:
-                continue
-            payloads.append(
-                (
-                    county_id,
-                    tax_year,
-                    neighborhood_code,
-                    "sfr",
-                    summary.parcel_count,
-                    summary.trimmed_parcel_count,
-                    summary.excluded_parcel_count,
-                    summary.p10,
-                    summary.p25,
-                    summary.p50,
-                    summary.p75,
-                    summary.p90,
-                    summary.mean,
-                    summary.median,
-                    summary.stddev,
-                    summary.coefficient_of_variation,
-                    _support_level(summary.parcel_count, strong_threshold=NEIGHBORHOOD_MIN_COUNT),
-                    summary.parcel_count >= NEIGHBORHOOD_MIN_COUNT,
-                    "trim_p05_p95",
+                cursor.execute(
+                    f"""
+                    INSERT INTO instant_quote_neighborhood_stats (
+                      county_id,
+                      tax_year,
+                      neighborhood_code,
+                      property_type_code,
+                      parcel_count,
+                      trimmed_parcel_count,
+                      excluded_parcel_count,
+                      p10_assessed_psf,
+                      p25_assessed_psf,
+                      p50_assessed_psf,
+                      p75_assessed_psf,
+                      p90_assessed_psf,
+                      mean_assessed_psf,
+                      median_assessed_psf,
+                      stddev_assessed_psf,
+                      coefficient_of_variation,
+                      support_level,
+                      support_threshold_met,
+                      trim_method_code,
+                      last_refresh_at
+                    )
+                    WITH eligible AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        subject_assessed_psf
+                      FROM instant_quote_subject_cache
+                      WHERE (%s::text IS NULL OR county_id = %s)
+                        AND (%s::integer IS NULL OR tax_year = %s)
+                        AND property_type_code = 'sfr'
+                        AND support_blocker_code IS NULL
+                        AND neighborhood_code IS NOT NULL
+                        AND subject_assessed_psf IS NOT NULL
+                        AND subject_assessed_psf > 0
+                    ),
+                    bounds AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        COUNT(*)::integer AS parcel_count,
+                        percentile_cont(0.05) WITHIN GROUP (ORDER BY subject_assessed_psf) AS lower_bound,
+                        percentile_cont(0.95) WITHIN GROUP (ORDER BY subject_assessed_psf) AS upper_bound
+                      FROM eligible
+                      GROUP BY county_id, tax_year, neighborhood_code, property_type_code
+                    ),
+                    trimmed AS (
+                      SELECT
+                        eligible.county_id,
+                        eligible.tax_year,
+                        eligible.neighborhood_code,
+                        eligible.property_type_code,
+                        eligible.subject_assessed_psf,
+                        bounds.parcel_count
+                      FROM eligible
+                      JOIN bounds
+                        ON bounds.county_id = eligible.county_id
+                       AND bounds.tax_year = eligible.tax_year
+                       AND bounds.neighborhood_code = eligible.neighborhood_code
+                       AND bounds.property_type_code = eligible.property_type_code
+                      WHERE eligible.subject_assessed_psf BETWEEN bounds.lower_bound AND bounds.upper_bound
+                    ),
+                    aggregated AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        MAX(parcel_count)::integer AS parcel_count,
+                        COUNT(*)::integer AS trimmed_parcel_count,
+                        GREATEST(MAX(parcel_count)::integer - COUNT(*)::integer, 0)::integer AS excluded_parcel_count,
+                        percentile_cont(0.10) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p10_assessed_psf,
+                        percentile_cont(0.25) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p25_assessed_psf,
+                        percentile_cont(0.50) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p50_assessed_psf,
+                        percentile_cont(0.75) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p75_assessed_psf,
+                        percentile_cont(0.90) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p90_assessed_psf,
+                        AVG(subject_assessed_psf) AS mean_assessed_psf,
+                        percentile_cont(0.50) WITHIN GROUP (ORDER BY subject_assessed_psf) AS median_assessed_psf,
+                        stddev_pop(subject_assessed_psf) AS stddev_assessed_psf
+                      FROM trimmed
+                      GROUP BY county_id, tax_year, neighborhood_code, property_type_code
+                    )
+                    SELECT
+                      county_id,
+                      tax_year,
+                      neighborhood_code,
+                      property_type_code,
+                      parcel_count,
+                      trimmed_parcel_count,
+                      excluded_parcel_count,
+                      p10_assessed_psf,
+                      p25_assessed_psf,
+                      p50_assessed_psf,
+                      p75_assessed_psf,
+                      p90_assessed_psf,
+                      mean_assessed_psf,
+                      median_assessed_psf,
+                      stddev_assessed_psf,
+                      CASE
+                        WHEN mean_assessed_psf IS NULL OR mean_assessed_psf = 0 THEN NULL
+                        ELSE stddev_assessed_psf / mean_assessed_psf
+                      END AS coefficient_of_variation,
+                      CASE
+                        WHEN parcel_count >= {NEIGHBORHOOD_MIN_COUNT} THEN 'strong'
+                        WHEN parcel_count >= {SEGMENT_MIN_COUNT} THEN 'medium'
+                        ELSE 'thin'
+                      END AS support_level,
+                      (parcel_count >= {NEIGHBORHOOD_MIN_COUNT}) AS support_threshold_met,
+                      'trim_p05_p95',
+                      now()
+                    FROM aggregated
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
                 )
-            )
-        return payloads
-
-    def _build_segment_payloads(self, subject_rows: list[dict[str, Any]]) -> list[tuple[object, ...]]:
-        grouped: dict[tuple[str, int, str, str, str], list[float]] = {}
-        for row in subject_rows:
-            if row.get("property_type_code") not in SUPPORTED_PROPERTY_TYPES:
-                continue
-            if row.get("support_blocker_code") is not None:
-                continue
-            neighborhood_code = row.get("neighborhood_code")
-            size_bucket = row.get("size_bucket")
-            age_bucket = row.get("age_bucket")
-            subject_assessed_psf = _as_float(row.get("subject_assessed_psf"))
-            if (
-                neighborhood_code is None
-                or size_bucket is None
-                or age_bucket is None
-                or subject_assessed_psf is None
-                or subject_assessed_psf <= 0
-            ):
-                continue
-            key = (
-                str(row["county_id"]),
-                int(row["tax_year"]),
-                str(neighborhood_code),
-                str(size_bucket),
-                str(age_bucket),
-            )
-            grouped.setdefault(key, []).append(subject_assessed_psf)
-
-        payloads: list[tuple[object, ...]] = []
-        for (county_id, tax_year, neighborhood_code, size_bucket, age_bucket), values in sorted(
-            grouped.items()
-        ):
-            summary = calculate_distribution_stats(values)
-            if summary is None:
-                continue
-            payloads.append(
-                (
-                    county_id,
-                    tax_year,
-                    neighborhood_code,
-                    "sfr",
-                    size_bucket,
-                    age_bucket,
-                    summary.parcel_count,
-                    summary.trimmed_parcel_count,
-                    summary.excluded_parcel_count,
-                    summary.p10,
-                    summary.p25,
-                    summary.p50,
-                    summary.p75,
-                    summary.p90,
-                    summary.mean,
-                    summary.median,
-                    summary.stddev,
-                    summary.coefficient_of_variation,
-                    _support_level(summary.parcel_count, strong_threshold=STRONG_SEGMENT_COUNT),
-                    summary.parcel_count >= SEGMENT_MIN_COUNT,
-                    "trim_p05_p95",
+                total_row_count = int(cursor.rowcount or 0)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::integer AS count
+                    FROM instant_quote_neighborhood_stats
+                    WHERE (%s::text IS NULL OR county_id = %s)
+                      AND (%s::integer IS NULL OR tax_year = %s)
+                      AND support_threshold_met IS TRUE
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
                 )
-            )
-        return payloads
+                row = cursor.fetchone() or {}
+            connection.commit()
+        return _StatsRefreshMetrics(
+            total_row_count=total_row_count,
+            supported_row_count=int(row.get("count") or 0),
+        )
+
+    def _refresh_segment_stats(
+        self,
+        *,
+        county_id: str | None,
+        tax_year: int | None,
+    ) -> _StatsRefreshMetrics:
+        with get_connection() as connection:
+            self._prepare_refresh_session(connection)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM instant_quote_segment_stats
+                    WHERE (%s::text IS NULL OR county_id = %s)
+                      AND (%s::integer IS NULL OR tax_year = %s)
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+                cursor.execute(
+                    f"""
+                    INSERT INTO instant_quote_segment_stats (
+                      county_id,
+                      tax_year,
+                      neighborhood_code,
+                      property_type_code,
+                      size_bucket,
+                      age_bucket,
+                      parcel_count,
+                      trimmed_parcel_count,
+                      excluded_parcel_count,
+                      p10_assessed_psf,
+                      p25_assessed_psf,
+                      p50_assessed_psf,
+                      p75_assessed_psf,
+                      p90_assessed_psf,
+                      mean_assessed_psf,
+                      median_assessed_psf,
+                      stddev_assessed_psf,
+                      coefficient_of_variation,
+                      support_level,
+                      support_threshold_met,
+                      trim_method_code,
+                      last_refresh_at
+                    )
+                    WITH eligible AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        size_bucket,
+                        age_bucket,
+                        subject_assessed_psf
+                      FROM instant_quote_subject_cache
+                      WHERE (%s::text IS NULL OR county_id = %s)
+                        AND (%s::integer IS NULL OR tax_year = %s)
+                        AND property_type_code = 'sfr'
+                        AND support_blocker_code IS NULL
+                        AND neighborhood_code IS NOT NULL
+                        AND size_bucket IS NOT NULL
+                        AND age_bucket IS NOT NULL
+                        AND subject_assessed_psf IS NOT NULL
+                        AND subject_assessed_psf > 0
+                    ),
+                    bounds AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        size_bucket,
+                        age_bucket,
+                        COUNT(*)::integer AS parcel_count,
+                        percentile_cont(0.05) WITHIN GROUP (ORDER BY subject_assessed_psf) AS lower_bound,
+                        percentile_cont(0.95) WITHIN GROUP (ORDER BY subject_assessed_psf) AS upper_bound
+                      FROM eligible
+                      GROUP BY county_id, tax_year, neighborhood_code, property_type_code, size_bucket, age_bucket
+                    ),
+                    trimmed AS (
+                      SELECT
+                        eligible.county_id,
+                        eligible.tax_year,
+                        eligible.neighborhood_code,
+                        eligible.property_type_code,
+                        eligible.size_bucket,
+                        eligible.age_bucket,
+                        eligible.subject_assessed_psf,
+                        bounds.parcel_count
+                      FROM eligible
+                      JOIN bounds
+                        ON bounds.county_id = eligible.county_id
+                       AND bounds.tax_year = eligible.tax_year
+                       AND bounds.neighborhood_code = eligible.neighborhood_code
+                       AND bounds.property_type_code = eligible.property_type_code
+                       AND bounds.size_bucket = eligible.size_bucket
+                       AND bounds.age_bucket = eligible.age_bucket
+                      WHERE eligible.subject_assessed_psf BETWEEN bounds.lower_bound AND bounds.upper_bound
+                    ),
+                    aggregated AS (
+                      SELECT
+                        county_id,
+                        tax_year,
+                        neighborhood_code,
+                        property_type_code,
+                        size_bucket,
+                        age_bucket,
+                        MAX(parcel_count)::integer AS parcel_count,
+                        COUNT(*)::integer AS trimmed_parcel_count,
+                        GREATEST(MAX(parcel_count)::integer - COUNT(*)::integer, 0)::integer AS excluded_parcel_count,
+                        percentile_cont(0.10) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p10_assessed_psf,
+                        percentile_cont(0.25) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p25_assessed_psf,
+                        percentile_cont(0.50) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p50_assessed_psf,
+                        percentile_cont(0.75) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p75_assessed_psf,
+                        percentile_cont(0.90) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p90_assessed_psf,
+                        AVG(subject_assessed_psf) AS mean_assessed_psf,
+                        percentile_cont(0.50) WITHIN GROUP (ORDER BY subject_assessed_psf) AS median_assessed_psf,
+                        stddev_pop(subject_assessed_psf) AS stddev_assessed_psf
+                      FROM trimmed
+                      GROUP BY county_id, tax_year, neighborhood_code, property_type_code, size_bucket, age_bucket
+                    )
+                    SELECT
+                      county_id,
+                      tax_year,
+                      neighborhood_code,
+                      property_type_code,
+                      size_bucket,
+                      age_bucket,
+                      parcel_count,
+                      trimmed_parcel_count,
+                      excluded_parcel_count,
+                      p10_assessed_psf,
+                      p25_assessed_psf,
+                      p50_assessed_psf,
+                      p75_assessed_psf,
+                      p90_assessed_psf,
+                      mean_assessed_psf,
+                      median_assessed_psf,
+                      stddev_assessed_psf,
+                      CASE
+                        WHEN mean_assessed_psf IS NULL OR mean_assessed_psf = 0 THEN NULL
+                        ELSE stddev_assessed_psf / mean_assessed_psf
+                      END AS coefficient_of_variation,
+                      CASE
+                        WHEN parcel_count >= {STRONG_SEGMENT_COUNT} THEN 'strong'
+                        WHEN parcel_count >= {SEGMENT_MIN_COUNT} THEN 'medium'
+                        ELSE 'thin'
+                      END AS support_level,
+                      (parcel_count >= {SEGMENT_MIN_COUNT}) AS support_threshold_met,
+                      'trim_p05_p95',
+                      now()
+                    FROM aggregated
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+                total_row_count = int(cursor.rowcount or 0)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::integer AS count
+                    FROM instant_quote_segment_stats
+                    WHERE (%s::text IS NULL OR county_id = %s)
+                      AND (%s::integer IS NULL OR tax_year = %s)
+                      AND support_threshold_met IS TRUE
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+                row = cursor.fetchone() or {}
+            connection.commit()
+        return _StatsRefreshMetrics(
+            total_row_count=total_row_count,
+            supported_row_count=int(row.get("count") or 0),
+        )
+
+    def _start_refresh_run(
+        self,
+        *,
+        county_id: str | None,
+        tax_year: int | None,
+        refresh_started_at: datetime,
+    ) -> str | None:
+        if county_id is None or tax_year is None:
+            return None
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO instant_quote_refresh_runs (
+                      county_id,
+                      tax_year,
+                      refresh_status,
+                      refresh_started_at
+                    )
+                    VALUES (%s, %s, 'running', %s)
+                    RETURNING instant_quote_refresh_run_id
+                    """,
+                    (county_id, tax_year, refresh_started_at),
+                )
+                row = cursor.fetchone()
+            connection.commit()
+        return None if row is None else str(row["instant_quote_refresh_run_id"])
+
+    def _complete_refresh_run(
+        self,
+        *,
+        refresh_run_id: str | None,
+        summary: InstantQuoteRefreshSummary,
+        source_view_row_count: int,
+    ) -> None:
+        if refresh_run_id is None:
+            return
+        warning_codes: list[str] = []
+        if summary.cache_view_row_delta != 0:
+            warning_codes.append("subject_cache_row_mismatch")
+        if summary.supported_neighborhood_stats_count == 0:
+            warning_codes.append("no_supported_neighborhood_stats")
+        if summary.supportable_subject_row_count == 0:
+            warning_codes.append("no_supportable_subjects")
+
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE instant_quote_refresh_runs
+                    SET refresh_status = 'completed',
+                        refresh_finished_at = now(),
+                        cache_rebuild_duration_ms = %s,
+                        neighborhood_stats_refresh_duration_ms = %s,
+                        segment_stats_refresh_duration_ms = %s,
+                        total_refresh_duration_ms = %s,
+                        source_view_row_count = %s,
+                        subject_cache_row_count = %s,
+                        supportable_subject_row_count = %s,
+                        neighborhood_stats_row_count = %s,
+                        supported_neighborhood_stats_row_count = %s,
+                        segment_stats_row_count = %s,
+                        supported_segment_stats_row_count = %s,
+                        cache_view_row_delta = %s,
+                        warning_codes = %s
+                    WHERE instant_quote_refresh_run_id = %s::uuid
+                    """,
+                    (
+                        summary.cache_rebuild_duration_ms,
+                        summary.neighborhood_stats_refresh_duration_ms,
+                        summary.segment_stats_refresh_duration_ms,
+                        summary.total_refresh_duration_ms,
+                        source_view_row_count,
+                        summary.subject_row_count,
+                        summary.supportable_subject_row_count,
+                        summary.neighborhood_stats_count,
+                        summary.supported_neighborhood_stats_count,
+                        summary.segment_stats_count,
+                        summary.supported_segment_stats_count,
+                        summary.cache_view_row_delta,
+                        warning_codes,
+                        refresh_run_id,
+                    ),
+                )
+            connection.commit()
+
+    def _fail_refresh_run(self, *, refresh_run_id: str | None, error_message: str) -> None:
+        if refresh_run_id is None:
+            return
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE instant_quote_refresh_runs
+                    SET refresh_status = 'failed',
+                        refresh_finished_at = now(),
+                        error_message = %s
+                    WHERE instant_quote_refresh_run_id = %s::uuid
+                    """,
+                    (error_message[:4000], refresh_run_id),
+                )
+            connection.commit()
 
 
 class InstantQuoteService:

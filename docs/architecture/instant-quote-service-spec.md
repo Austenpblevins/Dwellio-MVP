@@ -8,12 +8,13 @@ Canonical route:
 Boundary rules:
 - keep `GET /search`, `GET /parcel`, and refined `GET /quote` contracts unchanged
 - keep instant quote separate from the refined defensible-value quote engine
-- use `instant_quote_subject_view` plus precomputed `instant_quote_neighborhood_stats` and `instant_quote_segment_stats`
+- use `instant_quote_subject_cache` as the request-time serving layer, rebuilt from `instant_quote_subject_view`
+- use precomputed `instant_quote_neighborhood_stats` and `instant_quote_segment_stats`
 - reuse `parcel_summary_view`, `parcel_effective_tax_rate_view`, and parcel-year fallback behavior
 - do not expose raw confidence scores, target assessed value, target PSF, or internal diagnostics publicly
 
 Runtime flow:
-1. resolve parcel-year identity through `instant_quote_subject_view`
+1. resolve parcel-year identity through `instant_quote_subject_cache`
 2. apply deterministic prior-year fallback when exact year is unavailable
 3. load neighborhood and segment assessed-PSF stats
 4. blend segment and neighborhood medians when support allows
@@ -41,4 +42,5 @@ Public behavior:
 Observability:
 - request-path structured logs
 - background best-effort inserts into `instant_quote_request_logs`
-- readiness counts exposed through county-year readiness derived fields
+- refresh history persisted in `instant_quote_refresh_runs`
+- readiness counts exposed through county-year readiness derived fields from the serving artifacts

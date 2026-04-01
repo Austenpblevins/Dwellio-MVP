@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
 from app.db.connection import get_connection
 from app.services.instant_quote import InstantQuoteService
 
@@ -23,9 +25,14 @@ class InstantQuoteValidationReport:
     tax_year: int
     parcel_rows_with_living_area: int
     parcel_rows_with_effective_tax_rate: int
+    subject_cache_row_count: int
     instant_quote_supportable_rows: int
     supported_neighborhood_stats_rows: int
     supported_segment_stats_rows: int
+    latest_refresh_status: str | None = None
+    latest_refresh_finished_at: str | None = None
+    latest_validation_at: str | None = None
+    cache_view_row_delta: int | None = None
     blocker_distribution: dict[str, int] = field(default_factory=dict)
     supported_public_quote_exists: bool = False
     examples: list[InstantQuoteExampleResult] = field(default_factory=list)
@@ -77,6 +84,16 @@ class InstantQuoteValidationService:
                     """,
                     (county_id, tax_year),
                 )
+                subject_cache_row_count = self._count(
+                    cursor,
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM instant_quote_subject_cache
+                    WHERE county_id = %s
+                      AND tax_year = %s
+                    """,
+                    (county_id, tax_year),
+                )
                 supported_neighborhood_stats_rows = self._count(
                     cursor,
                     """
@@ -105,6 +122,11 @@ class InstantQuoteValidationService:
                     tax_year=tax_year,
                 )
                 candidate_accounts = self._candidate_accounts(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                latest_refresh_run = self._latest_refresh_run(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
@@ -145,14 +167,49 @@ class InstantQuoteValidationService:
             if len(examples) >= 6 and supported_public_quote_exists:
                 break
 
+        self._persist_validation_report(
+            county_id=county_id,
+            tax_year=tax_year,
+            report_payload={
+                "county_id": county_id,
+                "tax_year": tax_year,
+                "parcel_rows_with_living_area": parcel_rows_with_living_area,
+                "parcel_rows_with_effective_tax_rate": parcel_rows_with_effective_tax_rate,
+                "subject_cache_row_count": subject_cache_row_count,
+                "instant_quote_supportable_rows": instant_quote_supportable_rows,
+                "supported_neighborhood_stats_rows": supported_neighborhood_stats_rows,
+                "supported_segment_stats_rows": supported_segment_stats_rows,
+                "blocker_distribution": blocker_distribution,
+                "supported_public_quote_exists": supported_public_quote_exists,
+                "examples": [asdict(example) for example in examples],
+            },
+        )
+
         return InstantQuoteValidationReport(
             county_id=county_id,
             tax_year=tax_year,
             parcel_rows_with_living_area=parcel_rows_with_living_area,
             parcel_rows_with_effective_tax_rate=parcel_rows_with_effective_tax_rate,
+            subject_cache_row_count=subject_cache_row_count,
             instant_quote_supportable_rows=instant_quote_supportable_rows,
             supported_neighborhood_stats_rows=supported_neighborhood_stats_rows,
             supported_segment_stats_rows=supported_segment_stats_rows,
+            latest_refresh_status=(
+                None if latest_refresh_run is None else str(latest_refresh_run["refresh_status"])
+            ),
+            latest_refresh_finished_at=(
+                None
+                if latest_refresh_run is None or latest_refresh_run.get("refresh_finished_at") is None
+                else latest_refresh_run["refresh_finished_at"].isoformat()
+            ),
+            latest_validation_at=(
+                None
+                if latest_refresh_run is None or latest_refresh_run.get("validated_at") is None
+                else latest_refresh_run["validated_at"].isoformat()
+            ),
+            cache_view_row_delta=(
+                None if latest_refresh_run is None else int(latest_refresh_run["cache_view_row_delta"] or 0)
+            ),
             blocker_distribution=blocker_distribution,
             supported_public_quote_exists=supported_public_quote_exists,
             examples=examples,
@@ -184,6 +241,30 @@ class InstantQuoteValidationService:
             (county_id, tax_year),
         )
         return {str(row["blocker_code"]): int(row["count"]) for row in cursor.fetchall()}
+
+    def _latest_refresh_run(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, Any] | None:
+        cursor.execute(
+            """
+            SELECT
+              refresh_status,
+              refresh_finished_at,
+              validated_at,
+              cache_view_row_delta
+            FROM instant_quote_refresh_runs
+            WHERE county_id = %s
+              AND tax_year = %s
+            ORDER BY refresh_started_at DESC
+            LIMIT 1
+            """,
+            (county_id, tax_year),
+        )
+        return cursor.fetchone()
 
     def _candidate_accounts(
         self,
@@ -246,3 +327,30 @@ class InstantQuoteValidationService:
             if len(account_numbers) >= 12:
                 break
         return account_numbers
+
+    def _persist_validation_report(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        report_payload: dict[str, Any],
+    ) -> None:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE instant_quote_refresh_runs
+                    SET validated_at = now(),
+                        validation_report = %s::jsonb
+                    WHERE instant_quote_refresh_run_id = (
+                      SELECT instant_quote_refresh_run_id
+                      FROM instant_quote_refresh_runs
+                      WHERE county_id = %s
+                        AND tax_year = %s
+                      ORDER BY refresh_started_at DESC
+                      LIMIT 1
+                    )
+                    """,
+                    (Jsonb(report_payload), county_id, tax_year),
+                )
+            connection.commit()
