@@ -729,3 +729,38 @@ def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
     assert len(search_refresh_calls) == 1
     assert search_refresh_calls[0]["county_id"] == "harris"
     assert search_refresh_calls[0]["tax_year"] == 2025
+
+
+def test_refresh_tax_assignments_prefers_set_based_repository_path() -> None:
+    service = IngestionLifecycleService()
+
+    class StubRepository:
+        def __init__(self) -> None:
+            self.called = False
+            self.refreshed = False
+
+        def has_current_tax_rate_records(self, **kwargs) -> bool:
+            return True
+
+        def refresh_parcel_tax_assignments_set_based(self, **kwargs) -> int:
+            self.called = True
+            return 5
+
+        def refresh_effective_tax_rates(self, **kwargs) -> int:
+            self.refreshed = True
+            return 5
+
+    repository = StubRepository()
+
+    service._refresh_tax_assignments(
+        repository=repository,  # type: ignore[arg-type]
+        county_id="harris",
+        tax_year=2025,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        force=False,
+    )
+
+    assert repository.called is True
+    assert repository.refreshed is True

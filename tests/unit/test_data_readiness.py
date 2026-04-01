@@ -137,6 +137,7 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_subject_ready is True
     assert readiness.derived.instant_quote_neighborhood_stats_ready is True
     assert readiness.derived.instant_quote_segment_stats_ready is True
+    assert readiness.derived.instant_quote_asset_ready is True
     assert readiness.derived.instant_quote_supportable_row_count == 12
     assert readiness.derived.instant_quote_supported_neighborhood_stats_row_count == 0
     assert readiness.derived.instant_quote_supported_segment_stats_row_count == 0

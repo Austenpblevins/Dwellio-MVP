@@ -43,6 +43,7 @@ class RecordingCursor:
     def __init__(self) -> None:
         self.queries: list[str] = []
         self.copy_rows: list[tuple[object, ...]] = []
+        self.rowcount = 0
 
     def __enter__(self) -> RecordingCursor:
         return self
@@ -146,3 +147,26 @@ def test_bulk_property_roll_upsert_populates_parcel_improvements_summary() -> No
     assert "INSERT INTO parcel_improvements" in joined_queries
     assert connection.cursor_instance.copy_rows[0][25] == 2150
     assert connection.cursor_instance.copy_rows[0][26] == 2004
+
+
+def test_set_based_tax_assignment_refresh_builds_temp_context_and_bulk_effective_rates() -> None:
+    connection = RecordingConnection()
+    repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]
+
+    repository.refresh_parcel_tax_assignments_set_based(
+        county_id="harris",
+        tax_year=2025,
+        import_batch_id="batch-1",
+        job_run_id="11111111-1111-1111-1111-111111111111",
+        source_system_id="source-1",
+    )
+    repository.refresh_effective_tax_rates(county_id="harris", tax_year=2025)
+
+    joined_queries = "\n".join(connection.cursor_instance.queries)
+
+    assert "CREATE TEMP TABLE tmp_parcel_tax_context" in joined_queries
+    assert "CREATE TEMP TABLE tmp_tax_unit_match_hints" in joined_queries
+    assert "CREATE TEMP TABLE tmp_ranked_tax_assignments" in joined_queries
+    assert "INSERT INTO parcel_taxing_units" in joined_queries
+    assert "INSERT INTO effective_tax_rates" in joined_queries
+    assert "GROUP BY ptu.parcel_id, ptu.tax_year" in joined_queries

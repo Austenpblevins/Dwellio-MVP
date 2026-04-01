@@ -39,6 +39,7 @@ class TaxYearDerivedReadiness:
     instant_quote_subject_ready: bool = False
     instant_quote_neighborhood_stats_ready: bool = False
     instant_quote_segment_stats_ready: bool = False
+    instant_quote_asset_ready: bool = False
     instant_quote_ready: bool = False
     search_support_ready: bool = False
     feature_ready: bool = False
@@ -422,6 +423,12 @@ class DataReadinessService:
             else 0
         )
 
+        instant_quote_asset_ready = (
+            instant_quote_subject_row_count > 0
+            and instant_quote_neighborhood_stats_row_count > 0
+            and instant_quote_segment_stats_row_count > 0
+        )
+
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
             parcel_year_trend_ready=parcel_year_trend_row_count > 0,
@@ -430,6 +437,7 @@ class DataReadinessService:
             instant_quote_subject_ready=instant_quote_subject_row_count > 0,
             instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
             instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
+            instant_quote_asset_ready=instant_quote_asset_ready,
             instant_quote_ready=(
                 instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
                 and instant_quote_supported_neighborhood_stats_row_count > 0

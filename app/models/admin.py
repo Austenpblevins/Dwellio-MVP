@@ -24,6 +24,7 @@ class AdminCountyYearDatasetReadiness(DwellioBaseModel):
     freshness_sla_days: int | None = None
     freshness_age_days: int | None = None
     recent_failed_job_count: int = 0
+    stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression: bool = False
 
@@ -36,6 +37,7 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_subject_ready: bool = False
     instant_quote_neighborhood_stats_ready: bool = False
     instant_quote_segment_stats_ready: bool = False
+    instant_quote_asset_ready: bool = False
     instant_quote_ready: bool = False
     search_support_ready: bool
     feature_ready: bool
@@ -75,6 +77,7 @@ class AdminCountyYearOperationalReadiness(DwellioBaseModel):
     freshness_age_days: int | None = None
     latest_activity_at: datetime | None = None
     recent_failed_job_count: int = 0
+    stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression_count: int = 0
     searchable_ready: bool = False

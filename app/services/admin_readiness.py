@@ -26,6 +26,7 @@ class DatasetOperationalMetrics:
     freshness_sla_days: int | None = None
     freshness_age_days: int | None = None
     recent_failed_job_count: int = 0
+    stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression: bool = False
 
@@ -63,6 +64,12 @@ class AdminOperationalMetricsProvider:
             tax_year=tax_year,
             dataset_type=dataset_type,
         )
+        stale_running_job_count = self._stale_running_job_count(
+            connection,
+            county_id=county_id,
+            tax_year=tax_year,
+            dataset_type=dataset_type,
+        )
         freshness_status = self._freshness_status(
             latest_activity_at=latest_activity_at,
             freshness_age_days=freshness_age_days,
@@ -74,6 +81,7 @@ class AdminOperationalMetricsProvider:
             freshness_sla_days=freshness_sla_days,
             freshness_age_days=freshness_age_days,
             recent_failed_job_count=recent_failed_job_count,
+            stale_running_job_count=stale_running_job_count,
             validation_error_count=validation_error_count,
             validation_regression=validation_regression,
         )
@@ -190,6 +198,34 @@ class AdminOperationalMetricsProvider:
         latest = counts[0] if counts else 0
         prior = counts[1] if len(counts) > 1 else 0
         return latest, prior
+
+    def _stale_running_job_count(
+        self,
+        connection: object,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+    ) -> int:
+        cutoff = self._now_fn() - timedelta(hours=6)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM job_runs jr
+                JOIN import_batches ib
+                  ON ib.import_batch_id = jr.import_batch_id
+                WHERE ib.county_id = %s
+                  AND ib.tax_year = %s
+                  AND ib.dataset_type = %s
+                  AND jr.status = 'running'
+                  AND jr.finished_at IS NULL
+                  AND jr.started_at < %s
+                """,
+                (county_id, tax_year, dataset_type, cutoff),
+            )
+            row = cursor.fetchone()
+        return int(row["count"] if row is not None else 0)
 
     def _freshness_sla_days(self, *, tax_year: int) -> int:
         current_year = self._now_fn().year
@@ -330,6 +366,7 @@ class AdminReadinessService:
                 instant_quote_subject_ready=readiness.derived.instant_quote_subject_ready,
                 instant_quote_neighborhood_stats_ready=readiness.derived.instant_quote_neighborhood_stats_ready,
                 instant_quote_segment_stats_ready=readiness.derived.instant_quote_segment_stats_ready,
+                instant_quote_asset_ready=readiness.derived.instant_quote_asset_ready,
                 instant_quote_ready=readiness.derived.instant_quote_ready,
                 search_support_ready=readiness.derived.search_support_ready,
                 feature_ready=readiness.derived.feature_ready,
@@ -391,6 +428,8 @@ class AdminReadinessService:
             blockers.append("stale_source_activity")
         if metrics.recent_failed_job_count > 0:
             blockers.append("recent_job_failures")
+        if metrics.stale_running_job_count > 0:
+            blockers.append("stale_running_jobs")
         if metrics.validation_regression:
             blockers.append("validation_regression")
 
@@ -411,6 +450,7 @@ class AdminReadinessService:
             freshness_sla_days=metrics.freshness_sla_days,
             freshness_age_days=metrics.freshness_age_days,
             recent_failed_job_count=metrics.recent_failed_job_count,
+            stale_running_job_count=metrics.stale_running_job_count,
             validation_error_count=metrics.validation_error_count,
             validation_regression=metrics.validation_regression,
         )
@@ -479,6 +519,7 @@ class AdminReadinessService:
         )
         worst_dataset = max(dataset_models, key=self._freshness_rank, default=None)
         recent_failed_job_count = sum(dataset.recent_failed_job_count for dataset in dataset_models)
+        stale_running_job_count = sum(dataset.stale_running_job_count for dataset in dataset_models)
         validation_error_count = sum(dataset.validation_error_count for dataset in dataset_models)
         validation_regression_count = sum(1 for dataset in dataset_models if dataset.validation_regression)
         property_roll_published = any(
@@ -499,6 +540,8 @@ class AdminReadinessService:
             quality_score -= 15
         if recent_failed_job_count > 0:
             quality_score -= min(recent_failed_job_count * 10, 20)
+        if stale_running_job_count > 0:
+            quality_score -= min(stale_running_job_count * 10, 20)
         if validation_error_count > 0:
             quality_score -= 10
         if validation_regression_count > 0:
@@ -522,6 +565,7 @@ class AdminReadinessService:
             freshness_age_days=worst_dataset.freshness_age_days if worst_dataset else None,
             latest_activity_at=latest_activity_at,
             recent_failed_job_count=recent_failed_job_count,
+            stale_running_job_count=stale_running_job_count,
             validation_error_count=validation_error_count,
             validation_regression_count=validation_regression_count,
             searchable_ready=searchable_ready,
@@ -570,6 +614,8 @@ class AdminReadinessService:
                 alerts.append(f"{dataset.dataset_type}_freshness_warning")
             if dataset.recent_failed_job_count > 0:
                 alerts.append(f"{dataset.dataset_type}_job_failures")
+            if dataset.stale_running_job_count > 0:
+                alerts.append(f"{dataset.dataset_type}_stale_jobs")
             if dataset.validation_error_count > 0:
                 alerts.append(f"{dataset.dataset_type}_validation_errors")
             if dataset.validation_regression:

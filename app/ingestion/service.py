@@ -1690,23 +1690,32 @@ class IngestionLifecycleService:
         ):
             return
 
-        parcel_contexts = repository.fetch_parcel_tax_contexts(
-            county_id=county_id, tax_year=tax_year
-        )
-        taxing_unit_contexts = repository.fetch_taxing_unit_contexts(
-            county_id=county_id, tax_year=tax_year
-        )
-        assignments = build_tax_assignments(
-            parcels=parcel_contexts, taxing_units=taxing_unit_contexts
-        )
-        repository.replace_parcel_tax_assignments(
-            county_id=county_id,
-            tax_year=tax_year,
-            import_batch_id=import_batch_id,
-            job_run_id=job_run_id,
-            source_system_id=source_system_id,
-            assignments=assignments,
-        )
+        if hasattr(repository, "refresh_parcel_tax_assignments_set_based"):
+            repository.refresh_parcel_tax_assignments_set_based(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+            )
+        else:
+            parcel_contexts = repository.fetch_parcel_tax_contexts(
+                county_id=county_id, tax_year=tax_year
+            )
+            taxing_unit_contexts = repository.fetch_taxing_unit_contexts(
+                county_id=county_id, tax_year=tax_year
+            )
+            assignments = build_tax_assignments(
+                parcels=parcel_contexts, taxing_units=taxing_unit_contexts
+            )
+            repository.replace_parcel_tax_assignments(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+                assignments=assignments,
+            )
         repository.refresh_effective_tax_rates(county_id=county_id, tax_year=tax_year)
 
     def _refresh_owner_reconciliation(
