@@ -195,11 +195,13 @@ class InstantQuoteRefreshService:
         county_id: str | None = None,
         tax_year: int | None = None,
     ) -> InstantQuoteRefreshSummary:
+        self._refresh_subject_cache(county_id=county_id, tax_year=tax_year)
         subject_rows = self._fetch_subject_rows(county_id=county_id, tax_year=tax_year)
         neighborhood_payloads = self._build_neighborhood_payloads(subject_rows)
         segment_payloads = self._build_segment_payloads(subject_rows)
 
         with get_connection() as connection:
+            self._prepare_refresh_session(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -293,6 +295,117 @@ class InstantQuoteRefreshService:
             excluded_subject_count=excluded_subject_count,
         )
 
+    def _prepare_refresh_session(self, connection: object) -> None:
+        # Local Postgres environments used for county-scale refreshes can exhaust
+        # shared memory when the planner chooses parallel workers on these wide
+        # derived queries, so keep the refresh path single-gather and predictable.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+
+    def _refresh_subject_cache(
+        self,
+        *,
+        county_id: str | None,
+        tax_year: int | None,
+    ) -> None:
+        with get_connection() as connection:
+            self._prepare_refresh_session(connection)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM instant_quote_subject_cache
+                    WHERE (%s::text IS NULL OR county_id = %s)
+                      AND (%s::integer IS NULL OR tax_year = %s)
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO instant_quote_subject_cache (
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      account_number,
+                      address,
+                      situs_address,
+                      situs_city,
+                      situs_state,
+                      situs_zip,
+                      neighborhood_code,
+                      school_district_name,
+                      property_type_code,
+                      property_class_code,
+                      living_area_sf,
+                      year_built,
+                      assessed_value,
+                      capped_value,
+                      notice_value,
+                      land_value,
+                      improvement_value,
+                      assessment_basis_value,
+                      effective_tax_rate,
+                      effective_tax_rate_source_method,
+                      completeness_score,
+                      public_summary_ready_flag,
+                      homestead_flag,
+                      over65_flag,
+                      disabled_flag,
+                      disabled_veteran_flag,
+                      freeze_flag,
+                      exemption_type_codes,
+                      warning_codes,
+                      size_bucket,
+                      age_bucket,
+                      support_blocker_code,
+                      subject_assessed_psf,
+                      refreshed_at
+                    )
+                    SELECT
+                      parcel_id,
+                      county_id,
+                      tax_year,
+                      account_number,
+                      address,
+                      situs_address,
+                      situs_city,
+                      situs_state,
+                      situs_zip,
+                      neighborhood_code,
+                      school_district_name,
+                      property_type_code,
+                      property_class_code,
+                      living_area_sf,
+                      year_built,
+                      assessed_value,
+                      capped_value,
+                      notice_value,
+                      land_value,
+                      improvement_value,
+                      assessment_basis_value,
+                      effective_tax_rate,
+                      effective_tax_rate_source_method,
+                      completeness_score,
+                      public_summary_ready_flag,
+                      homestead_flag,
+                      over65_flag,
+                      disabled_flag,
+                      disabled_veteran_flag,
+                      freeze_flag,
+                      exemption_type_codes,
+                      warning_codes,
+                      size_bucket,
+                      age_bucket,
+                      support_blocker_code,
+                      subject_assessed_psf,
+                      now()
+                    FROM instant_quote_subject_view
+                    WHERE (%s::text IS NULL OR county_id = %s)
+                      AND (%s::integer IS NULL OR tax_year = %s)
+                    """,
+                    (county_id, county_id, tax_year, tax_year),
+                )
+            connection.commit()
+
     def _fetch_subject_rows(
         self,
         *,
@@ -300,11 +413,12 @@ class InstantQuoteRefreshService:
         tax_year: int | None,
     ) -> list[dict[str, Any]]:
         with get_connection() as connection:
+            self._prepare_refresh_session(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     SELECT *
-                    FROM instant_quote_subject_view
+                    FROM instant_quote_subject_cache
                     WHERE (%s::text IS NULL OR county_id = %s)
                       AND (%s::integer IS NULL OR tax_year = %s)
                     ORDER BY county_id, tax_year, neighborhood_code, account_number
@@ -430,35 +544,54 @@ class InstantQuoteService:
     ) -> InstantQuoteResponse:
         request_id = uuid4()
         started_at = perf_counter()
-        subject_row = self._fetch_subject_row(
-            county_id=county_id,
-            requested_tax_year=tax_year,
-            account_number=account_number,
-        )
-        if subject_row is None:
-            raise LookupError(
-                f"Instant quote not found for {county_id}/{tax_year}/{account_number}."
+        with get_connection() as connection:
+            self._prepare_request_session(connection)
+            subject_row = self._fetch_subject_row(
+                connection=connection,
+                county_id=county_id,
+                requested_tax_year=tax_year,
+                account_number=account_number,
             )
+            if subject_row is None:
+                raise LookupError(
+                    f"Instant quote not found for {county_id}/{tax_year}/{account_number}."
+                )
 
-        response, telemetry = self._build_response(
-            request_id=request_id,
-            subject_row=subject_row,
-            requested_tax_year=tax_year,
-        )
+            response, telemetry = self._build_response(
+                connection=connection,
+                request_id=request_id,
+                subject_row=subject_row,
+                requested_tax_year=tax_year,
+            )
         latency_ms = int((perf_counter() - started_at) * 1000)
         telemetry["latency_ms"] = latency_ms
         self._emit_logs(response=response, telemetry=telemetry)
         self._enqueue_request_log_persistence(response=response, telemetry=telemetry)
         return response
 
+    def _prepare_request_session(self, connection: object) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+
     def _fetch_subject_row(
         self,
         *,
+        connection: object | None = None,
         county_id: str,
         requested_tax_year: int,
         account_number: str,
     ) -> dict[str, Any] | None:
+        if connection is None:
+            with get_connection() as managed_connection:
+                self._prepare_request_session(managed_connection)
+                return self._fetch_subject_row(
+                    connection=managed_connection,
+                    county_id=county_id,
+                    requested_tax_year=requested_tax_year,
+                    account_number=account_number,
+                )
         ready_row = self._fetch_subject_row_with_ready_stats(
+            connection=connection,
             county_id=county_id,
             requested_tax_year=requested_tax_year,
             account_number=account_number,
@@ -466,6 +599,7 @@ class InstantQuoteService:
         if ready_row is not None:
             return ready_row
         return self._fetch_latest_subject_row(
+            connection=connection,
             county_id=county_id,
             requested_tax_year=requested_tax_year,
             account_number=account_number,
@@ -474,82 +608,83 @@ class InstantQuoteService:
     def _fetch_subject_row_with_ready_stats(
         self,
         *,
+        connection: object,
         county_id: str,
         requested_tax_year: int,
         account_number: str,
     ) -> dict[str, Any] | None:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM instant_quote_subject_view subject
-                    WHERE county_id = %s
-                      AND account_number = %s
-                      AND tax_year <= %s
-                      AND EXISTS (
-                        SELECT 1
-                        FROM instant_quote_neighborhood_stats stats
-                        WHERE stats.county_id = subject.county_id
-                          AND stats.tax_year = subject.tax_year
-                      )
-                    ORDER BY tax_year DESC
-                    LIMIT 1
-                    """,
-                    (county_id, account_number, requested_tax_year),
-                )
-                return cursor.fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM instant_quote_subject_cache subject
+                WHERE county_id = %s
+                  AND account_number = %s
+                  AND tax_year <= %s
+                  AND EXISTS (
+                    SELECT 1
+                    FROM instant_quote_neighborhood_stats stats
+                    WHERE stats.county_id = subject.county_id
+                      AND stats.tax_year = subject.tax_year
+                  )
+                ORDER BY tax_year DESC
+                LIMIT 1
+                """,
+                (county_id, account_number, requested_tax_year),
+            )
+            return cursor.fetchone()
 
     def _fetch_latest_subject_row(
         self,
         *,
+        connection: object,
         county_id: str,
         requested_tax_year: int,
         account_number: str,
     ) -> dict[str, Any] | None:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM instant_quote_subject_view
-                    WHERE county_id = %s
-                      AND account_number = %s
-                      AND tax_year <= %s
-                    ORDER BY tax_year DESC
-                    LIMIT 1
-                    """,
-                    (county_id, account_number, requested_tax_year),
-                )
-                return cursor.fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM instant_quote_subject_cache
+                WHERE county_id = %s
+                  AND account_number = %s
+                  AND tax_year <= %s
+                ORDER BY tax_year DESC
+                LIMIT 1
+                """,
+                (county_id, account_number, requested_tax_year),
+            )
+            return cursor.fetchone()
 
     def _fetch_neighborhood_stats(
         self,
         *,
+        connection: object,
         county_id: str,
         tax_year: int,
         neighborhood_code: str,
     ) -> InstantQuoteStatsRow | None:
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM instant_quote_neighborhood_stats
-                    WHERE county_id = %s
-                      AND tax_year = %s
-                      AND neighborhood_code = %s
-                      AND property_type_code = 'sfr'
-                    LIMIT 1
-                    """,
-                    (county_id, tax_year, neighborhood_code),
-                )
-                row = cursor.fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM instant_quote_neighborhood_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND neighborhood_code = %s
+                  AND property_type_code = 'sfr'
+                LIMIT 1
+                """,
+                (county_id, tax_year, neighborhood_code),
+            )
+            row = cursor.fetchone()
         return _build_stats_row(row)
 
     def _fetch_segment_stats(
         self,
         *,
+        connection: object,
         county_id: str,
         tax_year: int,
         neighborhood_code: str,
@@ -558,27 +693,27 @@ class InstantQuoteService:
     ) -> InstantQuoteStatsRow | None:
         if size_bucket is None or age_bucket is None:
             return None
-        with get_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM instant_quote_segment_stats
-                    WHERE county_id = %s
-                      AND tax_year = %s
-                      AND neighborhood_code = %s
-                      AND property_type_code = 'sfr'
-                      AND size_bucket = %s
-                      AND age_bucket = %s
-                    LIMIT 1
-                    """,
-                    (county_id, tax_year, neighborhood_code, size_bucket, age_bucket),
-                )
-                row = cursor.fetchone()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM instant_quote_segment_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND neighborhood_code = %s
+                  AND property_type_code = 'sfr'
+                  AND size_bucket = %s
+                  AND age_bucket = %s
+                LIMIT 1
+                """,
+                (county_id, tax_year, neighborhood_code, size_bucket, age_bucket),
+            )
+            row = cursor.fetchone()
         return _build_stats_row(row)
 
     def _has_any_stats_for_year(self, *, county_id: str, tax_year: int) -> bool:
         with get_connection() as connection:
+            self._prepare_request_session(connection)
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
@@ -597,6 +732,7 @@ class InstantQuoteService:
     def _build_response(
         self,
         *,
+        connection: object,
         request_id,
         subject_row: dict[str, Any],
         requested_tax_year: int,
@@ -641,6 +777,7 @@ class InstantQuoteService:
         neighborhood_code = str(subject_row["neighborhood_code"])
         county_id = str(subject_row["county_id"])
         neighborhood_stats = self._fetch_neighborhood_stats(
+            connection=connection,
             county_id=county_id,
             tax_year=served_tax_year,
             neighborhood_code=neighborhood_code,
@@ -700,6 +837,7 @@ class InstantQuoteService:
             return response, telemetry
 
         segment_stats = self._fetch_segment_stats(
+            connection=connection,
             county_id=county_id,
             tax_year=served_tax_year,
             neighborhood_code=neighborhood_code,

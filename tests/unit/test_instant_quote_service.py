@@ -21,6 +21,32 @@ from app.services.instant_quote import (
 )
 
 
+class _StubCursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, *_args, **_kwargs) -> None:
+        return None
+
+
+class _StubConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def cursor(self) -> _StubCursor:
+        return _StubCursor()
+
+
+def _patch_request_connection(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.instant_quote.get_connection", lambda: _StubConnection())
+
+
 def test_assign_size_bucket_uses_canonical_ranges() -> None:
     assert assign_size_bucket(1399) == "lt_1400"
     assert assign_size_bucket(1400) == "1400_1699"
@@ -241,6 +267,7 @@ def test_confidence_score_penalizes_neighborhood_only_and_freeze_flags() -> None
 
 def test_instant_quote_service_returns_supported_response_when_stats_exist(monkeypatch) -> None:
     service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
     parcel_id = uuid4()
     subject_row = {
         "parcel_id": parcel_id,
@@ -330,6 +357,7 @@ def test_fetch_subject_row_prefers_latest_year_with_ready_stats(monkeypatch) -> 
     monkeypatch.setattr(service, "_fetch_latest_subject_row", lambda **_: latest_row)
 
     row = service._fetch_subject_row(
+        connection=_StubConnection(),
         county_id="harris",
         requested_tax_year=2026,
         account_number="1001001001001",
@@ -348,6 +376,7 @@ def test_fetch_subject_row_falls_back_to_latest_subject_row_when_no_ready_year_e
     monkeypatch.setattr(service, "_fetch_latest_subject_row", lambda **_: latest_row)
 
     row = service._fetch_subject_row(
+        connection=_StubConnection(),
         county_id="harris",
         requested_tax_year=2026,
         account_number="1001001001001",
@@ -358,6 +387,7 @@ def test_fetch_subject_row_falls_back_to_latest_subject_row_when_no_ready_year_e
 
 def test_supported_homestead_parcel_is_not_forced_into_constrained_range(monkeypatch) -> None:
     service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
     subject_row = {
         "parcel_id": uuid4(),
         "county_id": "harris",
@@ -436,6 +466,7 @@ def test_supported_homestead_parcel_is_not_forced_into_constrained_range(monkeyp
 
 def test_freeze_case_can_constrain_numeric_range_without_suppressing_it(monkeypatch) -> None:
     service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
     subject_row = {
         "parcel_id": uuid4(),
         "county_id": "harris",
@@ -514,6 +545,7 @@ def test_freeze_case_can_constrain_numeric_range_without_suppressing_it(monkeypa
 
 def test_instant_quote_service_returns_supported_false_when_not_ready(monkeypatch) -> None:
     service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
     parcel_id = uuid4()
     subject_row = {
         "parcel_id": parcel_id,
@@ -564,6 +596,7 @@ def test_instant_quote_service_returns_supported_false_when_not_ready(monkeypatc
 
 def test_uncertain_tax_limitation_case_suppresses_numeric_range(monkeypatch) -> None:
     service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
     subject_row = {
         "parcel_id": uuid4(),
         "county_id": "harris",
