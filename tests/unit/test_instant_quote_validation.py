@@ -37,6 +37,24 @@ class StubCursor:
             self._rows = [{"count": 2}]
         elif "FROM instant_quote_segment_stats" in sql:
             self._rows = [{"count": 1}]
+        elif "served_neighborhood_only_quote_count" in sql:
+            self._rows = [
+                {
+                    "served_neighborhood_only_quote_count": 5,
+                    "served_supported_neighborhood_only_quote_count": 3,
+                    "served_unsupported_neighborhood_only_quote_count": 2,
+                }
+            ]
+        elif "subject_rows_without_usable_segment_stats" in sql:
+            self._rows = [
+                {
+                    "subject_rows_without_usable_neighborhood_stats": 0,
+                    "subject_rows_without_usable_segment_stats": 6,
+                    "subject_rows_missing_segment_row": 4,
+                    "subject_rows_thin_segment_support": 2,
+                    "subject_rows_unusable_segment_basis": 0,
+                }
+            ]
         elif "FROM instant_quote_refresh_runs" in sql and "ORDER BY refresh_started_at DESC" in sql:
             self._rows = [
                 {
@@ -125,6 +143,14 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.instant_quote_supportable_rows == 4
     assert report.supported_neighborhood_stats_rows == 2
     assert report.supported_segment_stats_rows == 1
+    assert report.subject_rows_without_usable_neighborhood_stats == 0
+    assert report.subject_rows_without_usable_segment_stats == 6
+    assert report.subject_rows_missing_segment_row == 4
+    assert report.subject_rows_thin_segment_support == 2
+    assert report.subject_rows_unusable_segment_basis == 0
+    assert report.served_neighborhood_only_quote_count == 5
+    assert report.served_supported_neighborhood_only_quote_count == 3
+    assert report.served_unsupported_neighborhood_only_quote_count == 2
     assert report.latest_refresh_status == "completed"
     assert report.cache_view_row_delta == 0
     assert report.blocker_distribution == {

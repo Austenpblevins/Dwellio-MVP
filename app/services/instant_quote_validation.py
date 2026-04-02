@@ -29,6 +29,14 @@ class InstantQuoteValidationReport:
     instant_quote_supportable_rows: int
     supported_neighborhood_stats_rows: int
     supported_segment_stats_rows: int
+    subject_rows_without_usable_neighborhood_stats: int = 0
+    subject_rows_without_usable_segment_stats: int = 0
+    subject_rows_missing_segment_row: int = 0
+    subject_rows_thin_segment_support: int = 0
+    subject_rows_unusable_segment_basis: int = 0
+    served_neighborhood_only_quote_count: int = 0
+    served_supported_neighborhood_only_quote_count: int = 0
+    served_unsupported_neighborhood_only_quote_count: int = 0
     latest_refresh_status: str | None = None
     latest_refresh_finished_at: str | None = None
     latest_validation_at: str | None = None
@@ -116,6 +124,16 @@ class InstantQuoteValidationService:
                     """,
                     (county_id, tax_year),
                 )
+                fallback_metrics = self._fallback_metrics(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                served_fallback_metrics = self._served_fallback_metrics(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
                 blocker_distribution = self._blocker_distribution(
                     cursor,
                     county_id=county_id,
@@ -179,6 +197,30 @@ class InstantQuoteValidationService:
                 "instant_quote_supportable_rows": instant_quote_supportable_rows,
                 "supported_neighborhood_stats_rows": supported_neighborhood_stats_rows,
                 "supported_segment_stats_rows": supported_segment_stats_rows,
+                "subject_rows_without_usable_neighborhood_stats": fallback_metrics[
+                    "subject_rows_without_usable_neighborhood_stats"
+                ],
+                "subject_rows_without_usable_segment_stats": fallback_metrics[
+                    "subject_rows_without_usable_segment_stats"
+                ],
+                "subject_rows_missing_segment_row": fallback_metrics[
+                    "subject_rows_missing_segment_row"
+                ],
+                "subject_rows_thin_segment_support": fallback_metrics[
+                    "subject_rows_thin_segment_support"
+                ],
+                "subject_rows_unusable_segment_basis": fallback_metrics[
+                    "subject_rows_unusable_segment_basis"
+                ],
+                "served_neighborhood_only_quote_count": served_fallback_metrics[
+                    "served_neighborhood_only_quote_count"
+                ],
+                "served_supported_neighborhood_only_quote_count": served_fallback_metrics[
+                    "served_supported_neighborhood_only_quote_count"
+                ],
+                "served_unsupported_neighborhood_only_quote_count": served_fallback_metrics[
+                    "served_unsupported_neighborhood_only_quote_count"
+                ],
                 "blocker_distribution": blocker_distribution,
                 "supported_public_quote_exists": supported_public_quote_exists,
                 "examples": [asdict(example) for example in examples],
@@ -194,6 +236,30 @@ class InstantQuoteValidationService:
             instant_quote_supportable_rows=instant_quote_supportable_rows,
             supported_neighborhood_stats_rows=supported_neighborhood_stats_rows,
             supported_segment_stats_rows=supported_segment_stats_rows,
+            subject_rows_without_usable_neighborhood_stats=int(
+                fallback_metrics["subject_rows_without_usable_neighborhood_stats"]
+            ),
+            subject_rows_without_usable_segment_stats=int(
+                fallback_metrics["subject_rows_without_usable_segment_stats"]
+            ),
+            subject_rows_missing_segment_row=int(
+                fallback_metrics["subject_rows_missing_segment_row"]
+            ),
+            subject_rows_thin_segment_support=int(
+                fallback_metrics["subject_rows_thin_segment_support"]
+            ),
+            subject_rows_unusable_segment_basis=int(
+                fallback_metrics["subject_rows_unusable_segment_basis"]
+            ),
+            served_neighborhood_only_quote_count=int(
+                served_fallback_metrics["served_neighborhood_only_quote_count"]
+            ),
+            served_supported_neighborhood_only_quote_count=int(
+                served_fallback_metrics["served_supported_neighborhood_only_quote_count"]
+            ),
+            served_unsupported_neighborhood_only_quote_count=int(
+                served_fallback_metrics["served_unsupported_neighborhood_only_quote_count"]
+            ),
             latest_refresh_status=(
                 None if latest_refresh_run is None else str(latest_refresh_run["refresh_status"])
             ),
@@ -241,6 +307,136 @@ class InstantQuoteValidationService:
             (county_id, tax_year),
         )
         return {str(row["blocker_code"]): int(row["count"]) for row in cursor.fetchall()}
+
+    def _fallback_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, int]:
+        cursor.execute(
+            """
+            WITH supportable_subjects AS (
+              SELECT
+                county_id,
+                tax_year,
+                neighborhood_code,
+                size_bucket,
+                age_bucket
+              FROM instant_quote_subject_cache
+              WHERE county_id = %s
+                AND tax_year = %s
+                AND support_blocker_code IS NULL
+            )
+            SELECT
+              COUNT(*) FILTER (
+                WHERE neighborhood.neighborhood_code IS NULL
+                   OR neighborhood.parcel_count < 20
+                   OR neighborhood.p50_assessed_psf IS NULL
+              ) AS subject_rows_without_usable_neighborhood_stats,
+              COUNT(*) FILTER (
+                WHERE neighborhood.neighborhood_code IS NOT NULL
+                  AND neighborhood.parcel_count >= 20
+                  AND neighborhood.p50_assessed_psf IS NOT NULL
+                  AND (
+                    segment.neighborhood_code IS NULL
+                    OR segment.parcel_count < 8
+                    OR segment.p50_assessed_psf IS NULL
+                  )
+              ) AS subject_rows_without_usable_segment_stats,
+              COUNT(*) FILTER (
+                WHERE neighborhood.neighborhood_code IS NOT NULL
+                  AND neighborhood.parcel_count >= 20
+                  AND neighborhood.p50_assessed_psf IS NOT NULL
+                  AND segment.neighborhood_code IS NULL
+              ) AS subject_rows_missing_segment_row,
+              COUNT(*) FILTER (
+                WHERE neighborhood.neighborhood_code IS NOT NULL
+                  AND neighborhood.parcel_count >= 20
+                  AND neighborhood.p50_assessed_psf IS NOT NULL
+                  AND segment.neighborhood_code IS NOT NULL
+                  AND segment.parcel_count < 8
+              ) AS subject_rows_thin_segment_support,
+              COUNT(*) FILTER (
+                WHERE neighborhood.neighborhood_code IS NOT NULL
+                  AND neighborhood.parcel_count >= 20
+                  AND neighborhood.p50_assessed_psf IS NOT NULL
+                  AND segment.neighborhood_code IS NOT NULL
+                  AND segment.p50_assessed_psf IS NULL
+              ) AS subject_rows_unusable_segment_basis
+            FROM supportable_subjects subjects
+            LEFT JOIN instant_quote_neighborhood_stats neighborhood
+              ON neighborhood.county_id = subjects.county_id
+             AND neighborhood.tax_year = subjects.tax_year
+             AND neighborhood.neighborhood_code = subjects.neighborhood_code
+             AND neighborhood.property_type_code = 'sfr'
+            LEFT JOIN instant_quote_segment_stats segment
+              ON segment.county_id = subjects.county_id
+             AND segment.tax_year = subjects.tax_year
+             AND segment.neighborhood_code = subjects.neighborhood_code
+             AND segment.property_type_code = 'sfr'
+             AND segment.size_bucket = subjects.size_bucket
+             AND segment.age_bucket = subjects.age_bucket
+            """,
+            (county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        return {
+            "subject_rows_without_usable_neighborhood_stats": int(
+                row.get("subject_rows_without_usable_neighborhood_stats") or 0
+            ),
+            "subject_rows_without_usable_segment_stats": int(
+                row.get("subject_rows_without_usable_segment_stats") or 0
+            ),
+            "subject_rows_missing_segment_row": int(
+                row.get("subject_rows_missing_segment_row") or 0
+            ),
+            "subject_rows_thin_segment_support": int(
+                row.get("subject_rows_thin_segment_support") or 0
+            ),
+            "subject_rows_unusable_segment_basis": int(
+                row.get("subject_rows_unusable_segment_basis") or 0
+            ),
+        }
+
+    def _served_fallback_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, int]:
+        cursor.execute(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE fallback_tier = 'neighborhood_only') AS served_neighborhood_only_quote_count,
+              COUNT(*) FILTER (
+                WHERE fallback_tier = 'neighborhood_only'
+                  AND supported IS TRUE
+              ) AS served_supported_neighborhood_only_quote_count,
+              COUNT(*) FILTER (
+                WHERE fallback_tier = 'neighborhood_only'
+                  AND supported IS FALSE
+              ) AS served_unsupported_neighborhood_only_quote_count
+            FROM instant_quote_request_logs
+            WHERE county_id = %s
+              AND tax_year = %s
+            """,
+            (county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        return {
+            "served_neighborhood_only_quote_count": int(
+                row.get("served_neighborhood_only_quote_count") or 0
+            ),
+            "served_supported_neighborhood_only_quote_count": int(
+                row.get("served_supported_neighborhood_only_quote_count") or 0
+            ),
+            "served_unsupported_neighborhood_only_quote_count": int(
+                row.get("served_unsupported_neighborhood_only_quote_count") or 0
+            ),
+        }
 
     def _latest_refresh_run(
         self,

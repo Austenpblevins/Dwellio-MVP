@@ -47,6 +47,14 @@ class TaxYearDerivedReadiness:
     instant_quote_last_validated_at: datetime | None = None
     instant_quote_cache_view_row_delta: int | None = None
     instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
+    instant_quote_subject_rows_without_usable_segment_stats: int = 0
+    instant_quote_subject_rows_missing_segment_row: int = 0
+    instant_quote_subject_rows_thin_segment_support: int = 0
+    instant_quote_subject_rows_unusable_segment_basis: int = 0
+    instant_quote_served_neighborhood_only_quote_count: int = 0
+    instant_quote_served_supported_neighborhood_only_quote_count: int = 0
+    instant_quote_served_unsupported_neighborhood_only_quote_count: int = 0
     search_support_ready: bool = False
     feature_ready: bool = False
     comp_ready: bool = False
@@ -496,6 +504,54 @@ class DataReadinessService:
                 and (latest_instant_quote_refresh.get("validation_report") or {}).get(
                     "supported_public_quote_exists"
                 )
+            ),
+            instant_quote_subject_rows_without_usable_neighborhood_stats=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_without_usable_neighborhood_stats")
+                or 0
+            ),
+            instant_quote_subject_rows_without_usable_segment_stats=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_without_usable_segment_stats")
+                or 0
+            ),
+            instant_quote_subject_rows_missing_segment_row=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_missing_segment_row")
+                or 0
+            ),
+            instant_quote_subject_rows_thin_segment_support=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_thin_segment_support")
+                or 0
+            ),
+            instant_quote_subject_rows_unusable_segment_basis=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_unusable_segment_basis")
+                or 0
+            ),
+            instant_quote_served_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_neighborhood_only_quote_count")
+                or 0
+            ),
+            instant_quote_served_supported_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_supported_neighborhood_only_quote_count")
+                or 0
+            ),
+            instant_quote_served_unsupported_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_unsupported_neighborhood_only_quote_count")
+                or 0
             ),
             search_support_ready=search_document_row_count > 0,
             feature_ready=parcel_feature_row_count > 0,

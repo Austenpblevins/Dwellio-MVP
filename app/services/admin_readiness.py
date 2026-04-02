@@ -375,6 +375,30 @@ class AdminReadinessService:
                 instant_quote_supported_public_quote_exists=(
                     readiness.derived.instant_quote_supported_public_quote_exists
                 ),
+                instant_quote_subject_rows_without_usable_neighborhood_stats=(
+                    readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats
+                ),
+                instant_quote_subject_rows_without_usable_segment_stats=(
+                    readiness.derived.instant_quote_subject_rows_without_usable_segment_stats
+                ),
+                instant_quote_subject_rows_missing_segment_row=(
+                    readiness.derived.instant_quote_subject_rows_missing_segment_row
+                ),
+                instant_quote_subject_rows_thin_segment_support=(
+                    readiness.derived.instant_quote_subject_rows_thin_segment_support
+                ),
+                instant_quote_subject_rows_unusable_segment_basis=(
+                    readiness.derived.instant_quote_subject_rows_unusable_segment_basis
+                ),
+                instant_quote_served_neighborhood_only_quote_count=(
+                    readiness.derived.instant_quote_served_neighborhood_only_quote_count
+                ),
+                instant_quote_served_supported_neighborhood_only_quote_count=(
+                    readiness.derived.instant_quote_served_supported_neighborhood_only_quote_count
+                ),
+                instant_quote_served_unsupported_neighborhood_only_quote_count=(
+                    readiness.derived.instant_quote_served_unsupported_neighborhood_only_quote_count
+                ),
                 search_support_ready=readiness.derived.search_support_ready,
                 feature_ready=readiness.derived.feature_ready,
                 comp_ready=readiness.derived.comp_ready,

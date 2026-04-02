@@ -89,7 +89,17 @@ class StubCursor:
                 "refresh_finished_at": None,
                 "validated_at": None,
                 "cache_view_row_delta": 0,
-                "validation_report": {"supported_public_quote_exists": True},
+                "validation_report": {
+                    "supported_public_quote_exists": True,
+                    "subject_rows_without_usable_neighborhood_stats": 1,
+                    "subject_rows_without_usable_segment_stats": 9,
+                    "subject_rows_missing_segment_row": 7,
+                    "subject_rows_thin_segment_support": 2,
+                    "subject_rows_unusable_segment_basis": 0,
+                    "served_neighborhood_only_quote_count": 5,
+                    "served_supported_neighborhood_only_quote_count": 3,
+                    "served_unsupported_neighborhood_only_quote_count": 2,
+                },
             }
         elif "FROM search_documents" in sql:
             self._row = {"count": 2}
@@ -154,6 +164,14 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_refresh_status == "completed"
     assert readiness.derived.instant_quote_cache_view_row_delta == 0
     assert readiness.derived.instant_quote_supported_public_quote_exists is True
+    assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
+    assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9
+    assert readiness.derived.instant_quote_subject_rows_missing_segment_row == 7
+    assert readiness.derived.instant_quote_subject_rows_thin_segment_support == 2
+    assert readiness.derived.instant_quote_subject_rows_unusable_segment_basis == 0
+    assert readiness.derived.instant_quote_served_neighborhood_only_quote_count == 5
+    assert readiness.derived.instant_quote_served_supported_neighborhood_only_quote_count == 3
+    assert readiness.derived.instant_quote_served_unsupported_neighborhood_only_quote_count == 2
     assert readiness.derived.instant_quote_ready is False
     assert readiness.derived.search_support_ready is True
     assert readiness.derived.feature_ready is False

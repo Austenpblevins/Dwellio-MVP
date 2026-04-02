@@ -44,6 +44,14 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_last_validated_at: datetime | None = None
     instant_quote_cache_view_row_delta: int | None = None
     instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
+    instant_quote_subject_rows_without_usable_segment_stats: int = 0
+    instant_quote_subject_rows_missing_segment_row: int = 0
+    instant_quote_subject_rows_thin_segment_support: int = 0
+    instant_quote_subject_rows_unusable_segment_basis: int = 0
+    instant_quote_served_neighborhood_only_quote_count: int = 0
+    instant_quote_served_supported_neighborhood_only_quote_count: int = 0
+    instant_quote_served_unsupported_neighborhood_only_quote_count: int = 0
     search_support_ready: bool
     feature_ready: bool
     comp_ready: bool
