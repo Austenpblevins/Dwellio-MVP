@@ -225,6 +225,74 @@ def test_choose_fallback_uses_neighborhood_when_segment_support_is_thin() -> Non
     assert basis_code == "assessment_basis_neighborhood_only"
 
 
+def test_choose_fallback_uses_neighborhood_when_segment_stats_lack_median() -> None:
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=30,
+        p10_assessed_psf=100,
+        p25_assessed_psf=110,
+        p50_assessed_psf=120,
+        p75_assessed_psf=130,
+        p90_assessed_psf=140,
+        mean_assessed_psf=121,
+        median_assessed_psf=120,
+        stddev_assessed_psf=9,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+    segment = InstantQuoteStatsRow(
+        parcel_count=25,
+        p10_assessed_psf=105,
+        p25_assessed_psf=115,
+        p50_assessed_psf=None,
+        p75_assessed_psf=135,
+        p90_assessed_psf=145,
+        mean_assessed_psf=126,
+        median_assessed_psf=125,
+        stddev_assessed_psf=8,
+        coefficient_of_variation=0.06,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    fallback_tier, segment_weight, neighborhood_weight, basis_code = choose_fallback(
+        segment_stats=segment,
+        neighborhood_stats=neighborhood,
+    )
+
+    assert fallback_tier == "neighborhood_only"
+    assert segment_weight == 0.0
+    assert neighborhood_weight == 1.0
+    assert basis_code == "assessment_basis_neighborhood_only"
+
+
+def test_choose_fallback_returns_unsupported_when_neighborhood_lacks_median() -> None:
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=30,
+        p10_assessed_psf=100,
+        p25_assessed_psf=110,
+        p50_assessed_psf=None,
+        p75_assessed_psf=130,
+        p90_assessed_psf=140,
+        mean_assessed_psf=121,
+        median_assessed_psf=120,
+        stddev_assessed_psf=9,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    fallback_tier, segment_weight, neighborhood_weight, basis_code = choose_fallback(
+        segment_stats=None,
+        neighborhood_stats=neighborhood,
+    )
+
+    assert fallback_tier == "unsupported"
+    assert segment_weight == 0.0
+    assert neighborhood_weight == 0.0
+    assert basis_code == "assessment_basis_unsupported"
+
+
 def test_build_public_estimate_returns_constrained_range_for_tax_protection() -> None:
     estimate = build_public_estimate(
         savings_estimate=1100,
@@ -418,6 +486,138 @@ def test_instant_quote_service_returns_supported_response_when_stats_exist(monke
     assert response.estimate is not None
     assert response.estimate.savings_range_high is not None
     assert response.explanation.methodology == "segment_within_neighborhood"
+
+
+def test_instant_quote_service_falls_back_to_neighborhood_only_when_segment_stats_missing(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2025,
+        "account_number": "1163480010045",
+        "address": "101 Main St, Houston, TX 77002",
+        "neighborhood_code": "2610.04",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 1232.0,
+        "year_built": 1978,
+        "capped_value": None,
+        "notice_value": 112000.0,
+        "assessment_basis_value": 108129.0,
+        "effective_tax_rate": 0.0072096,
+        "effective_tax_rate_source_method": "component_rollup",
+        "subject_assessed_psf": 87.77,
+        "size_bucket": "lt_1400",
+        "age_bucket": "1970_1989",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": False,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": [],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=94,
+        p10_assessed_psf=70,
+        p25_assessed_psf=80,
+        p50_assessed_psf=85,
+        p75_assessed_psf=95,
+        p90_assessed_psf=110,
+        mean_assessed_psf=86,
+        median_assessed_psf=85,
+        stddev_assessed_psf=12,
+        coefficient_of_variation=0.12,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: None)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2025,
+        account_number="1163480010045",
+    )
+
+    assert response.supported is True
+    assert response.basis_code == "assessment_basis_neighborhood_only"
+    assert response.estimate is not None
+    assert response.explanation.methodology == "neighborhood_only"
+
+
+def test_instant_quote_service_returns_unsupported_when_neighborhood_basis_is_missing(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2025,
+        "account_number": "1001001001001",
+        "address": "101 Main St, Houston, TX 77002",
+        "neighborhood_code": "NBHD-1",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 2200.0,
+        "year_built": 2003,
+        "capped_value": None,
+        "notice_value": 360000.0,
+        "assessment_basis_value": 350000.0,
+        "effective_tax_rate": 0.021,
+        "effective_tax_rate_source_method": "manual",
+        "subject_assessed_psf": 159.09,
+        "size_bucket": "2000_2399",
+        "age_bucket": "1990_2004",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": False,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": [],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=35,
+        p10_assessed_psf=120,
+        p25_assessed_psf=130,
+        p50_assessed_psf=None,
+        p75_assessed_psf=155,
+        p90_assessed_psf=170,
+        mean_assessed_psf=146,
+        median_assessed_psf=145,
+        stddev_assessed_psf=11,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: None)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2025,
+        account_number="1001001001001",
+    )
+
+    assert response.supported is False
+    assert response.unsupported_reason == "thin_market_support"
 
 
 def test_fetch_subject_row_prefers_latest_year_with_ready_stats(monkeypatch) -> None:

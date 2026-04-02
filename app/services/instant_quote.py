@@ -1734,7 +1734,9 @@ class InstantQuoteService:
         living_area_sf = _as_float(subject_row.get("living_area_sf")) or 0.0
         subject_assessed_psf = _as_float(subject_row.get("subject_assessed_psf")) or 0.0
         tax_rate = _as_float(subject_row.get("effective_tax_rate")) or 0.0
-        segment_component = (segment_stats.p50_assessed_psf or 0.0) * segment_weight
+        segment_component = (
+            ((segment_stats.p50_assessed_psf or 0.0) if segment_stats else 0.0) * segment_weight
+        )
         neighborhood_component = (neighborhood_stats.p50_assessed_psf or 0.0) * neighborhood_weight
         size_adjustment = size_bucket_adjustment(
             living_area_sf=living_area_sf,
@@ -2187,9 +2189,17 @@ def choose_fallback(
     segment_stats: InstantQuoteStatsRow | None,
     neighborhood_stats: InstantQuoteStatsRow | None,
 ) -> tuple[FallbackTier, float, float, str]:
-    if neighborhood_stats is None or neighborhood_stats.parcel_count < NEIGHBORHOOD_MIN_COUNT:
+    if (
+        neighborhood_stats is None
+        or neighborhood_stats.parcel_count < NEIGHBORHOOD_MIN_COUNT
+        or neighborhood_stats.p50_assessed_psf is None
+    ):
         return ("unsupported", 0.0, 0.0, "assessment_basis_unsupported")
-    if segment_stats is None or segment_stats.parcel_count < SEGMENT_MIN_COUNT:
+    if (
+        segment_stats is None
+        or segment_stats.parcel_count < SEGMENT_MIN_COUNT
+        or segment_stats.p50_assessed_psf is None
+    ):
         return ("neighborhood_only", 0.0, 1.0, "assessment_basis_neighborhood_only")
     if segment_stats.parcel_count >= STRONG_SEGMENT_COUNT:
         return ("segment_within_neighborhood", 0.70, 0.30, "assessment_basis_segment_blend")
