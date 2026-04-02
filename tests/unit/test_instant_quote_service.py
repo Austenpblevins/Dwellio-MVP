@@ -5,7 +5,10 @@ from uuid import uuid4
 from app.models.quote import InstantQuoteResponse
 from app.services.instant_quote import (
     MATERIAL_CAP_GAP_RATIO,
+    MIN_TRIM_GROUP_SIZE,
+    SEGMENT_MIN_COUNT,
     TELEMETRY_MAX_INFLIGHT_TASKS,
+    TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3,
     InstantQuoteRefreshService,
     InstantQuoteService,
     InstantQuoteStatsRow,
@@ -96,6 +99,50 @@ class _RefreshConnection:
         return None
 
 
+class _SegmentRefreshCursor:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+        self._row: dict[str, object] | None = None
+        self.rowcount = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, sql: str, *_args, **_kwargs) -> None:
+        normalized = " ".join(sql.split())
+        self.statements.append(normalized)
+        if normalized.startswith("INSERT INTO instant_quote_segment_stats"):
+            self.rowcount = 7
+            self._row = None
+        elif "SELECT COUNT(*)::integer AS count FROM instant_quote_segment_stats" in normalized:
+            self._row = {"count": 3}
+        else:
+            self._row = None
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self._row
+
+
+class _SegmentRefreshConnection:
+    def __init__(self, cursor: _SegmentRefreshCursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def cursor(self) -> _SegmentRefreshCursor:
+        return self._cursor
+
+    def commit(self) -> None:
+        return None
+
+
 def test_assign_size_bucket_uses_canonical_ranges() -> None:
     assert assign_size_bucket(1399) == "lt_1400"
     assert assign_size_bucket(1400) == "1400_1699"
@@ -141,6 +188,44 @@ def test_calculate_distribution_stats_returns_monotonic_percentiles() -> None:
     assert summary.p10 <= summary.p25 <= summary.p50 <= summary.p75 <= summary.p90
     assert summary.parcel_count == 7
     assert summary.trimmed_parcel_count <= summary.parcel_count
+
+
+def test_calculate_distribution_stats_preserves_tiny_group_when_trim_eliminates_all_rows() -> None:
+    summary = calculate_distribution_stats([100, 200])
+
+    assert summary is not None
+    assert summary.parcel_count == 2
+    assert summary.trimmed_parcel_count == 2
+    assert summary.excluded_parcel_count == 0
+    assert summary.trim_method_code == TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3
+
+
+def test_refresh_segment_stats_preserves_raw_group_when_trim_would_remove_every_row(
+    monkeypatch,
+) -> None:
+    cursor = _SegmentRefreshCursor()
+    monkeypatch.setattr(
+        "app.services.instant_quote.get_connection",
+        lambda: _SegmentRefreshConnection(cursor),
+    )
+
+    metrics = InstantQuoteRefreshService()._refresh_segment_stats(  # type: ignore[attr-defined]
+        county_id="harris",
+        tax_year=2025,
+    )
+
+    assert metrics.total_row_count == 7
+    assert metrics.supported_row_count == 3
+    segment_insert = next(
+        statement
+        for statement in cursor.statements
+        if statement.startswith("INSERT INTO instant_quote_segment_stats")
+    )
+    assert "trimmed_preferred" in segment_insert
+    assert f"WHERE bounds.parcel_count < {MIN_TRIM_GROUP_SIZE}" in segment_insert
+    assert "BOOL_OR(used_trim_fallback)" in segment_insert
+    assert "preserve_small_group" in segment_insert
+    assert TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3 in segment_insert
 
 
 def test_choose_fallback_prefers_segment_when_support_is_strong() -> None:
@@ -200,7 +285,7 @@ def test_choose_fallback_uses_neighborhood_when_segment_support_is_thin() -> Non
         support_threshold_met=True,
     )
     segment = InstantQuoteStatsRow(
-        parcel_count=6,
+        parcel_count=SEGMENT_MIN_COUNT - 1,
         p10_assessed_psf=105,
         p25_assessed_psf=115,
         p50_assessed_psf=125,
@@ -223,6 +308,47 @@ def test_choose_fallback_uses_neighborhood_when_segment_support_is_thin() -> Non
     assert segment_weight == 0.0
     assert neighborhood_weight == 1.0
     assert basis_code == "assessment_basis_neighborhood_only"
+
+
+def test_choose_fallback_uses_segment_when_segment_support_meets_minimum_threshold() -> None:
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=30,
+        p10_assessed_psf=100,
+        p25_assessed_psf=110,
+        p50_assessed_psf=120,
+        p75_assessed_psf=130,
+        p90_assessed_psf=140,
+        mean_assessed_psf=121,
+        median_assessed_psf=120,
+        stddev_assessed_psf=9,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+    segment = InstantQuoteStatsRow(
+        parcel_count=SEGMENT_MIN_COUNT,
+        p10_assessed_psf=105,
+        p25_assessed_psf=115,
+        p50_assessed_psf=125,
+        p75_assessed_psf=135,
+        p90_assessed_psf=145,
+        mean_assessed_psf=126,
+        median_assessed_psf=125,
+        stddev_assessed_psf=8,
+        coefficient_of_variation=0.06,
+        support_level="medium",
+        support_threshold_met=True,
+    )
+
+    fallback_tier, segment_weight, neighborhood_weight, basis_code = choose_fallback(
+        segment_stats=segment,
+        neighborhood_stats=neighborhood,
+    )
+
+    assert fallback_tier == "segment_within_neighborhood"
+    assert segment_weight == 0.55
+    assert neighborhood_weight == 0.45
+    assert basis_code == "assessment_basis_segment_blend"
 
 
 def test_choose_fallback_uses_neighborhood_when_segment_stats_lack_median() -> None:
@@ -403,6 +529,114 @@ def test_confidence_score_penalizes_neighborhood_only_and_freeze_flags() -> None
 
     assert score < 65
     assert confidence_label_for_score(score) == "low"
+
+
+def test_confidence_score_uses_reduced_neighborhood_only_penalty() -> None:
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=40,
+        p10_assessed_psf=90,
+        p25_assessed_psf=100,
+        p50_assessed_psf=110,
+        p75_assessed_psf=120,
+        p90_assessed_psf=130,
+        mean_assessed_psf=111,
+        median_assessed_psf=110,
+        stddev_assessed_psf=12,
+        coefficient_of_variation=0.11,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    score = score_confidence(
+        subject_row={
+            "year_built": 1998,
+            "public_summary_ready_flag": True,
+            "effective_tax_rate_source_method": "manual",
+            "homestead_flag": False,
+            "freeze_flag": False,
+            "warning_codes": [],
+        },
+        segment_stats=None,
+        neighborhood_stats=neighborhood,
+        fallback_tier="neighborhood_only",
+        subject_assessed_psf=110,
+        target_psf=110,
+    )
+
+    assert score == 85.0
+
+
+def test_confidence_score_uses_reduced_segment_cv_penalties() -> None:
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=40,
+        p10_assessed_psf=90,
+        p25_assessed_psf=100,
+        p50_assessed_psf=110,
+        p75_assessed_psf=120,
+        p90_assessed_psf=130,
+        mean_assessed_psf=111,
+        median_assessed_psf=110,
+        stddev_assessed_psf=12,
+        coefficient_of_variation=0.11,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+    medium_segment = InstantQuoteStatsRow(
+        parcel_count=10,
+        p10_assessed_psf=95,
+        p25_assessed_psf=100,
+        p50_assessed_psf=105,
+        p75_assessed_psf=110,
+        p90_assessed_psf=115,
+        mean_assessed_psf=105,
+        median_assessed_psf=105,
+        stddev_assessed_psf=20,
+        coefficient_of_variation=0.30,
+        support_level="medium",
+        support_threshold_met=True,
+    )
+    noisy_segment = InstantQuoteStatsRow(
+        parcel_count=10,
+        p10_assessed_psf=95,
+        p25_assessed_psf=100,
+        p50_assessed_psf=105,
+        p75_assessed_psf=110,
+        p90_assessed_psf=115,
+        mean_assessed_psf=105,
+        median_assessed_psf=105,
+        stddev_assessed_psf=30,
+        coefficient_of_variation=0.45,
+        support_level="medium",
+        support_threshold_met=True,
+    )
+    subject_row = {
+        "year_built": 1998,
+        "public_summary_ready_flag": True,
+        "effective_tax_rate_source_method": "manual",
+        "homestead_flag": False,
+        "freeze_flag": False,
+        "warning_codes": [],
+    }
+
+    medium_score = score_confidence(
+        subject_row=subject_row,
+        segment_stats=medium_segment,
+        neighborhood_stats=neighborhood,
+        fallback_tier="segment_within_neighborhood",
+        subject_assessed_psf=110,
+        target_psf=110,
+    )
+    noisy_score = score_confidence(
+        subject_row=subject_row,
+        segment_stats=noisy_segment,
+        neighborhood_stats=neighborhood,
+        fallback_tier="segment_within_neighborhood",
+        subject_assessed_psf=110,
+        target_psf=110,
+    )
+
+    assert medium_score == 85.0
+    assert noisy_score == 80.0
 
 
 def test_instant_quote_service_returns_supported_response_when_stats_exist(monkeypatch) -> None:

@@ -34,9 +34,12 @@ _PERSISTENCE_SLOTS = BoundedSemaphore(TELEMETRY_MAX_INFLIGHT_TASKS)
 
 QUOTE_VERSION = "stage17_instant_quote_v1"
 SUPPORTED_PROPERTY_TYPES = {"sfr"}
-SEGMENT_MIN_COUNT = 8
+SEGMENT_MIN_COUNT = 6
 NEIGHBORHOOD_MIN_COUNT = 20
 STRONG_SEGMENT_COUNT = 20
+MIN_TRIM_GROUP_SIZE = 3
+TRIM_METHOD_P05_P95 = "trim_p05_p95"
+TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3 = "trim_p05_p95_preserve_all_lt3"
 MATERIAL_CAP_GAP_RATIO = 0.03
 CONSTRAINED_SAVINGS_NOTE = (
     "Your current tax protections may limit this year's savings even if your value is reduced."
@@ -61,6 +64,7 @@ class DistributionSummary:
     parcel_count: int
     trimmed_parcel_count: int
     excluded_parcel_count: int
+    trim_method_code: str
     p10: float
     p25: float
     p50: float
@@ -178,9 +182,15 @@ def calculate_distribution_stats(
 
     lower_bound = percentile(cleaned, trim_lower)
     upper_bound = percentile(cleaned, trim_upper)
-    trimmed = [value for value in cleaned if lower_bound <= value <= upper_bound]
+    trim_method_code = TRIM_METHOD_P05_P95
+    if len(cleaned) < MIN_TRIM_GROUP_SIZE:
+        trimmed = cleaned
+        trim_method_code = TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3
+    else:
+        trimmed = [value for value in cleaned if lower_bound <= value <= upper_bound]
     if not trimmed:
         trimmed = cleaned
+        trim_method_code = TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3
     trimmed = sorted(trimmed)
     stddev = statistics.pstdev(trimmed) if len(trimmed) > 1 else 0.0
     mean_value = statistics.fmean(trimmed)
@@ -190,6 +200,7 @@ def calculate_distribution_stats(
         parcel_count=len(cleaned),
         trimmed_parcel_count=len(trimmed),
         excluded_parcel_count=max(len(cleaned) - len(trimmed), 0),
+        trim_method_code=trim_method_code,
         p10=percentile(trimmed, 0.10),
         p25=percentile(trimmed, 0.25),
         p50=percentile(trimmed, 0.50),
@@ -1192,7 +1203,7 @@ class InstantQuoteRefreshService:
                       FROM eligible
                       GROUP BY county_id, tax_year, neighborhood_code, property_type_code, size_bucket, age_bucket
                     ),
-                    trimmed AS (
+                    trimmed_preferred AS (
                       SELECT
                         eligible.county_id,
                         eligible.tax_year,
@@ -1201,7 +1212,8 @@ class InstantQuoteRefreshService:
                         eligible.size_bucket,
                         eligible.age_bucket,
                         eligible.subject_assessed_psf,
-                        bounds.parcel_count
+                        bounds.parcel_count,
+                        FALSE AS used_trim_fallback
                       FROM eligible
                       JOIN bounds
                         ON bounds.county_id = eligible.county_id
@@ -1210,7 +1222,12 @@ class InstantQuoteRefreshService:
                        AND bounds.property_type_code = eligible.property_type_code
                        AND bounds.size_bucket = eligible.size_bucket
                        AND bounds.age_bucket = eligible.age_bucket
-                      WHERE eligible.subject_assessed_psf BETWEEN bounds.lower_bound AND bounds.upper_bound
+                      WHERE bounds.parcel_count < {MIN_TRIM_GROUP_SIZE}
+                         OR eligible.subject_assessed_psf BETWEEN bounds.lower_bound AND bounds.upper_bound
+                    ),
+                    trimmed AS (
+                      SELECT *
+                      FROM trimmed_preferred
                     ),
                     aggregated AS (
                       SELECT
@@ -1230,7 +1247,9 @@ class InstantQuoteRefreshService:
                         percentile_cont(0.90) WITHIN GROUP (ORDER BY subject_assessed_psf) AS p90_assessed_psf,
                         AVG(subject_assessed_psf) AS mean_assessed_psf,
                         percentile_cont(0.50) WITHIN GROUP (ORDER BY subject_assessed_psf) AS median_assessed_psf,
-                        stddev_pop(subject_assessed_psf) AS stddev_assessed_psf
+                        stddev_pop(subject_assessed_psf) AS stddev_assessed_psf,
+                        BOOL_OR(used_trim_fallback) AS used_trim_fallback,
+                        MAX(parcel_count)::integer < {MIN_TRIM_GROUP_SIZE} AS preserve_small_group
                       FROM trimmed
                       GROUP BY county_id, tax_year, neighborhood_code, property_type_code, size_bucket, age_bucket
                     )
@@ -1262,7 +1281,10 @@ class InstantQuoteRefreshService:
                         ELSE 'thin'
                       END AS support_level,
                       (parcel_count >= {SEGMENT_MIN_COUNT}) AS support_threshold_met,
-                      'trim_p05_p95',
+                      CASE
+                        WHEN preserve_small_group OR used_trim_fallback THEN '{TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3}'
+                        ELSE '{TRIM_METHOD_P05_P95}'
+                      END,
                       now()
                     FROM aggregated
                     """,
@@ -2217,7 +2239,7 @@ def score_confidence(
 ) -> float:
     score = 100.0
     if fallback_tier == "neighborhood_only":
-        score -= 25.0
+        score -= 15.0
     elif segment_stats is not None and segment_stats.parcel_count < STRONG_SEGMENT_COUNT:
         score -= 10.0
 
@@ -2225,9 +2247,9 @@ def score_confidence(
         score -= 8.0
     if segment_stats is not None and segment_stats.coefficient_of_variation is not None:
         if segment_stats.coefficient_of_variation > 0.40:
-            score -= 15.0
+            score -= 10.0
         elif segment_stats.coefficient_of_variation > 0.25:
-            score -= 8.0
+            score -= 5.0
     if neighborhood_stats.coefficient_of_variation is not None:
         if neighborhood_stats.coefficient_of_variation > 0.40:
             score -= 10.0
