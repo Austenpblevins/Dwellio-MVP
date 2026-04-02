@@ -55,7 +55,7 @@ class InstantQuoteValidationService:
                     cursor,
                     """
                     SELECT COUNT(*) AS count
-                    FROM parcel_summary_view
+                    FROM instant_quote_subject_cache
                     WHERE county_id = %s
                       AND tax_year = %s
                       AND COALESCE(living_area_sf, 0) > 0
@@ -66,7 +66,7 @@ class InstantQuoteValidationService:
                     cursor,
                     """
                     SELECT COUNT(*) AS count
-                    FROM parcel_summary_view
+                    FROM instant_quote_subject_cache
                     WHERE county_id = %s
                       AND tax_year = %s
                       AND COALESCE(effective_tax_rate, 0) > 0

@@ -207,19 +207,24 @@ class DataReadinessService:
         parcel_summary_row_count = (
             self._count_rows(
                 connection,
-                "SELECT COUNT(*) AS count FROM parcel_summary_view WHERE county_id = %s AND tax_year = %s",
+                """
+                SELECT COUNT(*) AS count
+                FROM parcel_year_snapshots
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND is_current = true
+                """,
                 (county_id, tax_year),
             )
             if parcel_summary_exists
             else 0
         )
+        # parcel_year_trend_view preserves one row per current parcel-year summary row,
+        # so we can safely reuse the scoped current-snapshot count instead of paying
+        # for another wide derived-view scan on every readiness request.
         parcel_year_trend_row_count = (
-            self._count_rows(
-                connection,
-                "SELECT COUNT(*) AS count FROM parcel_year_trend_view WHERE county_id = %s AND tax_year = %s",
-                (county_id, tax_year),
-            )
-            if parcel_year_trend_exists
+            parcel_summary_row_count
+            if parcel_year_trend_exists and parcel_summary_row_count > 0
             else 0
         )
         neighborhood_stats_row_count = (

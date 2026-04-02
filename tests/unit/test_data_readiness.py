@@ -63,7 +63,7 @@ class StubCursor:
                     "v_quote_read_model",
                 }
             }
-        elif "FROM parcel_summary_view" in sql:
+        elif "FROM parcel_year_snapshots" in sql and "is_current = true" in sql:
             self._row = {"count": 2}
         elif "FROM parcel_year_trend_view" in sql:
             self._row = {"count": 2}

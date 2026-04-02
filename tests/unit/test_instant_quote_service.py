@@ -6,6 +6,7 @@ from app.models.quote import InstantQuoteResponse
 from app.services.instant_quote import (
     MATERIAL_CAP_GAP_RATIO,
     TELEMETRY_MAX_INFLIGHT_TASKS,
+    InstantQuoteRefreshService,
     InstantQuoteService,
     InstantQuoteStatsRow,
     assign_age_bucket,
@@ -42,9 +43,57 @@ class _StubConnection:
     def cursor(self) -> _StubCursor:
         return _StubCursor()
 
+    def commit(self) -> None:
+        return None
+
 
 def _patch_request_connection(monkeypatch) -> None:
     monkeypatch.setattr("app.services.instant_quote.get_connection", lambda: _StubConnection())
+
+
+class _RefreshCursor:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+        self._row: dict[str, object] | None = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, sql: str, *_args, **_kwargs) -> None:
+        normalized = " ".join(sql.split())
+        self.statements.append(normalized)
+        if "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
+            self._row = {"count": 5}
+        elif "SELECT COUNT(*)::integer AS subject_cache_row_count" in normalized:
+            self._row = {
+                "subject_cache_row_count": 5,
+                "supportable_subject_row_count": 4,
+            }
+        else:
+            self._row = None
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self._row
+
+
+class _RefreshConnection:
+    def __init__(self, cursor: _RefreshCursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def cursor(self) -> _RefreshCursor:
+        return self._cursor
+
+    def commit(self) -> None:
+        return None
 
 
 def test_assign_size_bucket_uses_canonical_ranges() -> None:
@@ -60,6 +109,29 @@ def test_assign_age_bucket_uses_canonical_ranges() -> None:
     assert assign_age_bucket(1970) == "1970_1989"
     assert assign_age_bucket(2005) == "2005_2014"
     assert assign_age_bucket(2018) == "2015_plus"
+
+
+def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:
+    cursor = _RefreshCursor()
+    monkeypatch.setattr(
+        "app.services.instant_quote.get_connection",
+        lambda: _RefreshConnection(cursor),
+    )
+
+    metrics = InstantQuoteRefreshService()._refresh_subject_cache(  # type: ignore[attr-defined]
+        county_id="harris",
+        tax_year=2025,
+    )
+
+    assert metrics.source_view_row_count == 5
+    assert metrics.subject_cache_row_count == 5
+    assert metrics.supportable_subject_row_count == 4
+    assert any("FROM parcel_year_snapshots pys" in statement for statement in cursor.statements)
+    assert any(
+        "CREATE TEMP TABLE tmp_instant_quote_subject_scope ON COMMIT DROP AS" in statement
+        for statement in cursor.statements
+    )
+    assert not any("FROM instant_quote_subject_view" in statement for statement in cursor.statements)
 
 
 def test_calculate_distribution_stats_returns_monotonic_percentiles() -> None:

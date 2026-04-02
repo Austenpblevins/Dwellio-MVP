@@ -298,54 +298,428 @@ class InstantQuoteRefreshService:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    DROP TABLE IF EXISTS tmp_instant_quote_subject_scope
+                    """
+                )
+                cursor.execute(
+                    """
                     DROP TABLE IF EXISTS tmp_instant_quote_subject_refresh
                     """
                 )
                 cursor.execute(
                     """
-                    CREATE TEMP TABLE tmp_instant_quote_subject_refresh ON COMMIT DROP AS
+                    CREATE TEMP TABLE tmp_instant_quote_subject_scope ON COMMIT DROP AS
                     SELECT
-                      parcel_id,
-                      county_id,
-                      tax_year,
-                      account_number,
-                      address,
-                      situs_address,
-                      situs_city,
-                      situs_state,
-                      situs_zip,
-                      neighborhood_code,
-                      school_district_name,
-                      property_type_code,
-                      property_class_code,
-                      living_area_sf,
-                      year_built,
-                      assessed_value,
-                      capped_value,
-                      notice_value,
-                      land_value,
-                      improvement_value,
-                      assessment_basis_value,
-                      effective_tax_rate,
-                      effective_tax_rate_source_method,
-                      completeness_score,
-                      public_summary_ready_flag,
-                      homestead_flag,
-                      over65_flag,
-                      disabled_flag,
-                      disabled_veteran_flag,
-                      freeze_flag,
-                      exemption_type_codes,
-                      warning_codes,
-                      size_bucket,
-                      age_bucket,
-                      support_blocker_code,
-                      subject_assessed_psf
-                    FROM instant_quote_subject_view
-                    WHERE (%s::text IS NULL OR county_id = %s)
-                      AND (%s::integer IS NULL OR tax_year = %s)
+                      pys.parcel_year_snapshot_id,
+                      pys.parcel_id,
+                      pys.county_id,
+                      pys.tax_year,
+                      pys.account_number,
+                      pys.cad_owner_name,
+                      pys.cad_owner_name_normalized
+                    FROM parcel_year_snapshots pys
+                    WHERE pys.is_current = true
+                      AND (%s::text IS NULL OR pys.county_id = %s)
+                      AND (%s::integer IS NULL OR pys.tax_year = %s)
                     """,
                     (county_id, county_id, tax_year, tax_year),
+                )
+                cursor.execute(
+                    """
+                    CREATE UNIQUE INDEX idx_tmp_instant_quote_subject_scope_key
+                      ON tmp_instant_quote_subject_scope(parcel_id, tax_year)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX idx_tmp_instant_quote_subject_scope_snapshot
+                      ON tmp_instant_quote_subject_scope(parcel_year_snapshot_id)
+                    """
+                )
+                cursor.execute("ANALYZE tmp_instant_quote_subject_scope")
+                cursor.execute(
+                    """
+                    CREATE TEMP TABLE tmp_instant_quote_subject_refresh ON COMMIT DROP AS
+                    WITH current_addresses AS (
+                      SELECT DISTINCT ON (pa.parcel_id)
+                        pa.parcel_id,
+                        pa.situs_address,
+                        pa.situs_city,
+                        COALESCE(pa.situs_state, 'TX') AS situs_state,
+                        pa.situs_zip,
+                        pa.normalized_address
+                      FROM parcel_addresses pa
+                      JOIN tmp_instant_quote_subject_scope scope
+                        ON scope.parcel_id = pa.parcel_id
+                      WHERE pa.is_current = true
+                      ORDER BY
+                        pa.parcel_id,
+                        pa.updated_at DESC,
+                        pa.created_at DESC,
+                        pa.parcel_address_id DESC
+                    ),
+                    raw_codes AS (
+                      SELECT
+                        pe.parcel_id,
+                        pe.tax_year,
+                        array_agg(DISTINCT raw_code ORDER BY raw_code) AS raw_exemption_codes
+                      FROM parcel_exemptions pe
+                      JOIN tmp_instant_quote_subject_scope scope
+                        ON scope.parcel_id = pe.parcel_id
+                       AND scope.tax_year = pe.tax_year
+                      CROSS JOIN LATERAL unnest(
+                        CASE
+                          WHEN pe.raw_exemption_codes IS NULL
+                            OR cardinality(pe.raw_exemption_codes) = 0
+                            THEN ARRAY[COALESCE(pe.exemption_type_code, '')]
+                          ELSE pe.raw_exemption_codes
+                        END
+                      ) AS raw_code
+                      WHERE btrim(raw_code) <> ''
+                      GROUP BY pe.parcel_id, pe.tax_year
+                    ),
+                    exemption_rollup AS (
+                      SELECT
+                        pe.parcel_id,
+                        pe.tax_year,
+                        COUNT(*) AS exemption_record_count,
+                        COALESCE(
+                          SUM(pe.exemption_amount)
+                          FILTER (WHERE pe.granted_flag AND pe.exemption_amount IS NOT NULL),
+                          0::numeric
+                        ) AS granted_exemption_amount_total,
+                        COALESCE(
+                          array_agg(DISTINCT pe.exemption_type_code ORDER BY pe.exemption_type_code)
+                          FILTER (WHERE pe.exemption_type_code IS NOT NULL),
+                          ARRAY[]::text[]
+                        ) AS exemption_type_codes,
+                        COALESCE(rc.raw_exemption_codes, ARRAY[]::text[]) AS raw_exemption_codes,
+                        COALESCE(
+                          BOOL_OR((COALESCE(et.metadata_json, '{}'::jsonb) -> 'summary_flags') ? 'homestead'),
+                          false
+                        ) AS homestead_flag,
+                        COALESCE(
+                          BOOL_OR((COALESCE(et.metadata_json, '{}'::jsonb) -> 'summary_flags') ? 'over65'),
+                          false
+                        ) AS over65_flag,
+                        COALESCE(
+                          BOOL_OR((COALESCE(et.metadata_json, '{}'::jsonb) -> 'summary_flags') ? 'disabled'),
+                          false
+                        ) AS disabled_flag,
+                        COALESCE(
+                          BOOL_OR((COALESCE(et.metadata_json, '{}'::jsonb) -> 'summary_flags') ? 'disabled_veteran'),
+                          false
+                        ) AS disabled_veteran_flag,
+                        COALESCE(
+                          BOOL_OR((COALESCE(et.metadata_json, '{}'::jsonb) -> 'summary_flags') ? 'freeze'),
+                          false
+                        ) AS freeze_flag,
+                        COALESCE(
+                          BOOL_OR(pe.amount_missing_flag OR (pe.granted_flag AND pe.exemption_amount IS NULL)),
+                          false
+                        ) AS missing_exemption_amount_flag
+                      FROM parcel_exemptions pe
+                      JOIN tmp_instant_quote_subject_scope scope
+                        ON scope.parcel_id = pe.parcel_id
+                       AND scope.tax_year = pe.tax_year
+                      LEFT JOIN exemption_types et
+                        ON et.exemption_type_code = pe.exemption_type_code
+                      LEFT JOIN raw_codes rc
+                        ON rc.parcel_id = pe.parcel_id
+                       AND rc.tax_year = pe.tax_year
+                      GROUP BY pe.parcel_id, pe.tax_year, rc.raw_exemption_codes
+                    ),
+                    tax_assignment_rollup AS (
+                      SELECT
+                        ptu.parcel_id,
+                        ptu.tax_year,
+                        COUNT(*) FILTER (WHERE tu.unit_type_code = 'county')::integer AS county_assignment_count,
+                        COUNT(*) FILTER (WHERE tu.unit_type_code = 'school')::integer AS school_assignment_count
+                      FROM parcel_taxing_units ptu
+                      JOIN tmp_instant_quote_subject_scope scope
+                        ON scope.parcel_id = ptu.parcel_id
+                       AND scope.tax_year = ptu.tax_year
+                      JOIN taxing_units tu
+                        ON tu.taxing_unit_id = ptu.taxing_unit_id
+                      GROUP BY ptu.parcel_id, ptu.tax_year
+                    ),
+                    geometry_flags AS (
+                      SELECT
+                        pg.parcel_id,
+                        pg.tax_year,
+                        BOOL_OR(pg.geometry_role = 'parcel_polygon' AND pg.is_current) AS has_parcel_polygon,
+                        BOOL_OR(pg.geometry_role = 'parcel_centroid' AND pg.is_current) AS has_parcel_centroid
+                      FROM parcel_geometries pg
+                      JOIN tmp_instant_quote_subject_scope scope
+                        ON scope.parcel_id = pg.parcel_id
+                       AND scope.tax_year = pg.tax_year
+                      GROUP BY pg.parcel_id, pg.tax_year
+                    ),
+                    source_basis AS (
+                      SELECT
+                        scope.parcel_id,
+                        scope.county_id,
+                        scope.tax_year,
+                        scope.account_number,
+                        p.cad_property_id,
+                        COALESCE(ca.situs_address, p.situs_address) AS situs_address,
+                        COALESCE(ca.situs_city, p.situs_city) AS situs_city,
+                        COALESCE(ca.situs_state, COALESCE(p.situs_state, 'TX')) AS situs_state,
+                        COALESCE(ca.situs_zip, p.situs_zip) AS situs_zip,
+                        COALESCE(
+                          ca.normalized_address,
+                          upper(regexp_replace(COALESCE(ca.situs_address, p.situs_address, ''), '[^A-Za-z0-9 ]', '', 'g'))
+                        ) AS normalized_address,
+                        COALESCE(cor.owner_name, scope.cad_owner_name, p.owner_name) AS owner_name,
+                        COALESCE(cor.owner_name_normalized, scope.cad_owner_name_normalized) AS owner_name_normalized,
+                        COALESCE(cor.override_flag, false) AS owner_override_flag,
+                        scope.cad_owner_name,
+                        scope.cad_owner_name_normalized,
+                        COALESCE(pc.property_type_code, p.property_type_code) AS property_type_code,
+                        COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
+                        COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
+                        COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
+                        pi.living_area_sf,
+                        pi.year_built,
+                        pl.parcel_land_id,
+                        pa.parcel_assessment_id,
+                        pa.market_value,
+                        pa.assessed_value,
+                        pa.capped_value,
+                        pa.appraised_value,
+                        pa.certified_value,
+                        pa.notice_value,
+                        pa.land_value,
+                        pa.improvement_value,
+                        pa.exemption_value_total,
+                        pa.homestead_flag AS assessment_homestead_flag,
+                        COALESCE(er.exemption_record_count, 0) AS exemption_record_count,
+                        COALESCE(er.granted_exemption_amount_total, 0::numeric) AS granted_exemption_amount_total,
+                        COALESCE(er.exemption_type_codes, ARRAY[]::text[]) AS exemption_type_codes,
+                        COALESCE(er.raw_exemption_codes, ARRAY[]::text[]) AS raw_exemption_codes,
+                        COALESCE(er.homestead_flag, false) AS homestead_flag,
+                        COALESCE(er.over65_flag, false) AS over65_flag,
+                        COALESCE(er.disabled_flag, false) AS disabled_flag,
+                        COALESCE(er.disabled_veteran_flag, false) AS disabled_veteran_flag,
+                        COALESCE(er.freeze_flag, false) AS freeze_flag,
+                        COALESCE(er.missing_exemption_amount_flag, false) AS missing_exemption_amount_flag,
+                        COALESCE(etr.effective_tax_rate, NULL) AS effective_tax_rate,
+                        etr.source_method AS effective_tax_rate_source_method,
+                        COALESCE(tar.county_assignment_count, 0) AS county_assignment_count,
+                        COALESCE(tar.school_assignment_count, 0) AS school_assignment_count,
+                        COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
+                        COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
+                        pc.property_characteristic_id IS NOT NULL AS has_characteristics,
+                        pi.parcel_improvement_id IS NOT NULL AS has_improvement,
+                        pl.parcel_land_id IS NOT NULL AS has_land,
+                        pa.parcel_assessment_id IS NOT NULL AS has_assessment,
+                        cor.current_owner_rollup_id IS NOT NULL AS has_owner_rollup,
+                        etr.effective_tax_rate IS NOT NULL AS has_effective_tax_rate
+                      FROM tmp_instant_quote_subject_scope scope
+                      JOIN parcels p
+                        ON p.parcel_id = scope.parcel_id
+                      LEFT JOIN current_addresses ca
+                        ON ca.parcel_id = scope.parcel_id
+                      LEFT JOIN property_characteristics pc
+                        ON pc.parcel_year_snapshot_id = scope.parcel_year_snapshot_id
+                      LEFT JOIN parcel_improvements pi
+                        ON pi.parcel_id = scope.parcel_id
+                       AND pi.tax_year = scope.tax_year
+                      LEFT JOIN parcel_lands pl
+                        ON pl.parcel_id = scope.parcel_id
+                       AND pl.tax_year = scope.tax_year
+                      LEFT JOIN parcel_assessments pa
+                        ON pa.parcel_id = scope.parcel_id
+                       AND pa.tax_year = scope.tax_year
+                      LEFT JOIN exemption_rollup er
+                        ON er.parcel_id = scope.parcel_id
+                       AND er.tax_year = scope.tax_year
+                      LEFT JOIN effective_tax_rates etr
+                        ON etr.parcel_id = scope.parcel_id
+                       AND etr.tax_year = scope.tax_year
+                      LEFT JOIN tax_assignment_rollup tar
+                        ON tar.parcel_id = scope.parcel_id
+                       AND tar.tax_year = scope.tax_year
+                      LEFT JOIN current_owner_rollups cor
+                        ON cor.parcel_id = scope.parcel_id
+                       AND cor.tax_year = scope.tax_year
+                      LEFT JOIN geometry_flags gf
+                        ON gf.parcel_id = scope.parcel_id
+                       AND gf.tax_year = scope.tax_year
+                    )
+                    SELECT
+                      sb.parcel_id,
+                      sb.county_id,
+                      sb.tax_year,
+                      sb.account_number,
+                      concat_ws(
+                        ', ',
+                        sb.situs_address,
+                        sb.situs_city,
+                        concat_ws(' ', sb.situs_state, sb.situs_zip)
+                      ) AS address,
+                      sb.situs_address,
+                      sb.situs_city,
+                      sb.situs_state,
+                      sb.situs_zip,
+                      sb.neighborhood_code,
+                      sb.school_district_name,
+                      sb.property_type_code,
+                      sb.property_class_code,
+                      sb.living_area_sf,
+                      sb.year_built,
+                      sb.assessed_value,
+                      sb.capped_value,
+                      sb.notice_value,
+                      sb.land_value,
+                      sb.improvement_value,
+                      COALESCE(
+                        sb.certified_value,
+                        sb.appraised_value,
+                        sb.assessed_value,
+                        sb.market_value,
+                        sb.notice_value
+                      ) AS assessment_basis_value,
+                      sb.effective_tax_rate,
+                      sb.effective_tax_rate_source_method,
+                      ROUND(
+                        (
+                          (
+                            (CASE WHEN sb.situs_address IS NOT NULL THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_characteristics THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_improvement THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_land THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_assessment THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.exemption_record_count > 0 OR sb.exemption_value_total IS NOT NULL THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.county_assignment_count > 0 OR sb.school_assignment_count > 0 THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_effective_tax_rate THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_owner_rollup THEN 1 ELSE 0 END) +
+                            (CASE WHEN sb.has_parcel_polygon OR sb.has_parcel_centroid THEN 1 ELSE 0 END)
+                          )::numeric / 10::numeric
+                        ) * 100.0,
+                        2
+                      ) AS completeness_score,
+                      (
+                        sb.situs_address IS NOT NULL
+                        AND sb.has_assessment
+                        AND sb.has_effective_tax_rate
+                        AND sb.has_owner_rollup
+                      ) AS public_summary_ready_flag,
+                      sb.homestead_flag,
+                      sb.over65_flag,
+                      sb.disabled_flag,
+                      sb.disabled_veteran_flag,
+                      sb.freeze_flag,
+                      sb.exemption_type_codes,
+                      ARRAY_REMOVE(
+                        ARRAY[
+                          CASE WHEN sb.situs_address IS NULL THEN 'missing_address' END,
+                          CASE WHEN NOT sb.has_characteristics THEN 'missing_characteristics' END,
+                          CASE WHEN NOT sb.has_improvement THEN 'missing_improvement' END,
+                          CASE WHEN NOT sb.has_land THEN 'missing_land' END,
+                          CASE WHEN NOT sb.has_assessment THEN 'missing_assessment' END,
+                          CASE WHEN sb.exemption_record_count = 0 AND sb.exemption_value_total IS NULL THEN 'missing_exemption_data' END,
+                          CASE WHEN sb.county_assignment_count = 0 THEN 'missing_county_assignment' END,
+                          CASE WHEN sb.school_assignment_count = 0 THEN 'missing_school_assignment' END,
+                          CASE WHEN NOT sb.has_effective_tax_rate THEN 'missing_effective_tax_rate' END,
+                          CASE WHEN NOT sb.has_owner_rollup THEN 'missing_owner_rollup' END,
+                          CASE
+                            WHEN sb.owner_name IS NOT NULL
+                              AND sb.cad_owner_name IS NOT NULL
+                              AND sb.owner_name IS DISTINCT FROM sb.cad_owner_name
+                              AND COALESCE(sb.owner_override_flag, false) = false
+                            THEN 'cad_owner_mismatch'
+                          END,
+                          CASE WHEN sb.missing_exemption_amount_flag THEN 'missing_exemption_amount' END,
+                          CASE
+                            WHEN sb.exemption_value_total IS NOT NULL
+                              AND ABS(sb.granted_exemption_amount_total - sb.exemption_value_total) > 0.01
+                            THEN 'assessment_exemption_total_mismatch'
+                          END,
+                          CASE
+                            WHEN sb.assessment_homestead_flag IS NOT NULL
+                              AND sb.assessment_homestead_flag IS DISTINCT FROM sb.homestead_flag
+                            THEN 'homestead_flag_mismatch'
+                          END,
+                          CASE
+                            WHEN sb.freeze_flag
+                              AND NOT (sb.over65_flag OR sb.disabled_flag OR sb.disabled_veteran_flag)
+                            THEN 'freeze_without_qualifying_exemption'
+                          END,
+                          CASE
+                            WHEN NOT (sb.has_parcel_polygon OR sb.has_parcel_centroid)
+                            THEN 'missing_geometry'
+                          END
+                        ],
+                        NULL
+                      ) AS warning_codes,
+                      CASE
+                        WHEN sb.living_area_sf IS NULL OR sb.living_area_sf <= 0 THEN NULL
+                        WHEN sb.living_area_sf < 1400 THEN 'lt_1400'
+                        WHEN sb.living_area_sf < 1700 THEN '1400_1699'
+                        WHEN sb.living_area_sf < 2000 THEN '1700_1999'
+                        WHEN sb.living_area_sf < 2400 THEN '2000_2399'
+                        WHEN sb.living_area_sf < 2900 THEN '2400_2899'
+                        WHEN sb.living_area_sf < 3500 THEN '2900_3499'
+                        ELSE '3500_plus'
+                      END AS size_bucket,
+                      CASE
+                        WHEN sb.year_built IS NULL THEN 'unknown'
+                        WHEN sb.year_built < 1970 THEN 'pre_1970'
+                        WHEN sb.year_built < 1990 THEN '1970_1989'
+                        WHEN sb.year_built < 2005 THEN '1990_2004'
+                        WHEN sb.year_built < 2015 THEN '2005_2014'
+                        ELSE '2015_plus'
+                      END AS age_bucket,
+                      CASE
+                        WHEN sb.property_type_code IS DISTINCT FROM 'sfr' THEN 'unsupported_property_type'
+                        WHEN sb.living_area_sf IS NULL OR sb.living_area_sf <= 0 THEN 'missing_living_area'
+                        WHEN COALESCE(
+                          sb.certified_value,
+                          sb.appraised_value,
+                          sb.assessed_value,
+                          sb.market_value,
+                          sb.notice_value
+                        ) IS NULL
+                          OR COALESCE(
+                            sb.certified_value,
+                            sb.appraised_value,
+                            sb.assessed_value,
+                            sb.market_value,
+                            sb.notice_value
+                          ) <= 0
+                          THEN 'missing_assessment_basis'
+                        WHEN sb.neighborhood_code IS NULL OR btrim(sb.neighborhood_code) = '' THEN 'missing_neighborhood_code'
+                        WHEN sb.effective_tax_rate IS NULL OR sb.effective_tax_rate <= 0 THEN 'missing_effective_tax_rate'
+                        ELSE NULL
+                      END AS support_blocker_code,
+                      CASE
+                        WHEN sb.living_area_sf IS NULL OR sb.living_area_sf <= 0 THEN NULL
+                        WHEN COALESCE(
+                          sb.certified_value,
+                          sb.appraised_value,
+                          sb.assessed_value,
+                          sb.market_value,
+                          sb.notice_value
+                        ) IS NULL
+                          OR COALESCE(
+                            sb.certified_value,
+                            sb.appraised_value,
+                            sb.assessed_value,
+                            sb.market_value,
+                            sb.notice_value
+                          ) <= 0
+                          THEN NULL
+                        ELSE COALESCE(
+                          sb.certified_value,
+                          sb.appraised_value,
+                          sb.assessed_value,
+                          sb.market_value,
+                          sb.notice_value
+                        ) / sb.living_area_sf
+                      END AS subject_assessed_psf
+                    FROM source_basis sb
+                    """
                 )
                 cursor.execute(
                     """
@@ -353,6 +727,7 @@ class InstantQuoteRefreshService:
                       ON tmp_instant_quote_subject_refresh(parcel_id, tax_year)
                     """
                 )
+                cursor.execute("ANALYZE tmp_instant_quote_subject_refresh")
                 cursor.execute(
                     """
                     SELECT COUNT(*)::integer AS count

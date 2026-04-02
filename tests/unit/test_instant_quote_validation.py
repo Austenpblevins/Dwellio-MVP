@@ -16,9 +16,9 @@ class StubCursor:
     def execute(self, sql: str, params: tuple[object, ...] | None = None) -> None:
         if "SET LOCAL max_parallel_workers_per_gather = 0" in sql:
             self._rows = []
-        elif "FROM parcel_summary_view" in sql and "living_area_sf" in sql:
+        elif "FROM instant_quote_subject_cache" in sql and "living_area_sf" in sql:
             self._rows = [{"count": 15}]
-        elif "FROM parcel_summary_view" in sql and "effective_tax_rate" in sql:
+        elif "FROM instant_quote_subject_cache" in sql and "effective_tax_rate" in sql:
             self._rows = [{"count": 12}]
         elif "GROUP BY COALESCE(support_blocker_code, 'supportable')" in sql:
             self._rows = [

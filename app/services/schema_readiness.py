@@ -41,9 +41,6 @@ MIGRATION_HINTS: dict[str, str] = {
         "Apply migration 0039_historical_validation_yoy_trends before running this job."
     ),
     "view:v_quote_read_model": "Apply migration 0025_views_quote_read_model before running this job.",
-    "view:instant_quote_subject_view": (
-        "Apply migration 0044_stage17_instant_quote_service before running this job."
-    ),
     "table:instant_quote_subject_cache": (
         "Apply migration 0045_stage17_instant_quote_serving_cache before running this job."
     ),
@@ -130,7 +127,6 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             "instant_quote_segment_stats",
             "instant_quote_refresh_runs",
         ),
-        required_views=("parcel_summary_view", "instant_quote_subject_view"),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     ),
@@ -143,7 +139,6 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             "instant_quote_segment_stats",
             "instant_quote_refresh_runs",
         ),
-        required_views=("parcel_summary_view",),
         required_columns=(("tax_years", "valuation_date"),),
         require_tax_year_valuation_date=True,
     ),

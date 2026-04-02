@@ -8,7 +8,8 @@ Canonical route:
 Boundary rules:
 - keep `GET /search`, `GET /parcel`, and refined `GET /quote` contracts unchanged
 - keep instant quote separate from the refined defensible-value quote engine
-- use `instant_quote_subject_cache` as the request-time serving layer, rebuilt from `instant_quote_subject_view`
+- use `instant_quote_subject_cache` as the request-time serving layer
+- rebuild the serving cache from county-year-scoped canonical parcel-year inputs instead of expanding broad derived views on every refresh
 - use precomputed `instant_quote_neighborhood_stats` and `instant_quote_segment_stats`
 - reuse `parcel_summary_view`, `parcel_effective_tax_rate_view`, and parcel-year fallback behavior
 - do not expose raw confidence scores, target assessed value, target PSF, or internal diagnostics publicly

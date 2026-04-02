@@ -9,6 +9,7 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     assert "0045" in versions
     assert "0046" in versions
     assert "0047" in versions
+    assert "0048" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -51,3 +52,11 @@ def test_stage17_instant_quote_subject_cache_scope_index_migration_present() -> 
 
     assert "idx_instant_quote_subject_cache_scope" in sql
     assert "ON instant_quote_subject_cache(county_id, tax_year, parcel_id)" in sql
+
+
+def test_stage17_county_year_readiness_indexes_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0048_stage17_county_year_readiness_indexes.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "idx_parcel_year_snapshots_current_scope" in sql
+    assert "idx_search_documents_scope" in sql
