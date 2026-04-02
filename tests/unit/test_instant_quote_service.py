@@ -531,7 +531,7 @@ def test_confidence_score_penalizes_neighborhood_only_and_freeze_flags() -> None
     assert confidence_label_for_score(score) == "low"
 
 
-def test_confidence_score_uses_reduced_neighborhood_only_penalty() -> None:
+def test_confidence_score_uses_tightened_neighborhood_only_penalty() -> None:
     neighborhood = InstantQuoteStatsRow(
         parcel_count=40,
         p10_assessed_psf=90,
@@ -563,7 +563,74 @@ def test_confidence_score_uses_reduced_neighborhood_only_penalty() -> None:
         target_psf=110,
     )
 
-    assert score == 85.0
+    assert score == 80.0
+
+
+def test_instant_quote_service_tightened_neighborhood_only_penalty_suppresses_borderline_case(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2025,
+        "account_number": "2002002002002",
+        "address": "202 Main St, Houston, TX 77002",
+        "neighborhood_code": "NBHD-2",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 2200.0,
+        "year_built": None,
+        "capped_value": 300000.0,
+        "notice_value": 365000.0,
+        "assessment_basis_value": 360000.0,
+        "effective_tax_rate": 0.021,
+        "effective_tax_rate_source_method": "component_rollup",
+        "subject_assessed_psf": 163.64,
+        "size_bucket": "2000_2399",
+        "age_bucket": "unknown",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": True,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": [],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=40,
+        p10_assessed_psf=90,
+        p25_assessed_psf=100,
+        p50_assessed_psf=110,
+        p75_assessed_psf=120,
+        p90_assessed_psf=130,
+        mean_assessed_psf=111,
+        median_assessed_psf=110,
+        stddev_assessed_psf=50,
+        coefficient_of_variation=0.41,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: None)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2025,
+        account_number="2002002002002",
+    )
+
+    assert response.supported is False
+    assert response.basis_code == "assessment_basis_neighborhood_only"
+    assert response.unsupported_reason == "low_confidence_refined_review"
+    assert response.estimate is None
 
 
 def test_confidence_score_uses_reduced_segment_cv_penalties() -> None:
