@@ -8,5 +8,6 @@
 - `report_data_readiness.py`: reports county/tax-year raw, canonical, and derived readiness for QA year selection and backfill verification.
 - `report_readiness_metrics.py`: reports internal/admin county-year readiness KPIs, freshness, validation regression signals, and alertable operational metrics.
 - `report_historical_validation.py`: ranks candidate tax years for reproducible historical QA and summarizes what validation surfaces are actually ready.
-- `convert_2025_real_sources.py`: converts the real 2025 Harris and Fort Bend county export files into the adapter-ready local files PR1 expects for historical/live-source pilot validation.
+- `prepare_manual_county_files.py`: prepares manually downloaded Harris and Fort Bend county raw files into adapter-ready property-roll and tax-rate files for any supported tax year and writes per-dataset audit manifests.
+- `convert_2025_real_sources.py`: compatibility wrapper around the reusable manual prep pipeline for the legacy 2025-only flow.
 - `verify_ingestion_to_searchable.py`: smoke-verifies that a county-year can be traced from ingestion into admin visibility and searchable read models.

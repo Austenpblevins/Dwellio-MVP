@@ -40,26 +40,22 @@ Interpretation:
 - derived flags show whether summary/search/feature/comp/quote data is actually present for that county-year
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
-## 3. Backfill a historical year from real county files
+## 3. Backfill a historical or current year from real county files
 
-If the county download is still in raw export shape, convert it into the existing adapter-ready contract first:
+If the county download is still in raw export shape, convert it into the adapter-ready contract first with the reusable manual prep script:
 
 ```bash
-python3 -m infra.scripts.convert_2025_real_sources
+python3 -m infra.scripts.prepare_manual_county_files \
+  --county-id both \
+  --tax-year 2025 \
+  --dataset-type both \
+  --raw-root ~/county-data/2025/raw \
+  --ready-root ~/county-data/2025/ready
 ```
 
-Required raw inputs for the current PR1 real-source promotion flow:
+For the canonical year-scoped raw-file layout, expected filenames, override usage, and manifest inspection, use:
 
-- `~/county-data/2025/raw/2025 Harris_Real_acct_owner/real_acct.txt`
-- `~/county-data/2025/raw/2025 Harris_Real_acct_owner/owners.txt`
-- `~/county-data/2025/raw/2025 Harris_Real_building_land/building_res.txt`
-- `~/county-data/2025/raw/2025 Harris_Real_building_land/land.txt`
-- `~/county-data/2025/raw/2025 Harris Roll Source_Real_jur_exempt/jur_tax_dist_exempt_value_rate.txt`
-- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_PropertyExport.txt`
-- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_OwnerExport.txt`
-- `~/county-data/2025/raw/2025 Fort Bend_Certified Export-EXTRACTED/2025_07_17_1800_ExemptionExport.txt`
-- `~/county-data/2025/raw/WebsiteResidentialSegs-7-22.csv`
-- `~/county-data/2025/raw/2025 Fort Bend Tax Rate Source.csv`
+- `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md`
 
 That command writes:
 
@@ -70,10 +66,11 @@ That command writes:
 
 Verification:
 
-- The conversion command runs the existing Harris and Fort Bend adapter parsers and validators against those generated ready files unless you pass `--skip-verify`.
-- The Fort Bend converter preserves the county export values and residential segment enrichment, but leaves `hs_amt` and `ov65_amt` blank because the specified raw exports include exemption presence codes, not authoritative numeric exemption amounts.
-- The Harris converter preserves assessed, appraised, market, and prior-year values from `real_acct.txt`, uses the first owner row from `owners.txt`, and leaves unsupported fixture-only fields like bath counts and story counts unset rather than guessing.
-- Both property-roll converters drop raw records that do not include the adapter-required situs/site address, city, zip, or market value fields instead of emitting known-invalid ready rows.
+- The prep command runs the existing Harris and Fort Bend adapter parsers and validators against generated ready files unless you pass `--skip-verify`.
+- It also writes one manifest per dataset containing raw-file paths, checksums, output paths, row counts, and validation status.
+- The Fort Bend property-roll prep preserves county export values and residential-segment enrichment, but leaves `hs_amt` and `ov65_amt` blank because the specified raw exports confirm exemption presence, not authoritative numeric exemption amounts.
+- The Harris property-roll prep preserves assessed, appraised, market, and prior-year values from `real_acct.txt`, uses the first owner row from `owners.txt`, and leaves unsupported fixture-only fields like bath counts and story counts unset rather than guessing.
+- Both property-roll prep paths drop raw records that do not include the adapter-required situs/site address, city, zip, or market value fields instead of emitting known-invalid ready rows.
 
 Register the downloaded file into the standard raw/import-batch lifecycle:
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 
 from infra.scripts.convert_2025_real_sources import (
@@ -13,6 +14,7 @@ from infra.scripts.convert_2025_real_sources import (
     FortBendRawPaths,
     _open_sqlite,
 )
+from infra.scripts.prepare_manual_county_files import prepare_manual_county_files
 
 
 def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path) -> None:
@@ -60,6 +62,85 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     results = verify_outputs(outputs=outputs, tax_year=2025)
     assert all(result.parse_issue_count == 0 for result in results)
     assert all(result.validation_error_count == 0 for result in results)
+
+
+def test_prepare_manual_county_files_generates_2026_outputs_from_canonical_layout(tmp_path: Path) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    ready_root.mkdir(parents=True)
+
+    _copy_to_canonical_layout(
+        harris_paths=_write_harris_raw_files(tmp_path / "legacy_harris"),
+        fort_bend_paths=_write_fort_bend_raw_files(tmp_path / "legacy_fort_bend"),
+        raw_root=raw_root,
+    )
+
+    results = prepare_manual_county_files(
+        county_ids=["harris", "fort_bend"],
+        tax_year=2026,
+        dataset_types=["property_roll", "tax_rates"],
+        raw_root=raw_root,
+        ready_root=ready_root,
+    )
+
+    result_lookup = {(result.county_id, result.dataset_type): result for result in results}
+    assert sorted(result_lookup) == [
+        ("fort_bend", "property_roll"),
+        ("fort_bend", "tax_rates"),
+        ("harris", "property_roll"),
+        ("harris", "tax_rates"),
+    ]
+
+    harris_property = json.loads((ready_root / "harris_property_roll_2026.json").read_text(encoding="utf-8"))
+    assert harris_property[0]["account_number"] == "0021440000001"
+    assert harris_property[0]["school_district_name"] == "HOUSTON ISD"
+
+    with (ready_root / "fort_bend_tax_rates_2026.csv").open("r", encoding="utf-8", newline="") as handle:
+        fort_bend_tax_rows = list(csv.DictReader(handle))
+    assert fort_bend_tax_rows[0]["effective_from"] == "2026-01-01"
+
+    manifest = json.loads((ready_root / "harris_property_roll_2026.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["county_id"] == "harris"
+    assert manifest["dataset_type"] == "property_roll"
+    assert manifest["validation"]["status"] == "passed"
+    assert {item["logical_name"] for item in manifest["raw_files"]} == {
+        "real_acct",
+        "owners",
+        "building_res",
+        "land",
+        "tax_rates",
+    }
+    assert manifest["output_files"][0]["row_count"] == 1
+    assert result_lookup[("harris", "property_roll")].verification is not None
+    assert result_lookup[("harris", "property_roll")].verification.validation_error_count == 0
+
+
+def test_prepare_manual_county_files_supports_explicit_override_for_noncanonical_name(tmp_path: Path) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    county_root = raw_root / "fort_bend"
+    county_root.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(tmp_path / "legacy_override")
+    custom_tax_rates = county_root / "Fort Bend Tax Rate Source - Revised.csv"
+    shutil.copyfile(fort_bend_paths.tax_rates, custom_tax_rates)
+
+    results = prepare_manual_county_files(
+        county_ids=["fort_bend"],
+        tax_year=2026,
+        dataset_types=["tax_rates"],
+        raw_root=raw_root,
+        ready_root=ready_root,
+        raw_file_overrides={"fort_bend": {"tax_rates": custom_tax_rates}},
+    )
+
+    assert len(results) == 1
+    assert results[0].dataset_type == "tax_rates"
+    assert results[0].output_path == ready_root / "fort_bend_tax_rates_2026.csv"
+    manifest = json.loads((ready_root / "fort_bend_tax_rates_2026.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["raw_files"][0]["logical_name"] == "tax_rates"
+    assert manifest["raw_files"][0]["path"] == str(custom_tax_rates)
+    assert manifest["validation"]["status"] == "passed"
 
 
 def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
@@ -193,6 +274,30 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
         land=land,
         tax_rates=tax_rates,
     )
+
+
+def _copy_to_canonical_layout(
+    *,
+    harris_paths: HarrisRawPaths,
+    fort_bend_paths: FortBendRawPaths,
+    raw_root: Path,
+) -> None:
+    harris_root = raw_root / "harris"
+    fort_bend_root = raw_root / "fort_bend"
+    harris_root.mkdir(parents=True)
+    fort_bend_root.mkdir(parents=True)
+
+    shutil.copyfile(harris_paths.real_acct, harris_root / "real_acct.txt")
+    shutil.copyfile(harris_paths.owners, harris_root / "owners.txt")
+    shutil.copyfile(harris_paths.building_res, harris_root / "building_res.txt")
+    shutil.copyfile(harris_paths.land, harris_root / "land.txt")
+    shutil.copyfile(harris_paths.tax_rates, harris_root / "jur_tax_dist_exempt_value_rate.txt")
+
+    shutil.copyfile(fort_bend_paths.property_export, fort_bend_root / "PropertyExport.txt")
+    shutil.copyfile(fort_bend_paths.owner_export, fort_bend_root / "OwnerExport.txt")
+    shutil.copyfile(fort_bend_paths.exemption_export, fort_bend_root / "ExemptionExport.txt")
+    shutil.copyfile(fort_bend_paths.residential_segments, fort_bend_root / "WebsiteResidentialSegs.csv")
+    shutil.copyfile(fort_bend_paths.tax_rates, fort_bend_root / "Fort Bend Tax Rate Source.csv")
 
 
 def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
