@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.ingestion.repository import IngestionRepository
+from app.services.tax_assignment import MATCH_CONFIDENCE, MATCH_REASON_CODES
 
 
 def test_capture_property_roll_rollback_manifest_includes_new_accounts_with_none_prior_state(
@@ -42,6 +43,7 @@ class RecordingCopy:
 class RecordingCursor:
     def __init__(self) -> None:
         self.queries: list[str] = []
+        self.params: list[object | None] = []
         self.copy_rows: list[tuple[object, ...]] = []
         self.rowcount = 0
 
@@ -53,6 +55,7 @@ class RecordingCursor:
 
     def execute(self, query: str, params=None) -> None:
         self.queries.append(query)
+        self.params.append(params)
 
     def copy(self, query: str) -> RecordingCopy:
         self.queries.append(query)
@@ -167,6 +170,34 @@ def test_set_based_tax_assignment_refresh_builds_temp_context_and_bulk_effective
     assert "CREATE TEMP TABLE tmp_parcel_tax_context" in joined_queries
     assert "CREATE TEMP TABLE tmp_tax_unit_match_hints" in joined_queries
     assert "CREATE TEMP TABLE tmp_ranked_tax_assignments" in joined_queries
+    assert "upper(btrim(value.value)) AS candidate_value" in joined_queries
+    assert "upper(btrim(hint_value.value))" not in joined_queries
+    assert "upper(btrim(fallback_value.value))" not in joined_queries
     assert "INSERT INTO parcel_taxing_units" in joined_queries
     assert "INSERT INTO effective_tax_rates" in joined_queries
     assert "GROUP BY ptu.parcel_id, ptu.tax_year" in joined_queries
+    ranked_assignment_params = next(
+        params
+        for query, params in zip(
+            connection.cursor_instance.queries,
+            connection.cursor_instance.params,
+            strict=False,
+        )
+        if params is not None and "CREATE TEMP TABLE tmp_ranked_tax_assignments" in query
+    )
+    assert ranked_assignment_params[5:19] == (
+        MATCH_CONFIDENCE["account_numbers"],
+        MATCH_REASON_CODES["account_numbers"],
+        MATCH_CONFIDENCE["school_district_names"],
+        MATCH_REASON_CODES["school_district_names"],
+        MATCH_CONFIDENCE["cities"],
+        MATCH_REASON_CODES["cities"],
+        MATCH_CONFIDENCE["subdivisions"],
+        MATCH_REASON_CODES["subdivisions"],
+        MATCH_CONFIDENCE["neighborhood_codes"],
+        MATCH_REASON_CODES["neighborhood_codes"],
+        MATCH_CONFIDENCE["zip_codes"],
+        MATCH_REASON_CODES["zip_codes"],
+        MATCH_CONFIDENCE["county_ids"],
+        MATCH_REASON_CODES["county_ids"],
+    )
