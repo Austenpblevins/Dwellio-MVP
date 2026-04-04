@@ -93,6 +93,46 @@ def test_validate_schema_readiness_passes_when_required_objects_and_tax_year_sta
     assert issues == []
 
 
+def test_job_set_tax_rate_adoption_status_requires_status_table_and_tax_year_row() -> None:
+    catalog = SchemaCatalog(
+        tables=frozenset({"tax_years"}),
+        views=frozenset(),
+        columns=frozenset({("tax_years", "tax_year")}),
+    )
+    spec = JOB_READINESS_SPECS["job_set_tax_rate_adoption_status"]
+
+    issues = validate_schema_readiness(
+        catalog=catalog,
+        spec=spec,
+        tax_year=2026,
+        tax_year_state={"tax_year": None},
+    )
+
+    assert any(
+        "Missing table public.instant_quote_tax_rate_adoption_statuses." in issue
+        for issue in issues
+    )
+    assert any(
+        "Missing tax_years row for tax_year=2026." in issue
+        for issue in issues
+    )
+
+
+def test_instant_quote_schema_readiness_requires_hardening_columns() -> None:
+    spec = JOB_READINESS_SPECS["job_refresh_instant_quote"]
+
+    assert ("instant_quote_refresh_runs", "tax_rate_quoteable_subject_row_count") in spec.required_columns
+    assert (
+        "instant_quote_refresh_runs",
+        "requested_tax_rate_effective_tax_rate_coverage_ratio",
+    ) in spec.required_columns
+    assert (
+        "instant_quote_refresh_runs",
+        "tax_rate_basis_continuity_parcel_match_ratio",
+    ) in spec.required_columns
+    assert ("instant_quote_refresh_runs", "tax_rate_basis_warning_codes") in spec.required_columns
+
+
 def test_assert_job_schema_ready_raises_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Cursor:
         def __init__(self) -> None:

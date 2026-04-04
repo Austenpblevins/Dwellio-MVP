@@ -39,6 +39,10 @@ Tax-rate basis behavior:
   - basis status answers whether that basis should be treated internally as prior-year adopted, same-year unofficial/proposed, or same-year final adopted
 - same-year rates default to `current_year_unofficial_or_proposed_rates` unless the internal county-year adoption-status metadata explicitly marks them as final adopted
 - this classification stays internal to refresh, readiness, validation, and admin surfaces and is not a public quote mode
+- requested-year usability is not row-floor only:
+  - keep the `20` supportable-subject floor
+  - also require strong effective-tax-rate coverage and tax-assignment completeness on the current-year quoteable cohort
+  - require measured parcel continuity before prior-year fallback is treated as usable
 
 Assessment basis:
 - use the canonical basis order already embedded in the parcel stack:
@@ -61,5 +65,5 @@ Observability:
 - request-path structured logs
 - background best-effort inserts into `instant_quote_request_logs`
 - refresh history persisted in `instant_quote_refresh_runs`
-- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, internal basis-status classification, basis-status reason, and supportable-subject counts used to justify the choice
+- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, internal basis-status classification, basis-status reason, supportable-subject counts, coverage ratios, and parcel-continuity diagnostics used to justify the choice
 - readiness counts exposed through county-year readiness derived fields from the serving artifacts

@@ -48,6 +48,10 @@ Interpretation:
   - basis year tells you which year's effective tax rate was used
   - basis status tells you whether that basis is prior-year adopted or same-year unofficial/final
 - same-year usable rates stay `current_year_unofficial_or_proposed_rates` unless internal county-year adoption metadata explicitly marks them final adopted
+- requested-year tax-rate basis usability is now conservative:
+  - it still needs the `20` supportable-subject floor
+  - it also needs strong effective-tax-rate coverage and tax-assignment completeness on the current-year instant-quote cohort
+- fallback quality is now measurable through parcel continuity metrics between the requested quote year and the selected basis year
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
 ## 3. Backfill a historical year from real county files
@@ -144,3 +148,52 @@ python3 -m app.jobs.cli job_run_ingestion --county-id harris --tax-year 2026 --d
 - Use readiness reporting to confirm raw, canonical, and derived status by county-year before using a year for valuation or comp QA.
 - For instant quote, no annual code change is required when current-year tax rates are late. Refresh will automatically use the requested year once its tax-rate basis becomes usable.
 - When current-year rates should be treated as final adopted for internal admin truth, insert or update the matching row in `instant_quote_tax_rate_adoption_statuses` before rerunning `job_refresh_instant_quote`. Without that explicit metadata, same-year rates remain classified as `current_year_unofficial_or_proposed_rates`.
+- When fallback is active, review continuity metrics before trusting the refresh for real current-year operations:
+  - `instant_quote_tax_rate_basis_continuity_parcel_match_ratio`
+  - `instant_quote_tax_rate_basis_warning_codes`
+
+## 6. Update tax-rate adoption status
+
+Use the internal operator job when a county-year should be explicitly marked as:
+
+- `prior_year_adopted_rates`
+- `current_year_unofficial_or_proposed_rates`
+- `current_year_final_adopted_rates`
+
+Example commands:
+
+```bash
+python3 -m app.jobs.cli job_set_tax_rate_adoption_status \
+  --county-id harris \
+  --tax-year 2026 \
+  --tax-rate-basis-status current_year_unofficial_or_proposed_rates \
+  --tax-rate-basis-status-reason "Current-year rates are present but not yet final adopted." \
+  --tax-rate-basis-status-note "Use prior-year adopted posture during appeal-season estimate refresh."
+
+python3 -m app.jobs.cli job_set_tax_rate_adoption_status \
+  --county-id harris \
+  --tax-year 2026 \
+  --tax-rate-basis-status current_year_final_adopted_rates \
+  --tax-rate-basis-status-reason "Board-adopted rates confirmed internally." \
+  --tax-rate-basis-status-note "Minutes posted and checked by ops."
+```
+
+Operational meaning:
+
+- `prior_year_adopted_rates`: internal/admin status for a county-year that should still be treated as prior-year adopted basis truth
+- `current_year_unofficial_or_proposed_rates`: same-year rates exist but should not yet be treated as final adopted
+- `current_year_final_adopted_rates`: same-year rates can be treated internally as final adopted
+
+After every status update, rerun:
+
+```bash
+python3 -m app.jobs.cli job_refresh_instant_quote --county-id harris --tax-year 2026
+python3 -m app.jobs.cli job_validate_instant_quote --county-id harris --tax-year 2026
+```
+
+Then inspect:
+
+- `instant_quote_refresh_runs.tax_rate_basis_year`
+- `instant_quote_refresh_runs.tax_rate_basis_status`
+- `instant_quote_refresh_runs.tax_rate_basis_status_reason`
+- readiness/admin output fields derived from the latest refresh run

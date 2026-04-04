@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS instant_quote_tax_rate_adoption_statuses (
   PRIMARY KEY (county_id, tax_year),
   CONSTRAINT instant_quote_tax_rate_adoption_statuses_status_check CHECK (
     adoption_status IN (
+      'prior_year_adopted_rates',
       'current_year_unofficial_or_proposed_rates',
       'current_year_final_adopted_rates'
     )
@@ -27,8 +28,8 @@ ALTER TABLE instant_quote_refresh_runs
   ADD COLUMN IF NOT EXISTS tax_rate_basis_status text,
   ADD COLUMN IF NOT EXISTS tax_rate_basis_status_reason text;
 
-COMMENT ON TABLE instant_quote_tax_rate_adoption_statuses IS 'Internal county-year tax-rate adoption truth used to distinguish same-year unofficial/proposed rates from same-year final adopted rates for instant-quote refreshes.';
-COMMENT ON COLUMN instant_quote_tax_rate_adoption_statuses.adoption_status IS 'Internal same-year adoption truth. Prior-year adopted status is inferred by refresh when the selected basis year precedes the quote year.';
+COMMENT ON TABLE instant_quote_tax_rate_adoption_statuses IS 'Internal county-year tax-rate basis status truth used by instant-quote refreshes and admin workflow.';
+COMMENT ON COLUMN instant_quote_tax_rate_adoption_statuses.adoption_status IS 'Internal tax-rate basis status truth for the county-year, including prior-year adopted, current-year unofficial/proposed, and current-year final adopted states.';
 COMMENT ON COLUMN instant_quote_tax_rate_adoption_statuses.adoption_status_reason IS 'Operator or pipeline note describing why the same-year adoption status was asserted.';
 COMMENT ON COLUMN instant_quote_tax_rate_adoption_statuses.status_source IS 'Internal provenance for the asserted same-year adoption status.';
 COMMENT ON COLUMN instant_quote_tax_rate_adoption_statuses.source_note IS 'Optional supporting note or evidence pointer for the asserted same-year adoption status.';

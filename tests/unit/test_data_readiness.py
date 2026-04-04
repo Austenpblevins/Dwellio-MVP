@@ -96,6 +96,19 @@ class StubCursor:
                 "tax_rate_basis_status_reason": "basis_year_precedes_quote_year",
                 "requested_tax_rate_supportable_subject_row_count": 0,
                 "tax_rate_basis_supportable_subject_row_count": 24,
+                "tax_rate_quoteable_subject_row_count": 100,
+                "requested_tax_rate_effective_tax_rate_coverage_ratio": 0.2,
+                "requested_tax_rate_assignment_coverage_ratio": 0.6,
+                "tax_rate_basis_effective_tax_rate_coverage_ratio": 0.92,
+                "tax_rate_basis_assignment_coverage_ratio": 0.95,
+                "tax_rate_basis_continuity_parcel_match_row_count": 88,
+                "tax_rate_basis_continuity_parcel_gap_row_count": 12,
+                "tax_rate_basis_continuity_parcel_match_ratio": 0.88,
+                "tax_rate_basis_continuity_account_number_match_row_count": 6,
+                "tax_rate_basis_warning_codes": [
+                    "parcel_continuity_warning",
+                    "account_number_continuity_diagnostic",
+                ],
                 "validation_report": {
                     "supported_public_quote_exists": True,
                     "subject_rows_without_usable_neighborhood_stats": 1,
@@ -181,6 +194,19 @@ def test_data_readiness_summary(monkeypatch) -> None:
     )
     assert readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count == 0
     assert readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count == 24
+    assert readiness.derived.instant_quote_tax_rate_quoteable_subject_row_count == 100
+    assert readiness.derived.instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio == 0.2
+    assert readiness.derived.instant_quote_tax_rate_requested_year_assignment_coverage_ratio == 0.6
+    assert readiness.derived.instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio == 0.92
+    assert readiness.derived.instant_quote_tax_rate_basis_assignment_coverage_ratio == 0.95
+    assert readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_row_count == 88
+    assert readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_gap_row_count == 12
+    assert readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_ratio == 0.88
+    assert readiness.derived.instant_quote_tax_rate_basis_continuity_account_number_match_row_count == 6
+    assert readiness.derived.instant_quote_tax_rate_basis_warning_codes == [
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
+    ]
     assert readiness.derived.instant_quote_supported_public_quote_exists is True
     assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9
