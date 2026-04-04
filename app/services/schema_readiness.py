@@ -47,6 +47,9 @@ MIGRATION_HINTS: dict[str, str] = {
     "table:instant_quote_refresh_runs": (
         "Apply migration 0046_stage17_instant_quote_refresh_runs before running this job."
     ),
+    "table:instant_quote_tax_rate_adoption_statuses": (
+        "Apply migration 0050_stage17_tax_rate_adoption_status_admin_truth before running this job."
+    ),
     "column:instant_quote_subject_cache.effective_tax_rate_basis_year": (
         "Apply migration 0049_stage17_dynamic_tax_rate_basis before running this job."
     ),
@@ -70,6 +73,18 @@ MIGRATION_HINTS: dict[str, str] = {
     ),
     "column:instant_quote_refresh_runs.tax_rate_basis_supportable_subject_row_count": (
         "Apply migration 0049_stage17_dynamic_tax_rate_basis before running this job."
+    ),
+    "column:instant_quote_subject_cache.effective_tax_rate_basis_status": (
+        "Apply migration 0050_stage17_tax_rate_adoption_status_admin_truth before running this job."
+    ),
+    "column:instant_quote_subject_cache.effective_tax_rate_basis_status_reason": (
+        "Apply migration 0050_stage17_tax_rate_adoption_status_admin_truth before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_status": (
+        "Apply migration 0050_stage17_tax_rate_adoption_status_admin_truth before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_status_reason": (
+        "Apply migration 0050_stage17_tax_rate_adoption_status_admin_truth before running this job."
     ),
     "table:parcel_features": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidate_pools": "Apply migration 0019_features_comps before running this job.",
@@ -150,15 +165,20 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             "instant_quote_neighborhood_stats",
             "instant_quote_segment_stats",
             "instant_quote_refresh_runs",
+            "instant_quote_tax_rate_adoption_statuses",
         ),
         required_columns=(
             ("tax_years", "valuation_date"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_year"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_reason"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_fallback_applied"),
+            ("instant_quote_subject_cache", "effective_tax_rate_basis_status"),
+            ("instant_quote_subject_cache", "effective_tax_rate_basis_status_reason"),
             ("instant_quote_refresh_runs", "tax_rate_basis_year"),
             ("instant_quote_refresh_runs", "tax_rate_basis_reason"),
             ("instant_quote_refresh_runs", "tax_rate_basis_fallback_applied"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_status"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_status_reason"),
             ("instant_quote_refresh_runs", "requested_tax_rate_supportable_subject_row_count"),
             ("instant_quote_refresh_runs", "tax_rate_basis_supportable_subject_row_count"),
         ),
@@ -172,15 +192,20 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             "instant_quote_neighborhood_stats",
             "instant_quote_segment_stats",
             "instant_quote_refresh_runs",
+            "instant_quote_tax_rate_adoption_statuses",
         ),
         required_columns=(
             ("tax_years", "valuation_date"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_year"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_reason"),
             ("instant_quote_subject_cache", "effective_tax_rate_basis_fallback_applied"),
+            ("instant_quote_subject_cache", "effective_tax_rate_basis_status"),
+            ("instant_quote_subject_cache", "effective_tax_rate_basis_status_reason"),
             ("instant_quote_refresh_runs", "tax_rate_basis_year"),
             ("instant_quote_refresh_runs", "tax_rate_basis_reason"),
             ("instant_quote_refresh_runs", "tax_rate_basis_fallback_applied"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_status"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_status_reason"),
             ("instant_quote_refresh_runs", "requested_tax_rate_supportable_subject_row_count"),
             ("instant_quote_refresh_runs", "tax_rate_basis_supportable_subject_row_count"),
         ),

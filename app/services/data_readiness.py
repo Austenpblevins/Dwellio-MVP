@@ -52,6 +52,8 @@ class TaxYearDerivedReadiness:
     instant_quote_tax_rate_basis_year: int | None = None
     instant_quote_tax_rate_basis_reason: str | None = None
     instant_quote_tax_rate_basis_fallback_applied: bool = False
+    instant_quote_tax_rate_basis_status: str | None = None
+    instant_quote_tax_rate_basis_status_reason: str | None = None
     instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_supported_public_quote_exists: bool = False
@@ -529,6 +531,24 @@ class DataReadinessService:
                 latest_instant_quote_refresh
                 and latest_instant_quote_refresh.get("tax_rate_basis_fallback_applied")
             ),
+            instant_quote_tax_rate_basis_status=(
+                None
+                if latest_instant_quote_refresh is None
+                else (
+                    None
+                    if latest_instant_quote_refresh.get("tax_rate_basis_status") is None
+                    else str(latest_instant_quote_refresh.get("tax_rate_basis_status"))
+                )
+            ),
+            instant_quote_tax_rate_basis_status_reason=(
+                None
+                if latest_instant_quote_refresh is None
+                else (
+                    None
+                    if latest_instant_quote_refresh.get("tax_rate_basis_status_reason") is None
+                    else str(latest_instant_quote_refresh.get("tax_rate_basis_status_reason"))
+                )
+            ),
             instant_quote_tax_rate_requested_year_supportable_subject_row_count=int(
                 (latest_instant_quote_refresh or {}).get(
                     "requested_tax_rate_supportable_subject_row_count"
@@ -694,6 +714,8 @@ class DataReadinessService:
                   tax_rate_basis_year,
                   tax_rate_basis_reason,
                   tax_rate_basis_fallback_applied,
+                  tax_rate_basis_status,
+                  tax_rate_basis_status_reason,
                   requested_tax_rate_supportable_subject_row_count,
                   tax_rate_basis_supportable_subject_row_count,
                   validation_report

@@ -32,6 +32,8 @@ class InstantQuoteValidationReport:
     tax_rate_basis_year: int | None = None
     tax_rate_basis_reason: str | None = None
     tax_rate_basis_fallback_applied: bool = False
+    tax_rate_basis_status: str | None = None
+    tax_rate_basis_status_reason: str | None = None
     requested_tax_rate_supportable_subject_row_count: int = 0
     tax_rate_basis_supportable_subject_row_count: int = 0
     subject_rows_without_usable_neighborhood_stats: int = 0
@@ -210,6 +212,16 @@ class InstantQuoteValidationService:
                     latest_refresh_run
                     and latest_refresh_run.get("tax_rate_basis_fallback_applied")
                 ),
+                "tax_rate_basis_status": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_status")
+                ),
+                "tax_rate_basis_status_reason": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_status_reason")
+                ),
                 "requested_tax_rate_supportable_subject_row_count": int(
                     (latest_refresh_run or {}).get(
                         "requested_tax_rate_supportable_subject_row_count"
@@ -282,6 +294,24 @@ class InstantQuoteValidationService:
             tax_rate_basis_fallback_applied=bool(
                 latest_refresh_run
                 and latest_refresh_run.get("tax_rate_basis_fallback_applied")
+            ),
+            tax_rate_basis_status=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_status") is None
+                    else str(latest_refresh_run["tax_rate_basis_status"])
+                )
+            ),
+            tax_rate_basis_status_reason=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_status_reason") is None
+                    else str(latest_refresh_run["tax_rate_basis_status_reason"])
+                )
             ),
             requested_tax_rate_supportable_subject_row_count=int(
                 (latest_refresh_run or {}).get("requested_tax_rate_supportable_subject_row_count")
@@ -516,6 +546,8 @@ class InstantQuoteValidationService:
               tax_rate_basis_year,
               tax_rate_basis_reason,
               tax_rate_basis_fallback_applied,
+              tax_rate_basis_status,
+              tax_rate_basis_status_reason,
               requested_tax_rate_supportable_subject_row_count,
               tax_rate_basis_supportable_subject_row_count
             FROM instant_quote_refresh_runs

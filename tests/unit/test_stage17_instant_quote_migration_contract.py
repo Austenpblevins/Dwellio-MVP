@@ -11,6 +11,7 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     assert "0047" in versions
     assert "0048" in versions
     assert "0049" in versions
+    assert "0050" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -77,3 +78,16 @@ def test_stage17_dynamic_tax_rate_basis_migration_present() -> None:
     assert "tax_rate_basis_fallback_applied" in sql
     assert "requested_tax_rate_supportable_subject_row_count" in sql
     assert "tax_rate_basis_supportable_subject_row_count" in sql
+
+
+def test_stage17_tax_rate_adoption_status_admin_truth_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0050_stage17_tax_rate_adoption_status_admin_truth.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS instant_quote_tax_rate_adoption_statuses" in sql
+    assert "current_year_unofficial_or_proposed_rates" in sql
+    assert "current_year_final_adopted_rates" in sql
+    assert "effective_tax_rate_basis_status" in sql
+    assert "effective_tax_rate_basis_status_reason" in sql
+    assert "tax_rate_basis_status" in sql
+    assert "tax_rate_basis_status_reason" in sql

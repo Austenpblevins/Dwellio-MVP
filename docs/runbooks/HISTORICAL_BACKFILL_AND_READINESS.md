@@ -40,6 +40,14 @@ Interpretation:
 - derived flags show whether summary/search/feature/comp/quote data is actually present for that county-year
 - instant-quote readiness can temporarily report a prior `instant_quote_tax_rate_basis_year` for a current quote year when current-year tax rates are not yet usable at refresh time
 - `instant_quote_tax_rate_basis_fallback_applied = true` means the current quote year is still being served with the nearest prior usable adopted tax-rate basis
+- `instant_quote_tax_rate_basis_status` is the internal/admin classification for the basis actually used:
+  - `prior_year_adopted_rates`
+  - `current_year_unofficial_or_proposed_rates`
+  - `current_year_final_adopted_rates`
+- `instant_quote_tax_rate_basis_year` and `instant_quote_tax_rate_basis_status` are different:
+  - basis year tells you which year's effective tax rate was used
+  - basis status tells you whether that basis is prior-year adopted or same-year unofficial/final
+- same-year usable rates stay `current_year_unofficial_or_proposed_rates` unless internal county-year adoption metadata explicitly marks them final adopted
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
 ## 3. Backfill a historical year from real county files
@@ -135,3 +143,4 @@ python3 -m app.jobs.cli job_run_ingestion --county-id harris --tax-year 2026 --d
 - Do not assume a current year is backfill-ready just because it exists in `tax_years`.
 - Use readiness reporting to confirm raw, canonical, and derived status by county-year before using a year for valuation or comp QA.
 - For instant quote, no annual code change is required when current-year tax rates are late. Refresh will automatically use the requested year once its tax-rate basis becomes usable.
+- When current-year rates should be treated as final adopted for internal admin truth, insert or update the matching row in `instant_quote_tax_rate_adoption_statuses` before rerunning `job_refresh_instant_quote`. Without that explicit metadata, same-year rates remain classified as `current_year_unofficial_or_proposed_rates`.

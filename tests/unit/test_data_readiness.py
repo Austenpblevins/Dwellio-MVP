@@ -92,6 +92,8 @@ class StubCursor:
                 "tax_rate_basis_year": 2025,
                 "tax_rate_basis_reason": "fallback_requested_year_missing_supportable_subjects",
                 "tax_rate_basis_fallback_applied": True,
+                "tax_rate_basis_status": "prior_year_adopted_rates",
+                "tax_rate_basis_status_reason": "basis_year_precedes_quote_year",
                 "requested_tax_rate_supportable_subject_row_count": 0,
                 "tax_rate_basis_supportable_subject_row_count": 24,
                 "validation_report": {
@@ -173,6 +175,10 @@ def test_data_readiness_summary(monkeypatch) -> None:
         "fallback_requested_year_missing_supportable_subjects"
     )
     assert readiness.derived.instant_quote_tax_rate_basis_fallback_applied is True
+    assert readiness.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
+    assert readiness.derived.instant_quote_tax_rate_basis_status_reason == (
+        "basis_year_precedes_quote_year"
+    )
     assert readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count == 0
     assert readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count == 24
     assert readiness.derived.instant_quote_supported_public_quote_exists is True

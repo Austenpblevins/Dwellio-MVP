@@ -23,8 +23,11 @@ from app.models.quote import (
 )
 from app.services.instant_quote_tax_rate_basis import (
     SelectedTaxRateBasis,
+    SameYearTaxRateAdoptionStatus,
     TaxRateBasisCandidate,
+    TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES,
     choose_tax_rate_basis,
+    assign_tax_rate_basis_status,
 )
 from app.utils.logging import get_logger
 
@@ -98,6 +101,8 @@ class InstantQuoteRefreshSummary:
     tax_rate_basis_year: int | None = None
     tax_rate_basis_reason: str | None = None
     tax_rate_basis_fallback_applied: bool = False
+    tax_rate_basis_status: str | None = None
+    tax_rate_basis_status_reason: str | None = None
     requested_tax_rate_supportable_subject_row_count: int = 0
     tax_rate_basis_supportable_subject_row_count: int = 0
 
@@ -118,6 +123,8 @@ class InstantQuoteRefreshSummary:
             "tax_rate_basis_year": self.tax_rate_basis_year,
             "tax_rate_basis_reason": self.tax_rate_basis_reason,
             "tax_rate_basis_fallback_applied": self.tax_rate_basis_fallback_applied,
+            "tax_rate_basis_status": self.tax_rate_basis_status,
+            "tax_rate_basis_status_reason": self.tax_rate_basis_status_reason,
             "requested_tax_rate_supportable_subject_row_count": (
                 self.requested_tax_rate_supportable_subject_row_count
             ),
@@ -321,6 +328,16 @@ class InstantQuoteRefreshService:
                     cache_metrics.selected_tax_rate_basis
                     and cache_metrics.selected_tax_rate_basis.fallback_applied
                 ),
+                tax_rate_basis_status=(
+                    None
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else cache_metrics.selected_tax_rate_basis.basis_status
+                ),
+                tax_rate_basis_status_reason=(
+                    None
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else cache_metrics.selected_tax_rate_basis.basis_status_reason
+                ),
                 requested_tax_rate_supportable_subject_row_count=(
                     0
                     if cache_metrics.selected_tax_rate_basis is None
@@ -414,6 +431,8 @@ class InstantQuoteRefreshService:
                       effective_tax_rate_basis_year integer,
                       effective_tax_rate_basis_reason text NOT NULL,
                       effective_tax_rate_basis_fallback_applied boolean NOT NULL,
+                      effective_tax_rate_basis_status text,
+                      effective_tax_rate_basis_status_reason text,
                       requested_tax_rate_supportable_subject_row_count integer NOT NULL,
                       effective_tax_rate_basis_supportable_subject_row_count integer NOT NULL,
                       PRIMARY KEY (county_id, tax_year)
@@ -452,14 +471,18 @@ class InstantQuoteRefreshService:
                           effective_tax_rate_basis_year,
                           effective_tax_rate_basis_reason,
                           effective_tax_rate_basis_fallback_applied,
+                          effective_tax_rate_basis_status,
+                          effective_tax_rate_basis_status_reason,
                           requested_tax_rate_supportable_subject_row_count,
                           effective_tax_rate_basis_supportable_subject_row_count
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (county_id, tax_year) DO UPDATE
                         SET effective_tax_rate_basis_year = EXCLUDED.effective_tax_rate_basis_year,
                             effective_tax_rate_basis_reason = EXCLUDED.effective_tax_rate_basis_reason,
                             effective_tax_rate_basis_fallback_applied = EXCLUDED.effective_tax_rate_basis_fallback_applied,
+                            effective_tax_rate_basis_status = EXCLUDED.effective_tax_rate_basis_status,
+                            effective_tax_rate_basis_status_reason = EXCLUDED.effective_tax_rate_basis_status_reason,
                             requested_tax_rate_supportable_subject_row_count = EXCLUDED.requested_tax_rate_supportable_subject_row_count,
                             effective_tax_rate_basis_supportable_subject_row_count = EXCLUDED.effective_tax_rate_basis_supportable_subject_row_count
                         """,
@@ -469,6 +492,8 @@ class InstantQuoteRefreshService:
                             basis_selection.selection.basis_tax_year,
                             basis_selection.selection.reason_code,
                             basis_selection.selection.fallback_applied,
+                            basis_selection.selection.basis_status,
+                            basis_selection.selection.basis_status_reason,
                             basis_selection.selection.requested_year_supportable_subject_row_count,
                             basis_selection.selection.selected_basis_supportable_subject_row_count,
                         ),
@@ -645,6 +670,8 @@ class InstantQuoteRefreshService:
                         tax_basis.effective_tax_rate_basis_year,
                         tax_basis.effective_tax_rate_basis_reason,
                         tax_basis.effective_tax_rate_basis_fallback_applied,
+                        tax_basis.effective_tax_rate_basis_status,
+                        tax_basis.effective_tax_rate_basis_status_reason,
                         COALESCE(tar.county_assignment_count, 0) AS county_assignment_count,
                         COALESCE(tar.school_assignment_count, 0) AS school_assignment_count,
                         COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
@@ -728,6 +755,8 @@ class InstantQuoteRefreshService:
                       sb.effective_tax_rate_basis_year,
                       sb.effective_tax_rate_basis_reason,
                       sb.effective_tax_rate_basis_fallback_applied,
+                      sb.effective_tax_rate_basis_status,
+                      sb.effective_tax_rate_basis_status_reason,
                       ROUND(
                         (
                           (
@@ -910,6 +939,8 @@ class InstantQuoteRefreshService:
                       effective_tax_rate_basis_year,
                       effective_tax_rate_basis_reason,
                       effective_tax_rate_basis_fallback_applied,
+                      effective_tax_rate_basis_status,
+                      effective_tax_rate_basis_status_reason,
                       completeness_score,
                       public_summary_ready_flag,
                       homestead_flag,
@@ -952,6 +983,8 @@ class InstantQuoteRefreshService:
                       effective_tax_rate_basis_year,
                       effective_tax_rate_basis_reason,
                       effective_tax_rate_basis_fallback_applied,
+                      effective_tax_rate_basis_status,
+                      effective_tax_rate_basis_status_reason,
                       completeness_score,
                       public_summary_ready_flag,
                       homestead_flag,
@@ -992,6 +1025,8 @@ class InstantQuoteRefreshService:
                         effective_tax_rate_basis_year = EXCLUDED.effective_tax_rate_basis_year,
                         effective_tax_rate_basis_reason = EXCLUDED.effective_tax_rate_basis_reason,
                         effective_tax_rate_basis_fallback_applied = EXCLUDED.effective_tax_rate_basis_fallback_applied,
+                        effective_tax_rate_basis_status = EXCLUDED.effective_tax_rate_basis_status,
+                        effective_tax_rate_basis_status_reason = EXCLUDED.effective_tax_rate_basis_status_reason,
                         completeness_score = EXCLUDED.completeness_score,
                         public_summary_ready_flag = EXCLUDED.public_summary_ready_flag,
                         homestead_flag = EXCLUDED.homestead_flag,
@@ -1031,6 +1066,8 @@ class InstantQuoteRefreshService:
                       instant_quote_subject_cache.effective_tax_rate_basis_year,
                       instant_quote_subject_cache.effective_tax_rate_basis_reason,
                       instant_quote_subject_cache.effective_tax_rate_basis_fallback_applied,
+                      instant_quote_subject_cache.effective_tax_rate_basis_status,
+                      instant_quote_subject_cache.effective_tax_rate_basis_status_reason,
                       instant_quote_subject_cache.completeness_score,
                       instant_quote_subject_cache.public_summary_ready_flag,
                       instant_quote_subject_cache.homestead_flag,
@@ -1069,6 +1106,8 @@ class InstantQuoteRefreshService:
                       EXCLUDED.effective_tax_rate_basis_year,
                       EXCLUDED.effective_tax_rate_basis_reason,
                       EXCLUDED.effective_tax_rate_basis_fallback_applied,
+                      EXCLUDED.effective_tax_rate_basis_status,
+                      EXCLUDED.effective_tax_rate_basis_status_reason,
                       EXCLUDED.completeness_score,
                       EXCLUDED.public_summary_ready_flag,
                       EXCLUDED.homestead_flag,
@@ -1212,12 +1251,61 @@ class InstantQuoteRefreshService:
             )
             for row in cursor.fetchall()
         ]
+        selection = choose_tax_rate_basis(
+            quote_tax_year=tax_year,
+            candidates=candidates,
+        )
+        same_year_adoption_status = self._load_same_year_tax_rate_adoption_status(
+            cursor,
+            county_id=county_id,
+            tax_year=selection.basis_tax_year,
+            quote_tax_year=tax_year,
+        )
         return _ScopedTaxRateBasisSelection(
             county_id=county_id,
             quote_tax_year=tax_year,
-            selection=choose_tax_rate_basis(
-                quote_tax_year=tax_year,
-                candidates=candidates,
+            selection=assign_tax_rate_basis_status(
+                selection=selection,
+                same_year_adoption_status=same_year_adoption_status,
+            ),
+        )
+
+    def _load_same_year_tax_rate_adoption_status(
+        self,
+        cursor: object,
+        *,
+        county_id: str,
+        tax_year: int | None,
+        quote_tax_year: int,
+    ) -> SameYearTaxRateAdoptionStatus | None:
+        if tax_year is None or tax_year != quote_tax_year:
+            return None
+        cursor.execute(
+            """
+            SELECT
+              adoption_status,
+              adoption_status_reason,
+              status_source
+            FROM instant_quote_tax_rate_adoption_statuses
+            WHERE county_id = %s
+              AND tax_year = %s
+            """,
+            (county_id, tax_year),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return SameYearTaxRateAdoptionStatus(
+            county_id=county_id,
+            tax_year=tax_year,
+            adoption_status=str(row["adoption_status"]),
+            adoption_status_reason=(
+                None
+                if row.get("adoption_status_reason") is None
+                else str(row["adoption_status_reason"])
+            ),
+            status_source=(
+                None if row.get("status_source") is None else str(row["status_source"])
             ),
         )
 
@@ -1606,6 +1694,11 @@ class InstantQuoteRefreshService:
             warning_codes.append("tax_rate_basis_fallback_applied")
         if summary.tax_rate_basis_year is None:
             warning_codes.append("no_usable_tax_rate_basis")
+        if (
+            summary.tax_rate_basis_status
+            == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES
+        ):
+            warning_codes.append("tax_rate_basis_current_year_unofficial_or_proposed")
 
         with get_connection() as connection:
             with connection.cursor() as cursor:
@@ -1629,6 +1722,8 @@ class InstantQuoteRefreshService:
                         tax_rate_basis_year = %s,
                         tax_rate_basis_reason = %s,
                         tax_rate_basis_fallback_applied = %s,
+                        tax_rate_basis_status = %s,
+                        tax_rate_basis_status_reason = %s,
                         requested_tax_rate_supportable_subject_row_count = %s,
                         tax_rate_basis_supportable_subject_row_count = %s,
                         warning_codes = %s
@@ -1650,6 +1745,8 @@ class InstantQuoteRefreshService:
                         summary.tax_rate_basis_year,
                         summary.tax_rate_basis_reason,
                         summary.tax_rate_basis_fallback_applied,
+                        summary.tax_rate_basis_status,
+                        summary.tax_rate_basis_status_reason,
                         summary.requested_tax_rate_supportable_subject_row_count,
                         summary.tax_rate_basis_supportable_subject_row_count,
                         warning_codes,
@@ -2111,6 +2208,10 @@ class InstantQuoteService:
                     "tax_rate_source_method": subject_row.get("effective_tax_rate_source_method"),
                     "tax_rate_basis_year": subject_row.get("effective_tax_rate_basis_year"),
                     "tax_rate_basis_reason": subject_row.get("effective_tax_rate_basis_reason"),
+                    "tax_rate_basis_status": subject_row.get("effective_tax_rate_basis_status"),
+                    "tax_rate_basis_status_reason": subject_row.get(
+                        "effective_tax_rate_basis_status_reason"
+                    ),
                     "subject_percentile": subject_percentile,
                     "target_psf": target_psf,
                     "subject_assessed_psf": subject_assessed_psf,
@@ -2150,6 +2251,10 @@ class InstantQuoteService:
                     "tax_rate_source_method": subject_row.get("effective_tax_rate_source_method"),
                     "tax_rate_basis_year": subject_row.get("effective_tax_rate_basis_year"),
                     "tax_rate_basis_reason": subject_row.get("effective_tax_rate_basis_reason"),
+                    "tax_rate_basis_status": subject_row.get("effective_tax_rate_basis_status"),
+                    "tax_rate_basis_status_reason": subject_row.get(
+                        "effective_tax_rate_basis_status_reason"
+                    ),
                     "subject_percentile": subject_percentile,
                     "target_psf": target_psf,
                     "subject_assessed_psf": subject_assessed_psf,
@@ -2238,6 +2343,10 @@ class InstantQuoteService:
                 "tax_rate_source_method": subject_row.get("effective_tax_rate_source_method"),
                 "tax_rate_basis_year": subject_row.get("effective_tax_rate_basis_year"),
                 "tax_rate_basis_reason": subject_row.get("effective_tax_rate_basis_reason"),
+                "tax_rate_basis_status": subject_row.get("effective_tax_rate_basis_status"),
+                "tax_rate_basis_status_reason": subject_row.get(
+                    "effective_tax_rate_basis_status_reason"
+                ),
                 "subject_percentile": subject_percentile,
                 "target_psf": target_psf,
                 "subject_assessed_psf": subject_assessed_psf,

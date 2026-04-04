@@ -120,6 +120,8 @@ class StubDataReadinessService:
                         "fallback_requested_year_missing_supportable_subjects"
                     ),
                     instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_rate_basis_status_reason="basis_year_precedes_quote_year",
                     instant_quote_tax_rate_requested_year_supportable_subject_row_count=0,
                     instant_quote_tax_rate_basis_supportable_subject_row_count=31,
                     search_support_ready=True,
@@ -240,6 +242,10 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert row.derived.instant_quote_tax_rate_basis_fallback_applied is True
     assert row.derived.instant_quote_tax_rate_basis_reason == (
         "fallback_requested_year_missing_supportable_subjects"
+    )
+    assert row.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
+    assert row.derived.instant_quote_tax_rate_basis_status_reason == (
+        "basis_year_precedes_quote_year"
     )
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"

@@ -65,6 +65,8 @@ class StubCursor:
                     "tax_rate_basis_year": 2025,
                     "tax_rate_basis_reason": "fallback_requested_year_missing_supportable_subjects",
                     "tax_rate_basis_fallback_applied": True,
+                    "tax_rate_basis_status": "prior_year_adopted_rates",
+                    "tax_rate_basis_status_reason": "basis_year_precedes_quote_year",
                     "requested_tax_rate_supportable_subject_row_count": 0,
                     "tax_rate_basis_supportable_subject_row_count": 24,
                 }
@@ -151,6 +153,8 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.tax_rate_basis_year == 2025
     assert report.tax_rate_basis_reason == "fallback_requested_year_missing_supportable_subjects"
     assert report.tax_rate_basis_fallback_applied is True
+    assert report.tax_rate_basis_status == "prior_year_adopted_rates"
+    assert report.tax_rate_basis_status_reason == "basis_year_precedes_quote_year"
     assert report.requested_tax_rate_supportable_subject_row_count == 0
     assert report.tax_rate_basis_supportable_subject_row_count == 24
     assert report.subject_rows_without_usable_neighborhood_stats == 0

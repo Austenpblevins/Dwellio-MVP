@@ -30,6 +30,15 @@ Tax-rate basis behavior:
 - this happens automatically inside the refresh path, not through a public product mode
 - current-year quotes remain current-year quotes even when the effective tax rate comes from a prior adopted year
 - once current-year effective tax-rate coverage is usable, refresh automatically switches back without an annual code change
+- internal refresh/readiness metadata separately classifies the selected basis as one of:
+  - `prior_year_adopted_rates`
+  - `current_year_unofficial_or_proposed_rates`
+  - `current_year_final_adopted_rates`
+- basis year and basis status are different truths:
+  - basis year answers which tax year supplied the effective rate
+  - basis status answers whether that basis should be treated internally as prior-year adopted, same-year unofficial/proposed, or same-year final adopted
+- same-year rates default to `current_year_unofficial_or_proposed_rates` unless the internal county-year adoption-status metadata explicitly marks them as final adopted
+- this classification stays internal to refresh, readiness, validation, and admin surfaces and is not a public quote mode
 
 Assessment basis:
 - use the canonical basis order already embedded in the parcel stack:
@@ -52,5 +61,5 @@ Observability:
 - request-path structured logs
 - background best-effort inserts into `instant_quote_request_logs`
 - refresh history persisted in `instant_quote_refresh_runs`
-- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, and supportable-subject counts used to justify the choice
+- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, internal basis-status classification, basis-status reason, and supportable-subject counts used to justify the choice
 - readiness counts exposed through county-year readiness derived fields from the serving artifacts

@@ -24,6 +24,11 @@ from app.services.instant_quote import (
     score_confidence,
 )
 from app.services.instant_quote_tax_rate_basis import (
+    TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+    TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES,
+    TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES,
+    SameYearTaxRateAdoptionStatus,
+    assign_tax_rate_basis_status,
     TaxRateBasisCandidate,
     choose_tax_rate_basis,
 )
@@ -200,6 +205,10 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
     assert metrics.selected_tax_rate_basis.reason_code == (
         "fallback_requested_year_missing_supportable_subjects"
     )
+    assert (
+        metrics.selected_tax_rate_basis.basis_status
+        == TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES
+    )
     assert any("FROM parcel_year_snapshots pys" in statement for statement in cursor.statements)
     assert any(
         "CREATE TEMP TABLE tmp_instant_quote_subject_scope ON COMMIT DROP AS" in statement
@@ -228,6 +237,64 @@ def test_choose_tax_rate_basis_prefers_requested_year_once_usable() -> None:
     assert selection.basis_tax_year == 2026
     assert selection.fallback_applied is False
     assert selection.reason_code == "requested_year_usable"
+
+
+def test_assign_tax_rate_basis_status_marks_prior_year_fallback_as_adopted() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=0),
+                TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=24),
+            ],
+        )
+    )
+
+    assert selection.basis_tax_year == 2025
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES
+    assert selection.basis_status_reason == "basis_year_precedes_quote_year"
+
+
+def test_assign_tax_rate_basis_status_defaults_same_year_to_unofficial_without_proof() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=27),
+                TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=300),
+            ],
+        )
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert (
+        selection.basis_status
+        == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES
+    )
+    assert selection.basis_status_reason == "same_year_rates_without_final_adoption_proof"
+
+
+def test_assign_tax_rate_basis_status_uses_explicit_final_adoption_truth() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=27),
+                TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=300),
+            ],
+        ),
+        same_year_adoption_status=SameYearTaxRateAdoptionStatus(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status=TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+            adoption_status_reason="operator_marked_final_adopted",
+            status_source="operator_asserted",
+        ),
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
+    assert selection.basis_status_reason == "operator_marked_final_adopted"
 
 
 def test_choose_tax_rate_basis_falls_back_to_nearest_prior_usable_year() -> None:
