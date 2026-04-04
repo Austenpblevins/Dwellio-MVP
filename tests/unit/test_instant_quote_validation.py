@@ -67,6 +67,19 @@ class StubCursor:
                     "tax_rate_basis_fallback_applied": True,
                     "requested_tax_rate_supportable_subject_row_count": 0,
                     "tax_rate_basis_supportable_subject_row_count": 24,
+                    "tax_rate_quoteable_subject_row_count": 100,
+                    "requested_tax_rate_effective_tax_rate_coverage_ratio": 0.2,
+                    "requested_tax_rate_assignment_coverage_ratio": 0.6,
+                    "tax_rate_basis_effective_tax_rate_coverage_ratio": 0.92,
+                    "tax_rate_basis_assignment_coverage_ratio": 0.95,
+                    "tax_rate_basis_continuity_parcel_match_row_count": 88,
+                    "tax_rate_basis_continuity_parcel_gap_row_count": 12,
+                    "tax_rate_basis_continuity_parcel_match_ratio": 0.88,
+                    "tax_rate_basis_continuity_account_number_match_row_count": 6,
+                    "tax_rate_basis_warning_codes": [
+                        "parcel_continuity_warning",
+                        "account_number_continuity_diagnostic",
+                    ],
                 }
             ]
         elif "FROM instant_quote_subject_cache" in sql and "LIMIT 2" in sql:
@@ -153,6 +166,19 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.tax_rate_basis_fallback_applied is True
     assert report.requested_tax_rate_supportable_subject_row_count == 0
     assert report.tax_rate_basis_supportable_subject_row_count == 24
+    assert report.tax_rate_quoteable_subject_row_count == 100
+    assert report.requested_tax_rate_effective_tax_rate_coverage_ratio == 0.2
+    assert report.requested_tax_rate_assignment_coverage_ratio == 0.6
+    assert report.tax_rate_basis_effective_tax_rate_coverage_ratio == 0.92
+    assert report.tax_rate_basis_assignment_coverage_ratio == 0.95
+    assert report.tax_rate_basis_continuity_parcel_match_row_count == 88
+    assert report.tax_rate_basis_continuity_parcel_gap_row_count == 12
+    assert report.tax_rate_basis_continuity_parcel_match_ratio == 0.88
+    assert report.tax_rate_basis_continuity_account_number_match_row_count == 6
+    assert report.tax_rate_basis_warning_codes == [
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
+    ]
     assert report.subject_rows_without_usable_neighborhood_stats == 0
     assert report.subject_rows_without_usable_segment_stats == 6
     assert report.subject_rows_missing_segment_row == 4

@@ -24,6 +24,7 @@ from app.services.instant_quote import (
     score_confidence,
 )
 from app.services.instant_quote_tax_rate_basis import (
+    INSTANT_QUOTE_TAX_RATE_BASIS_MIN_EFFECTIVE_TAX_RATE_COVERAGE_RATIO,
     TaxRateBasisCandidate,
     choose_tax_rate_basis,
 )
@@ -79,9 +80,30 @@ class _RefreshCursor:
         elif "candidate_basis_years.basis_year AS tax_year" in normalized:
             self._row = None
             self._rows = [
-                {"tax_year": 2026, "supportable_subject_row_count": 0},
-                {"tax_year": 2025, "supportable_subject_row_count": 24},
-                {"tax_year": 2024, "supportable_subject_row_count": 19},
+                {
+                    "tax_year": 2026,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 20,
+                    "assignment_complete_row_count": 60,
+                    "continuity_parcel_match_row_count": 100,
+                    "continuity_account_number_match_row_count": 0,
+                },
+                {
+                    "tax_year": 2025,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 92,
+                    "assignment_complete_row_count": 95,
+                    "continuity_parcel_match_row_count": 88,
+                    "continuity_account_number_match_row_count": 6,
+                },
+                {
+                    "tax_year": 2024,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 90,
+                    "assignment_complete_row_count": 94,
+                    "continuity_parcel_match_row_count": 70,
+                    "continuity_account_number_match_row_count": 12,
+                },
             ]
         elif "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
             self._row = {"count": 5}
@@ -198,7 +220,17 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
     assert metrics.selected_tax_rate_basis.basis_tax_year == 2025
     assert metrics.selected_tax_rate_basis.fallback_applied is True
     assert metrics.selected_tax_rate_basis.reason_code == (
-        "fallback_requested_year_missing_supportable_subjects"
+        "fallback_requested_year_below_effective_coverage_threshold"
+    )
+    assert metrics.selected_tax_rate_basis.quoteable_subject_row_count == 100
+    assert metrics.selected_tax_rate_basis.requested_year_effective_tax_rate_coverage_ratio == 0.2
+    assert metrics.selected_tax_rate_basis.requested_year_assignment_coverage_ratio == 0.6
+    assert metrics.selected_tax_rate_basis.selected_basis_effective_tax_rate_coverage_ratio == 0.92
+    assert metrics.selected_tax_rate_basis.selected_basis_assignment_coverage_ratio == 0.95
+    assert metrics.selected_tax_rate_basis.selected_basis_continuity_parcel_match_ratio == 0.88
+    assert metrics.selected_tax_rate_basis.selected_basis_warning_codes == (
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
     )
     assert any("FROM parcel_year_snapshots pys" in statement for statement in cursor.statements)
     assert any(
@@ -220,8 +252,20 @@ def test_choose_tax_rate_basis_prefers_requested_year_once_usable() -> None:
     selection = choose_tax_rate_basis(
         quote_tax_year=2026,
         candidates=[
-            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=27),
-            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=300),
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=30,
+                supportable_subject_row_count=27,
+                assignment_complete_row_count=28,
+                continuity_parcel_match_row_count=30,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=30,
+                supportable_subject_row_count=30,
+                assignment_complete_row_count=30,
+                continuity_parcel_match_row_count=29,
+            ),
         ],
     )
 
@@ -230,27 +274,90 @@ def test_choose_tax_rate_basis_prefers_requested_year_once_usable() -> None:
     assert selection.reason_code == "requested_year_usable"
 
 
+def test_choose_tax_rate_basis_rejects_requested_year_with_row_floor_but_weak_coverage() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=40,
+                supportable_subject_row_count=20,
+                assignment_complete_row_count=39,
+                continuity_parcel_match_row_count=40,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=40,
+                supportable_subject_row_count=35,
+                assignment_complete_row_count=38,
+                continuity_parcel_match_row_count=37,
+            ),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2025
+    assert selection.fallback_applied is True
+    assert selection.reason_code == "fallback_requested_year_below_effective_coverage_threshold"
+    assert (
+        selection.requested_year_effective_tax_rate_coverage_ratio
+        < INSTANT_QUOTE_TAX_RATE_BASIS_MIN_EFFECTIVE_TAX_RATE_COVERAGE_RATIO
+    )
+
+
 def test_choose_tax_rate_basis_falls_back_to_nearest_prior_usable_year() -> None:
     selection = choose_tax_rate_basis(
         quote_tax_year=2027,
         candidates=[
-            TaxRateBasisCandidate(tax_year=2027, supportable_subject_row_count=8),
-            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=25),
-            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=40),
+            TaxRateBasisCandidate(
+                tax_year=2027,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=44,
+                assignment_complete_row_count=35,
+                continuity_parcel_match_row_count=50,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=46,
+                assignment_complete_row_count=47,
+                continuity_parcel_match_row_count=44,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=48,
+                assignment_complete_row_count=49,
+                continuity_parcel_match_row_count=42,
+            ),
         ],
     )
 
     assert selection.basis_tax_year == 2026
     assert selection.fallback_applied is True
-    assert selection.reason_code == "fallback_requested_year_below_support_threshold"
+    assert selection.reason_code == "fallback_requested_year_below_assignment_coverage_threshold"
+    assert selection.selected_basis_warning_codes == (
+        "parcel_continuity_warning",
+    )
 
 
 def test_choose_tax_rate_basis_returns_safe_no_basis_when_no_year_is_usable() -> None:
     selection = choose_tax_rate_basis(
         quote_tax_year=2026,
         candidates=[
-            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=0),
-            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=19),
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=25,
+                supportable_subject_row_count=0,
+                assignment_complete_row_count=0,
+                continuity_parcel_match_row_count=25,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=25,
+                supportable_subject_row_count=22,
+                assignment_complete_row_count=24,
+                continuity_parcel_match_row_count=18,
+            ),
         ],
     )
 

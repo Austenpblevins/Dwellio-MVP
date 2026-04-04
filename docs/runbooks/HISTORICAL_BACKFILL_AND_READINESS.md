@@ -40,6 +40,10 @@ Interpretation:
 - derived flags show whether summary/search/feature/comp/quote data is actually present for that county-year
 - instant-quote readiness can temporarily report a prior `instant_quote_tax_rate_basis_year` for a current quote year when current-year tax rates are not yet usable at refresh time
 - `instant_quote_tax_rate_basis_fallback_applied = true` means the current quote year is still being served with the nearest prior usable adopted tax-rate basis
+- requested-year tax-rate basis usability is now conservative:
+  - it still needs the `20` supportable-subject floor
+  - it also needs strong effective-tax-rate coverage and tax-assignment completeness on the current-year instant-quote cohort
+- fallback quality is now measurable through parcel continuity metrics between the requested quote year and the selected basis year
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
 ## 3. Backfill a historical year from real county files
@@ -135,3 +139,6 @@ python3 -m app.jobs.cli job_run_ingestion --county-id harris --tax-year 2026 --d
 - Do not assume a current year is backfill-ready just because it exists in `tax_years`.
 - Use readiness reporting to confirm raw, canonical, and derived status by county-year before using a year for valuation or comp QA.
 - For instant quote, no annual code change is required when current-year tax rates are late. Refresh will automatically use the requested year once its tax-rate basis becomes usable.
+- When fallback is active, review continuity metrics before trusting the refresh for real current-year operations:
+  - `instant_quote_tax_rate_basis_continuity_parcel_match_ratio`
+  - `instant_quote_tax_rate_basis_warning_codes`

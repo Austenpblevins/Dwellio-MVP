@@ -93,6 +93,21 @@ def test_validate_schema_readiness_passes_when_required_objects_and_tax_year_sta
     assert issues == []
 
 
+def test_instant_quote_schema_readiness_requires_hardening_columns() -> None:
+    spec = JOB_READINESS_SPECS["job_refresh_instant_quote"]
+
+    assert ("instant_quote_refresh_runs", "tax_rate_quoteable_subject_row_count") in spec.required_columns
+    assert (
+        "instant_quote_refresh_runs",
+        "requested_tax_rate_effective_tax_rate_coverage_ratio",
+    ) in spec.required_columns
+    assert (
+        "instant_quote_refresh_runs",
+        "tax_rate_basis_continuity_parcel_match_ratio",
+    ) in spec.required_columns
+    assert ("instant_quote_refresh_runs", "tax_rate_basis_warning_codes") in spec.required_columns
+
+
 def test_assert_job_schema_ready_raises_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Cursor:
         def __init__(self) -> None:

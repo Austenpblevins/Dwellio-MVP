@@ -11,6 +11,7 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     assert "0047" in versions
     assert "0048" in versions
     assert "0049" in versions
+    assert "0050" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -77,3 +78,20 @@ def test_stage17_dynamic_tax_rate_basis_migration_present() -> None:
     assert "tax_rate_basis_fallback_applied" in sql
     assert "requested_tax_rate_supportable_subject_row_count" in sql
     assert "tax_rate_basis_supportable_subject_row_count" in sql
+
+
+def test_stage17_tax_rate_basis_hardening_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0050_stage17_tax_rate_basis_hardening.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "ALTER TABLE instant_quote_refresh_runs" in sql
+    assert "tax_rate_quoteable_subject_row_count" in sql
+    assert "requested_tax_rate_effective_tax_rate_coverage_ratio" in sql
+    assert "requested_tax_rate_assignment_coverage_ratio" in sql
+    assert "tax_rate_basis_effective_tax_rate_coverage_ratio" in sql
+    assert "tax_rate_basis_assignment_coverage_ratio" in sql
+    assert "tax_rate_basis_continuity_parcel_match_row_count" in sql
+    assert "tax_rate_basis_continuity_parcel_gap_row_count" in sql
+    assert "tax_rate_basis_continuity_parcel_match_ratio" in sql
+    assert "tax_rate_basis_continuity_account_number_match_row_count" in sql
+    assert "tax_rate_basis_warning_codes" in sql

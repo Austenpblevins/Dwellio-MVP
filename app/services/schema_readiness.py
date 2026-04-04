@@ -71,6 +71,36 @@ MIGRATION_HINTS: dict[str, str] = {
     "column:instant_quote_refresh_runs.tax_rate_basis_supportable_subject_row_count": (
         "Apply migration 0049_stage17_dynamic_tax_rate_basis before running this job."
     ),
+    "column:instant_quote_refresh_runs.tax_rate_quoteable_subject_row_count": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.requested_tax_rate_effective_tax_rate_coverage_ratio": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.requested_tax_rate_assignment_coverage_ratio": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_effective_tax_rate_coverage_ratio": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_assignment_coverage_ratio": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_continuity_parcel_match_row_count": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_continuity_parcel_gap_row_count": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_continuity_parcel_match_ratio": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_continuity_account_number_match_row_count": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
+    "column:instant_quote_refresh_runs.tax_rate_basis_warning_codes": (
+        "Apply migration 0050_stage17_tax_rate_basis_hardening before running this job."
+    ),
     "table:parcel_features": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidate_pools": "Apply migration 0019_features_comps before running this job.",
     "table:comp_candidates": "Apply migration 0019_features_comps before running this job.",
@@ -161,6 +191,16 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             ("instant_quote_refresh_runs", "tax_rate_basis_fallback_applied"),
             ("instant_quote_refresh_runs", "requested_tax_rate_supportable_subject_row_count"),
             ("instant_quote_refresh_runs", "tax_rate_basis_supportable_subject_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_quoteable_subject_row_count"),
+            ("instant_quote_refresh_runs", "requested_tax_rate_effective_tax_rate_coverage_ratio"),
+            ("instant_quote_refresh_runs", "requested_tax_rate_assignment_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_effective_tax_rate_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_assignment_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_match_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_gap_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_match_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_account_number_match_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_warning_codes"),
         ),
         require_tax_year_valuation_date=True,
     ),
@@ -183,6 +223,16 @@ JOB_READINESS_SPECS: dict[str, SchemaReadinessSpec] = {
             ("instant_quote_refresh_runs", "tax_rate_basis_fallback_applied"),
             ("instant_quote_refresh_runs", "requested_tax_rate_supportable_subject_row_count"),
             ("instant_quote_refresh_runs", "tax_rate_basis_supportable_subject_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_quoteable_subject_row_count"),
+            ("instant_quote_refresh_runs", "requested_tax_rate_effective_tax_rate_coverage_ratio"),
+            ("instant_quote_refresh_runs", "requested_tax_rate_assignment_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_effective_tax_rate_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_assignment_coverage_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_match_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_gap_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_parcel_match_ratio"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_continuity_account_number_match_row_count"),
+            ("instant_quote_refresh_runs", "tax_rate_basis_warning_codes"),
         ),
         require_tax_year_valuation_date=True,
     ),

@@ -100,8 +100,18 @@ class InstantQuoteRefreshSummary:
     tax_rate_basis_fallback_applied: bool = False
     requested_tax_rate_supportable_subject_row_count: int = 0
     tax_rate_basis_supportable_subject_row_count: int = 0
+    tax_rate_quoteable_subject_row_count: int = 0
+    requested_tax_rate_effective_tax_rate_coverage_ratio: float = 0.0
+    requested_tax_rate_assignment_coverage_ratio: float = 0.0
+    tax_rate_basis_effective_tax_rate_coverage_ratio: float = 0.0
+    tax_rate_basis_assignment_coverage_ratio: float = 0.0
+    tax_rate_basis_continuity_parcel_match_row_count: int = 0
+    tax_rate_basis_continuity_parcel_gap_row_count: int = 0
+    tax_rate_basis_continuity_parcel_match_ratio: float = 0.0
+    tax_rate_basis_continuity_account_number_match_row_count: int = 0
+    tax_rate_basis_warning_codes: tuple[str, ...] = ()
 
-    def as_log_extra(self) -> dict[str, int | str | bool | None]:
+    def as_log_extra(self) -> dict[str, int | float | str | bool | list[str] | None]:
         return {
             "subject_row_count": self.subject_row_count,
             "supportable_subject_row_count": self.supportable_subject_row_count,
@@ -124,6 +134,32 @@ class InstantQuoteRefreshSummary:
             "tax_rate_basis_supportable_subject_row_count": (
                 self.tax_rate_basis_supportable_subject_row_count
             ),
+            "tax_rate_quoteable_subject_row_count": self.tax_rate_quoteable_subject_row_count,
+            "requested_tax_rate_effective_tax_rate_coverage_ratio": (
+                self.requested_tax_rate_effective_tax_rate_coverage_ratio
+            ),
+            "requested_tax_rate_assignment_coverage_ratio": (
+                self.requested_tax_rate_assignment_coverage_ratio
+            ),
+            "tax_rate_basis_effective_tax_rate_coverage_ratio": (
+                self.tax_rate_basis_effective_tax_rate_coverage_ratio
+            ),
+            "tax_rate_basis_assignment_coverage_ratio": (
+                self.tax_rate_basis_assignment_coverage_ratio
+            ),
+            "tax_rate_basis_continuity_parcel_match_row_count": (
+                self.tax_rate_basis_continuity_parcel_match_row_count
+            ),
+            "tax_rate_basis_continuity_parcel_gap_row_count": (
+                self.tax_rate_basis_continuity_parcel_gap_row_count
+            ),
+            "tax_rate_basis_continuity_parcel_match_ratio": (
+                self.tax_rate_basis_continuity_parcel_match_ratio
+            ),
+            "tax_rate_basis_continuity_account_number_match_row_count": (
+                self.tax_rate_basis_continuity_account_number_match_row_count
+            ),
+            "tax_rate_basis_warning_codes": list(self.tax_rate_basis_warning_codes),
         }
 
 
@@ -332,6 +368,70 @@ class InstantQuoteRefreshService:
                     0
                     if cache_metrics.selected_tax_rate_basis is None
                     else cache_metrics.selected_tax_rate_basis.selected_basis_supportable_subject_row_count
+                ),
+                tax_rate_quoteable_subject_row_count=(
+                    0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else cache_metrics.selected_tax_rate_basis.quoteable_subject_row_count
+                ),
+                requested_tax_rate_effective_tax_rate_coverage_ratio=(
+                    0.0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.requested_year_effective_tax_rate_coverage_ratio
+                    )
+                ),
+                requested_tax_rate_assignment_coverage_ratio=(
+                    0.0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.requested_year_assignment_coverage_ratio
+                    )
+                ),
+                tax_rate_basis_effective_tax_rate_coverage_ratio=(
+                    0.0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.selected_basis_effective_tax_rate_coverage_ratio
+                    )
+                ),
+                tax_rate_basis_assignment_coverage_ratio=(
+                    0.0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else cache_metrics.selected_tax_rate_basis.selected_basis_assignment_coverage_ratio
+                ),
+                tax_rate_basis_continuity_parcel_match_row_count=(
+                    0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.selected_basis_continuity_parcel_match_row_count
+                    )
+                ),
+                tax_rate_basis_continuity_parcel_gap_row_count=(
+                    0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.selected_basis_continuity_parcel_gap_row_count
+                    )
+                ),
+                tax_rate_basis_continuity_parcel_match_ratio=(
+                    0.0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.selected_basis_continuity_parcel_match_ratio
+                    )
+                ),
+                tax_rate_basis_continuity_account_number_match_row_count=(
+                    0
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else (
+                        cache_metrics.selected_tax_rate_basis.selected_basis_continuity_account_number_match_row_count
+                    )
+                ),
+                tax_rate_basis_warning_codes=(
+                    ()
+                    if cache_metrics.selected_tax_rate_basis is None
+                    else cache_metrics.selected_tax_rate_basis.selected_basis_warning_codes
                 ),
             )
             self._complete_refresh_run(
@@ -1152,6 +1252,7 @@ class InstantQuoteRefreshService:
             WITH scope_base AS (
               SELECT
                 scope.parcel_id,
+                scope.account_number,
                 COALESCE(pc.property_type_code, p.property_type_code) AS property_type_code,
                 COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
                 pi.living_area_sf,
@@ -1176,39 +1277,115 @@ class InstantQuoteRefreshService:
               WHERE scope.county_id = %s
                 AND scope.tax_year = %s
             ),
+            quoteable_cohort AS (
+              SELECT *
+              FROM scope_base
+              WHERE property_type_code = 'sfr'
+                AND COALESCE(living_area_sf, 0) > 0
+                AND COALESCE(assessment_basis_value, 0) > 0
+                AND neighborhood_code IS NOT NULL
+                AND btrim(neighborhood_code) <> ''
+            ),
             candidate_basis_years AS (
               SELECT %s::integer AS basis_year
               UNION
               SELECT DISTINCT etr.tax_year AS basis_year
               FROM effective_tax_rates etr
-              JOIN scope_base base
+              JOIN quoteable_cohort base
                 ON base.parcel_id = etr.parcel_id
               WHERE etr.tax_year < %s
+            ),
+            basis_assignments AS (
+              SELECT
+                ptu.parcel_id,
+                ptu.tax_year,
+                COUNT(*) FILTER (WHERE tu.unit_type_code = 'county')::integer AS county_assignment_count,
+                COUNT(*) FILTER (WHERE tu.unit_type_code = 'school')::integer AS school_assignment_count
+              FROM parcel_taxing_units ptu
+              JOIN taxing_units tu
+                ON tu.taxing_unit_id = ptu.taxing_unit_id
+              JOIN candidate_basis_years candidate
+                ON candidate.basis_year = ptu.tax_year
+              JOIN quoteable_cohort cohort
+                ON cohort.parcel_id = ptu.parcel_id
+              GROUP BY ptu.parcel_id, ptu.tax_year
+            ),
+            basis_parcel_continuity AS (
+              SELECT
+                pys.parcel_id,
+                pys.tax_year
+              FROM parcel_year_snapshots pys
+              JOIN candidate_basis_years candidate
+                ON candidate.basis_year = pys.tax_year
+              JOIN quoteable_cohort cohort
+                ON cohort.parcel_id = pys.parcel_id
+              WHERE pys.is_current = true
+            ),
+            basis_account_diagnostic AS (
+              SELECT
+                cohort.parcel_id,
+                candidate.basis_year,
+                BOOL_OR(snapshot.account_number = cohort.account_number) AS account_number_match
+              FROM quoteable_cohort cohort
+              CROSS JOIN candidate_basis_years candidate
+              LEFT JOIN parcel_year_snapshots snapshot
+                ON snapshot.county_id = %s
+               AND snapshot.tax_year = candidate.basis_year
+               AND snapshot.is_current = true
+               AND snapshot.account_number = cohort.account_number
+              GROUP BY cohort.parcel_id, candidate.basis_year
             )
             SELECT
               candidate_basis_years.basis_year AS tax_year,
+              COUNT(*)::integer AS quoteable_subject_row_count,
               COUNT(*) FILTER (
-                WHERE scope_base.property_type_code = 'sfr'
-                  AND COALESCE(scope_base.living_area_sf, 0) > 0
-                  AND COALESCE(scope_base.assessment_basis_value, 0) > 0
-                  AND scope_base.neighborhood_code IS NOT NULL
-                  AND btrim(scope_base.neighborhood_code) <> ''
-                  AND COALESCE(etr.effective_tax_rate, 0) > 0
+                WHERE COALESCE(etr.effective_tax_rate, 0) > 0
               )::integer AS supportable_subject_row_count
-            FROM scope_base
+              ,
+              COUNT(*) FILTER (
+                WHERE COALESCE(assignments.county_assignment_count, 0) > 0
+                  AND COALESCE(assignments.school_assignment_count, 0) > 0
+              )::integer AS assignment_complete_row_count,
+              COUNT(*) FILTER (
+                WHERE candidate_basis_years.basis_year = %s
+                   OR continuity.parcel_id IS NOT NULL
+              )::integer AS continuity_parcel_match_row_count,
+              COUNT(*) FILTER (
+                WHERE candidate_basis_years.basis_year < %s
+                  AND continuity.parcel_id IS NULL
+                  AND COALESCE(account_diagnostic.account_number_match, false)
+              )::integer AS continuity_account_number_match_row_count
+            FROM quoteable_cohort
             CROSS JOIN candidate_basis_years
             LEFT JOIN effective_tax_rates etr
-              ON etr.parcel_id = scope_base.parcel_id
+              ON etr.parcel_id = quoteable_cohort.parcel_id
              AND etr.tax_year = candidate_basis_years.basis_year
+            LEFT JOIN basis_assignments assignments
+              ON assignments.parcel_id = quoteable_cohort.parcel_id
+             AND assignments.tax_year = candidate_basis_years.basis_year
+            LEFT JOIN basis_parcel_continuity continuity
+              ON continuity.parcel_id = quoteable_cohort.parcel_id
+             AND continuity.tax_year = candidate_basis_years.basis_year
+            LEFT JOIN basis_account_diagnostic account_diagnostic
+              ON account_diagnostic.parcel_id = quoteable_cohort.parcel_id
+             AND account_diagnostic.basis_year = candidate_basis_years.basis_year
             GROUP BY candidate_basis_years.basis_year
             ORDER BY candidate_basis_years.basis_year DESC
             """,
-            (county_id, tax_year, tax_year, tax_year),
+            (county_id, tax_year, tax_year, tax_year, county_id, tax_year, tax_year),
         )
         candidates = [
             TaxRateBasisCandidate(
                 tax_year=int(row["tax_year"]),
+                quoteable_subject_row_count=int(row["quoteable_subject_row_count"] or 0),
                 supportable_subject_row_count=int(row["supportable_subject_row_count"] or 0),
+                assignment_complete_row_count=int(row["assignment_complete_row_count"] or 0),
+                continuity_parcel_match_row_count=int(
+                    row["continuity_parcel_match_row_count"] or 0
+                ),
+                continuity_account_number_match_row_count=int(
+                    row["continuity_account_number_match_row_count"] or 0
+                ),
             )
             for row in cursor.fetchall()
         ]
@@ -1606,6 +1783,8 @@ class InstantQuoteRefreshService:
             warning_codes.append("tax_rate_basis_fallback_applied")
         if summary.tax_rate_basis_year is None:
             warning_codes.append("no_usable_tax_rate_basis")
+        warning_codes.extend(summary.tax_rate_basis_warning_codes)
+        warning_codes = list(dict.fromkeys(warning_codes))
 
         with get_connection() as connection:
             with connection.cursor() as cursor:
@@ -1631,6 +1810,16 @@ class InstantQuoteRefreshService:
                         tax_rate_basis_fallback_applied = %s,
                         requested_tax_rate_supportable_subject_row_count = %s,
                         tax_rate_basis_supportable_subject_row_count = %s,
+                        tax_rate_quoteable_subject_row_count = %s,
+                        requested_tax_rate_effective_tax_rate_coverage_ratio = %s,
+                        requested_tax_rate_assignment_coverage_ratio = %s,
+                        tax_rate_basis_effective_tax_rate_coverage_ratio = %s,
+                        tax_rate_basis_assignment_coverage_ratio = %s,
+                        tax_rate_basis_continuity_parcel_match_row_count = %s,
+                        tax_rate_basis_continuity_parcel_gap_row_count = %s,
+                        tax_rate_basis_continuity_parcel_match_ratio = %s,
+                        tax_rate_basis_continuity_account_number_match_row_count = %s,
+                        tax_rate_basis_warning_codes = %s,
                         warning_codes = %s
                     WHERE instant_quote_refresh_run_id = %s::uuid
                     """,
@@ -1652,6 +1841,16 @@ class InstantQuoteRefreshService:
                         summary.tax_rate_basis_fallback_applied,
                         summary.requested_tax_rate_supportable_subject_row_count,
                         summary.tax_rate_basis_supportable_subject_row_count,
+                        summary.tax_rate_quoteable_subject_row_count,
+                        summary.requested_tax_rate_effective_tax_rate_coverage_ratio,
+                        summary.requested_tax_rate_assignment_coverage_ratio,
+                        summary.tax_rate_basis_effective_tax_rate_coverage_ratio,
+                        summary.tax_rate_basis_assignment_coverage_ratio,
+                        summary.tax_rate_basis_continuity_parcel_match_row_count,
+                        summary.tax_rate_basis_continuity_parcel_gap_row_count,
+                        summary.tax_rate_basis_continuity_parcel_match_ratio,
+                        summary.tax_rate_basis_continuity_account_number_match_row_count,
+                        list(summary.tax_rate_basis_warning_codes),
                         warning_codes,
                         refresh_run_id,
                     ),

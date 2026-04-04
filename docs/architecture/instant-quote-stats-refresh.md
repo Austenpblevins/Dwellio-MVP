@@ -25,9 +25,9 @@ Outputs:
 
 Refresh order:
 1. select a county-year tax-rate basis during refresh:
-   - prefer the requested quote year when that year already yields the canonical minimum supportable subject count
-   - otherwise fall back automatically to the nearest prior year with usable effective-tax-rate coverage
-   - persist the selected basis year, fallback flag, and reason in `instant_quote_subject_cache` and `instant_quote_refresh_runs`
+   - prefer the requested quote year only when it clears the full usability rule for the current-year quoteable cohort
+   - otherwise fall back automatically to the nearest prior year that clears the same usability checks
+   - persist the selected basis year, fallback flag, reason, coverage metrics, and continuity diagnostics in `instant_quote_subject_cache` and `instant_quote_refresh_runs`
 2. rebuild `instant_quote_subject_cache` from county-year-scoped canonical parcel-year inputs using the selected tax-rate basis year
 3. rebuild `instant_quote_neighborhood_stats` from supportable cache rows
 4. rebuild `instant_quote_segment_stats` from supportable cache rows
@@ -46,6 +46,20 @@ Tax-rate basis selection:
 - no annual code change is required when the platform rolls from `2026` to `2027` and beyond
 - once current-year effective tax-rate coverage becomes usable at refresh time, the refresh automatically switches back to the requested year
 
+Usability rule:
+- keep the canonical supportable-subject floor at `20`
+- require requested-year effective-tax-rate coverage of at least `85%` across the current-year quoteable cohort
+- require requested-year county+school assignment completeness of at least `90%` across that same cohort
+- require fallback basis parcel continuity by `parcel_id` of at least `85%`
+- emit a continuity warning when fallback continuity is below `90%`, even if the fallback basis is still usable
+
+Quoteable cohort for tax-rate basis evaluation:
+- current-year `sfr` rows only
+- positive living area
+- positive assessment basis
+- non-empty neighborhood code
+- this keeps the selector aligned to the same instant-quote population that would otherwise be blocked by missing effective tax rates
+
 Trim method:
 - trim assessed-PSF observations outside the deterministic `p05` to `p95` band
 - persist both raw parcel count and trimmed parcel count
@@ -62,5 +76,5 @@ Indexes:
 Operational checks:
 - compare the refresh source row count to `subject_cache_row_count` in `instant_quote_refresh_runs`
 - treat non-zero `cache_view_row_delta` as a serving-layer mismatch warning
-- inspect `tax_rate_basis_year`, `tax_rate_basis_fallback_applied`, `tax_rate_basis_reason`, and the supportable-subject counts in `instant_quote_refresh_runs` to see whether a county-year refresh used prior-year rates
+- inspect `tax_rate_basis_year`, `tax_rate_basis_fallback_applied`, `tax_rate_basis_reason`, supportable counts, coverage ratios, and continuity metrics in `instant_quote_refresh_runs` to see whether a county-year refresh used prior-year rates and whether the fallback quality is healthy
 - use `validated_at` plus `validation_report.supported_public_quote_exists` as the latest county-year validation gate

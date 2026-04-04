@@ -30,6 +30,10 @@ Tax-rate basis behavior:
 - this happens automatically inside the refresh path, not through a public product mode
 - current-year quotes remain current-year quotes even when the effective tax rate comes from a prior adopted year
 - once current-year effective tax-rate coverage is usable, refresh automatically switches back without an annual code change
+- requested-year usability is not row-floor only:
+  - keep the `20` supportable-subject floor
+  - also require strong effective-tax-rate coverage and tax-assignment completeness on the current-year quoteable cohort
+  - require measured parcel continuity before prior-year fallback is treated as usable
 
 Assessment basis:
 - use the canonical basis order already embedded in the parcel stack:
@@ -52,5 +56,5 @@ Observability:
 - request-path structured logs
 - background best-effort inserts into `instant_quote_request_logs`
 - refresh history persisted in `instant_quote_refresh_runs`
-- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, and supportable-subject counts used to justify the choice
+- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, supportable-subject counts, coverage ratios, and parcel-continuity diagnostics used to justify the choice
 - readiness counts exposed through county-year readiness derived fields from the serving artifacts

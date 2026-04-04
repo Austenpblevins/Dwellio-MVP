@@ -383,6 +383,36 @@ class AdminReadinessService:
                 instant_quote_tax_rate_basis_supportable_subject_row_count=(
                     readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count
                 ),
+                instant_quote_tax_rate_quoteable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_quoteable_subject_row_count
+                ),
+                instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio
+                ),
+                instant_quote_tax_rate_requested_year_assignment_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_assignment_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_assignment_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_assignment_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_match_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_row_count
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_gap_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_gap_row_count
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_match_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_ratio
+                ),
+                instant_quote_tax_rate_basis_continuity_account_number_match_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_account_number_match_row_count
+                ),
+                instant_quote_tax_rate_basis_warning_codes=(
+                    readiness.derived.instant_quote_tax_rate_basis_warning_codes
+                ),
                 instant_quote_supported_public_quote_exists=(
                     readiness.derived.instant_quote_supported_public_quote_exists
                 ),
@@ -672,6 +702,10 @@ class AdminReadinessService:
             alerts.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             alerts.append("instant_quote_support_too_thin")
+        if readiness.derived.instant_quote_tax_rate_basis_year is None:
+            alerts.append("instant_quote_tax_rate_basis_missing")
+        if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
+            alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
         if not searchable_ready:
             alerts.append("ingestion_to_searchable_incomplete")
         return list(dict.fromkeys(alerts))
@@ -707,4 +741,6 @@ class AdminReadinessService:
             blockers.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             blockers.append("instant_quote_public_support_thin")
+        if readiness.derived.instant_quote_tax_rate_basis_year is None:
+            blockers.append("instant_quote_tax_rate_basis_missing")
         return list(dict.fromkeys(blockers))
