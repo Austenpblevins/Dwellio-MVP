@@ -23,6 +23,10 @@ from app.services.instant_quote import (
     is_material_homestead_cap_limited,
     score_confidence,
 )
+from app.services.instant_quote_tax_rate_basis import (
+    TaxRateBasisCandidate,
+    choose_tax_rate_basis,
+)
 
 
 class _StubCursor:
@@ -58,6 +62,7 @@ class _RefreshCursor:
     def __init__(self) -> None:
         self.statements: list[str] = []
         self._row: dict[str, object] | None = None
+        self._rows: list[dict[str, object]] = []
 
     def __enter__(self):
         return self
@@ -68,18 +73,34 @@ class _RefreshCursor:
     def execute(self, sql: str, *_args, **_kwargs) -> None:
         normalized = " ".join(sql.split())
         self.statements.append(normalized)
-        if "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
+        if "SELECT DISTINCT county_id, tax_year FROM tmp_instant_quote_subject_scope" in normalized:
+            self._row = None
+            self._rows = [{"county_id": "harris", "tax_year": 2026}]
+        elif "candidate_basis_years.basis_year AS tax_year" in normalized:
+            self._row = None
+            self._rows = [
+                {"tax_year": 2026, "supportable_subject_row_count": 0},
+                {"tax_year": 2025, "supportable_subject_row_count": 24},
+                {"tax_year": 2024, "supportable_subject_row_count": 19},
+            ]
+        elif "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
             self._row = {"count": 5}
+            self._rows = []
         elif "SELECT COUNT(*)::integer AS subject_cache_row_count" in normalized:
             self._row = {
                 "subject_cache_row_count": 5,
                 "supportable_subject_row_count": 4,
             }
+            self._rows = []
         else:
             self._row = None
+            self._rows = []
 
     def fetchone(self) -> dict[str, object] | None:
         return self._row
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self._rows
 
 
 class _RefreshConnection:
@@ -167,18 +188,75 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
 
     metrics = InstantQuoteRefreshService()._refresh_subject_cache(  # type: ignore[attr-defined]
         county_id="harris",
-        tax_year=2025,
+        tax_year=2026,
     )
 
     assert metrics.source_view_row_count == 5
     assert metrics.subject_cache_row_count == 5
     assert metrics.supportable_subject_row_count == 4
+    assert metrics.selected_tax_rate_basis is not None
+    assert metrics.selected_tax_rate_basis.basis_tax_year == 2025
+    assert metrics.selected_tax_rate_basis.fallback_applied is True
+    assert metrics.selected_tax_rate_basis.reason_code == (
+        "fallback_requested_year_missing_supportable_subjects"
+    )
     assert any("FROM parcel_year_snapshots pys" in statement for statement in cursor.statements)
     assert any(
         "CREATE TEMP TABLE tmp_instant_quote_subject_scope ON COMMIT DROP AS" in statement
         for statement in cursor.statements
     )
+    assert any(
+        "CREATE TEMP TABLE tmp_instant_quote_tax_rate_basis_selection" in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "etr.tax_year = tax_basis.effective_tax_rate_basis_year" in statement
+        for statement in cursor.statements
+    )
     assert not any("FROM instant_quote_subject_view" in statement for statement in cursor.statements)
+
+
+def test_choose_tax_rate_basis_prefers_requested_year_once_usable() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=27),
+            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=300),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.fallback_applied is False
+    assert selection.reason_code == "requested_year_usable"
+
+
+def test_choose_tax_rate_basis_falls_back_to_nearest_prior_usable_year() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2027,
+        candidates=[
+            TaxRateBasisCandidate(tax_year=2027, supportable_subject_row_count=8),
+            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=25),
+            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=40),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.fallback_applied is True
+    assert selection.reason_code == "fallback_requested_year_below_support_threshold"
+
+
+def test_choose_tax_rate_basis_returns_safe_no_basis_when_no_year_is_usable() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(tax_year=2026, supportable_subject_row_count=0),
+            TaxRateBasisCandidate(tax_year=2025, supportable_subject_row_count=19),
+        ],
+    )
+
+    assert selection.basis_tax_year is None
+    assert selection.fallback_applied is False
+    assert selection.reason_code == "no_usable_tax_rate_basis"
 
 
 def test_calculate_distribution_stats_returns_monotonic_percentiles() -> None:

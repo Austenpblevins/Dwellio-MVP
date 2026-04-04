@@ -24,10 +24,14 @@ Outputs:
 - `instant_quote_refresh_runs`
 
 Refresh order:
-1. rebuild `instant_quote_subject_cache` from county-year-scoped canonical parcel-year inputs
-2. rebuild `instant_quote_neighborhood_stats` from supportable cache rows
-3. rebuild `instant_quote_segment_stats` from supportable cache rows
-4. run `job_validate_instant_quote` to attach a validation report to the latest county-year refresh run
+1. select a county-year tax-rate basis during refresh:
+   - prefer the requested quote year when that year already yields the canonical minimum supportable subject count
+   - otherwise fall back automatically to the nearest prior year with usable effective-tax-rate coverage
+   - persist the selected basis year, fallback flag, and reason in `instant_quote_subject_cache` and `instant_quote_refresh_runs`
+2. rebuild `instant_quote_subject_cache` from county-year-scoped canonical parcel-year inputs using the selected tax-rate basis year
+3. rebuild `instant_quote_neighborhood_stats` from supportable cache rows
+4. rebuild `instant_quote_segment_stats` from supportable cache rows
+5. run `job_validate_instant_quote` to attach a validation report to the latest county-year refresh run
 
 Population rules:
 - residential single-family only
@@ -35,6 +39,12 @@ Population rules:
 - positive assessment basis
 - neighborhood code required
 - positive effective tax rate required
+
+Tax-rate basis selection:
+- quote-year identity stays on the requested parcel tax year
+- only the effective tax rate may temporarily come from the nearest prior usable year
+- no annual code change is required when the platform rolls from `2026` to `2027` and beyond
+- once current-year effective tax-rate coverage becomes usable at refresh time, the refresh automatically switches back to the requested year
 
 Trim method:
 - trim assessed-PSF observations outside the deterministic `p05` to `p95` band
@@ -52,4 +62,5 @@ Indexes:
 Operational checks:
 - compare the refresh source row count to `subject_cache_row_count` in `instant_quote_refresh_runs`
 - treat non-zero `cache_view_row_delta` as a serving-layer mismatch warning
+- inspect `tax_rate_basis_year`, `tax_rate_basis_fallback_applied`, `tax_rate_basis_reason`, and the supportable-subject counts in `instant_quote_refresh_runs` to see whether a county-year refresh used prior-year rates
 - use `validated_at` plus `validation_report.supported_public_quote_exists` as the latest county-year validation gate

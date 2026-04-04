@@ -115,6 +115,13 @@ class StubDataReadinessService:
                     instant_quote_segment_stats_ready=True,
                     instant_quote_asset_ready=True,
                     instant_quote_ready=False,
+                    instant_quote_tax_rate_basis_year=2024,
+                    instant_quote_tax_rate_basis_reason=(
+                        "fallback_requested_year_missing_supportable_subjects"
+                    ),
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_requested_year_supportable_subject_row_count=0,
+                    instant_quote_tax_rate_basis_supportable_subject_row_count=31,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -229,6 +236,11 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "manual_backfill_required" in row.blockers
     assert "instant_quote_public_support_thin" in row.blockers
     assert row.derived.instant_quote_asset_ready is True
+    assert row.derived.instant_quote_tax_rate_basis_year == 2024
+    assert row.derived.instant_quote_tax_rate_basis_fallback_applied is True
+    assert row.derived.instant_quote_tax_rate_basis_reason == (
+        "fallback_requested_year_missing_supportable_subjects"
+    )
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"
     assert row.operational.stale_running_job_count == 1

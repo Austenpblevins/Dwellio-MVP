@@ -8,8 +8,11 @@ from app.county_adapters.common.config_loader import (
     resolve_dataset_year_support,
 )
 from app.db.connection import get_connection
+from app.services.instant_quote_tax_rate_basis import (
+    INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS,
+)
 
-INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = 20
+INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,11 @@ class TaxYearDerivedReadiness:
     instant_quote_last_refresh_at: datetime | None = None
     instant_quote_last_validated_at: datetime | None = None
     instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_tax_rate_basis_year: int | None = None
+    instant_quote_tax_rate_basis_reason: str | None = None
+    instant_quote_tax_rate_basis_fallback_applied: bool = False
+    instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
+    instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_supported_public_quote_exists: bool = False
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
@@ -499,6 +507,40 @@ class DataReadinessService:
                 if latest_instant_quote_refresh is None
                 else int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0)
             ),
+            instant_quote_tax_rate_basis_year=(
+                None
+                if latest_instant_quote_refresh is None
+                else (
+                    None
+                    if latest_instant_quote_refresh.get("tax_rate_basis_year") is None
+                    else int(latest_instant_quote_refresh.get("tax_rate_basis_year"))
+                )
+            ),
+            instant_quote_tax_rate_basis_reason=(
+                None
+                if latest_instant_quote_refresh is None
+                else (
+                    None
+                    if latest_instant_quote_refresh.get("tax_rate_basis_reason") is None
+                    else str(latest_instant_quote_refresh.get("tax_rate_basis_reason"))
+                )
+            ),
+            instant_quote_tax_rate_basis_fallback_applied=bool(
+                latest_instant_quote_refresh
+                and latest_instant_quote_refresh.get("tax_rate_basis_fallback_applied")
+            ),
+            instant_quote_tax_rate_requested_year_supportable_subject_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "requested_tax_rate_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_basis_supportable_subject_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_supportable_subject_row_count"
+                )
+                or 0
+            ),
             instant_quote_supported_public_quote_exists=bool(
                 latest_instant_quote_refresh
                 and (latest_instant_quote_refresh.get("validation_report") or {}).get(
@@ -649,6 +691,11 @@ class DataReadinessService:
                   refresh_finished_at,
                   validated_at,
                   cache_view_row_delta,
+                  tax_rate_basis_year,
+                  tax_rate_basis_reason,
+                  tax_rate_basis_fallback_applied,
+                  requested_tax_rate_supportable_subject_row_count,
+                  tax_rate_basis_supportable_subject_row_count,
                   validation_report
                 FROM instant_quote_refresh_runs
                 WHERE county_id = %s

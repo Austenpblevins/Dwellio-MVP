@@ -372,6 +372,17 @@ class AdminReadinessService:
                 instant_quote_last_refresh_at=readiness.derived.instant_quote_last_refresh_at,
                 instant_quote_last_validated_at=readiness.derived.instant_quote_last_validated_at,
                 instant_quote_cache_view_row_delta=readiness.derived.instant_quote_cache_view_row_delta,
+                instant_quote_tax_rate_basis_year=readiness.derived.instant_quote_tax_rate_basis_year,
+                instant_quote_tax_rate_basis_reason=readiness.derived.instant_quote_tax_rate_basis_reason,
+                instant_quote_tax_rate_basis_fallback_applied=(
+                    readiness.derived.instant_quote_tax_rate_basis_fallback_applied
+                ),
+                instant_quote_tax_rate_requested_year_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count
+                ),
+                instant_quote_tax_rate_basis_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count
+                ),
                 instant_quote_supported_public_quote_exists=(
                     readiness.derived.instant_quote_supported_public_quote_exists
                 ),

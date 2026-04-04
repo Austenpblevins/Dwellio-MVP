@@ -89,6 +89,11 @@ class StubCursor:
                 "refresh_finished_at": None,
                 "validated_at": None,
                 "cache_view_row_delta": 0,
+                "tax_rate_basis_year": 2025,
+                "tax_rate_basis_reason": "fallback_requested_year_missing_supportable_subjects",
+                "tax_rate_basis_fallback_applied": True,
+                "requested_tax_rate_supportable_subject_row_count": 0,
+                "tax_rate_basis_supportable_subject_row_count": 24,
                 "validation_report": {
                     "supported_public_quote_exists": True,
                     "subject_rows_without_usable_neighborhood_stats": 1,
@@ -163,6 +168,13 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_supported_segment_stats_row_count == 0
     assert readiness.derived.instant_quote_refresh_status == "completed"
     assert readiness.derived.instant_quote_cache_view_row_delta == 0
+    assert readiness.derived.instant_quote_tax_rate_basis_year == 2025
+    assert readiness.derived.instant_quote_tax_rate_basis_reason == (
+        "fallback_requested_year_missing_supportable_subjects"
+    )
+    assert readiness.derived.instant_quote_tax_rate_basis_fallback_applied is True
+    assert readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count == 0
+    assert readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count == 24
     assert readiness.derived.instant_quote_supported_public_quote_exists is True
     assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9

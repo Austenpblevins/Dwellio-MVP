@@ -16,12 +16,20 @@ Boundary rules:
 
 Runtime flow:
 1. resolve parcel-year identity through `instant_quote_subject_cache`
-2. apply deterministic prior-year fallback when exact year is unavailable
-3. load neighborhood and segment assessed-PSF stats
-4. blend segment and neighborhood medians when support allows
-5. apply light deterministic size and age adjustments
-6. translate the resulting assessment-basis estimate into a public savings range
-7. constrain or suppress numeric output when tax protections or low confidence make public precision unsafe
+2. keep the requested quote year on the parcel-year identity even when tax-rate basis falls back
+3. use the refresh-selected tax-rate basis year already stamped into `instant_quote_subject_cache`
+4. apply deterministic prior-year parcel-year fallback only when the exact quote year is unavailable
+5. load neighborhood and segment assessed-PSF stats
+6. blend segment and neighborhood medians when support allows
+7. apply light deterministic size and age adjustments
+8. translate the resulting assessment-basis estimate into a public savings range
+9. constrain or suppress numeric output when tax protections or low confidence make public precision unsafe
+
+Tax-rate basis behavior:
+- instant quote may temporarily use the nearest prior usable tax-rate basis year for the current quote year
+- this happens automatically inside the refresh path, not through a public product mode
+- current-year quotes remain current-year quotes even when the effective tax rate comes from a prior adopted year
+- once current-year effective tax-rate coverage is usable, refresh automatically switches back without an annual code change
 
 Assessment basis:
 - use the canonical basis order already embedded in the parcel stack:
@@ -44,4 +52,5 @@ Observability:
 - request-path structured logs
 - background best-effort inserts into `instant_quote_request_logs`
 - refresh history persisted in `instant_quote_refresh_runs`
+- refresh history includes the selected tax-rate basis year, fallback flag, deterministic reason code, and supportable-subject counts used to justify the choice
 - readiness counts exposed through county-year readiness derived fields from the serving artifacts

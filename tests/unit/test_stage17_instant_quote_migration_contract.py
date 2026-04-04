@@ -10,6 +10,7 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     assert "0046" in versions
     assert "0047" in versions
     assert "0048" in versions
+    assert "0049" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -60,3 +61,19 @@ def test_stage17_county_year_readiness_indexes_migration_present() -> None:
 
     assert "idx_parcel_year_snapshots_current_scope" in sql
     assert "idx_search_documents_scope" in sql
+
+
+def test_stage17_dynamic_tax_rate_basis_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0049_stage17_dynamic_tax_rate_basis.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "ALTER TABLE instant_quote_subject_cache" in sql
+    assert "effective_tax_rate_basis_year" in sql
+    assert "effective_tax_rate_basis_reason" in sql
+    assert "effective_tax_rate_basis_fallback_applied" in sql
+    assert "ALTER TABLE instant_quote_refresh_runs" in sql
+    assert "tax_rate_basis_year" in sql
+    assert "tax_rate_basis_reason" in sql
+    assert "tax_rate_basis_fallback_applied" in sql
+    assert "requested_tax_rate_supportable_subject_row_count" in sql
+    assert "tax_rate_basis_supportable_subject_row_count" in sql

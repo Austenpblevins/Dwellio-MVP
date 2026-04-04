@@ -43,6 +43,11 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_last_refresh_at: datetime | None = None
     instant_quote_last_validated_at: datetime | None = None
     instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_tax_rate_basis_year: int | None = None
+    instant_quote_tax_rate_basis_reason: str | None = None
+    instant_quote_tax_rate_basis_fallback_applied: bool = False
+    instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
+    instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_supported_public_quote_exists: bool = False
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
