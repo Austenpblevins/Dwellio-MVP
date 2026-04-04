@@ -23,6 +23,20 @@ from app.services.instant_quote import (
     is_material_homestead_cap_limited,
     score_confidence,
 )
+from app.services.instant_quote_tax_rate_basis import (
+    INSTANT_QUOTE_TAX_RATE_BASIS_MIN_EFFECTIVE_TAX_RATE_COVERAGE_RATIO,
+    TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+    TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED,
+    TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+    TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES,
+    TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES,
+    TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE,
+    TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED,
+    SameYearTaxRateAdoptionStatus,
+    TaxRateBasisCandidate,
+    assign_tax_rate_basis_status,
+    choose_tax_rate_basis,
+)
 
 
 class _StubCursor:
@@ -58,6 +72,7 @@ class _RefreshCursor:
     def __init__(self) -> None:
         self.statements: list[str] = []
         self._row: dict[str, object] | None = None
+        self._rows: list[dict[str, object]] = []
 
     def __enter__(self):
         return self
@@ -68,18 +83,55 @@ class _RefreshCursor:
     def execute(self, sql: str, *_args, **_kwargs) -> None:
         normalized = " ".join(sql.split())
         self.statements.append(normalized)
-        if "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
+        if "SELECT DISTINCT county_id, tax_year FROM tmp_instant_quote_subject_scope" in normalized:
+            self._row = None
+            self._rows = [{"county_id": "harris", "tax_year": 2026}]
+        elif "candidate_basis_years.basis_year AS tax_year" in normalized:
+            self._row = None
+            self._rows = [
+                {
+                    "tax_year": 2026,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 20,
+                    "assignment_complete_row_count": 60,
+                    "continuity_parcel_match_row_count": 100,
+                    "continuity_account_number_match_row_count": 0,
+                },
+                {
+                    "tax_year": 2025,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 92,
+                    "assignment_complete_row_count": 95,
+                    "continuity_parcel_match_row_count": 88,
+                    "continuity_account_number_match_row_count": 6,
+                },
+                {
+                    "tax_year": 2024,
+                    "quoteable_subject_row_count": 100,
+                    "supportable_subject_row_count": 90,
+                    "assignment_complete_row_count": 94,
+                    "continuity_parcel_match_row_count": 70,
+                    "continuity_account_number_match_row_count": 12,
+                },
+            ]
+        elif "SELECT COUNT(*)::integer AS count FROM tmp_instant_quote_subject_refresh" in normalized:
             self._row = {"count": 5}
+            self._rows = []
         elif "SELECT COUNT(*)::integer AS subject_cache_row_count" in normalized:
             self._row = {
                 "subject_cache_row_count": 5,
                 "supportable_subject_row_count": 4,
             }
+            self._rows = []
         else:
             self._row = None
+            self._rows = []
 
     def fetchone(self) -> dict[str, object] | None:
         return self._row
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self._rows
 
 
 class _RefreshConnection:
@@ -167,18 +219,288 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
 
     metrics = InstantQuoteRefreshService()._refresh_subject_cache(  # type: ignore[attr-defined]
         county_id="harris",
-        tax_year=2025,
+        tax_year=2026,
     )
 
     assert metrics.source_view_row_count == 5
     assert metrics.subject_cache_row_count == 5
     assert metrics.supportable_subject_row_count == 4
+    assert metrics.selected_tax_rate_basis is not None
+    assert metrics.selected_tax_rate_basis.basis_tax_year == 2025
+    assert metrics.selected_tax_rate_basis.fallback_applied is True
+    assert metrics.selected_tax_rate_basis.reason_code == (
+        "fallback_requested_year_below_effective_coverage_threshold"
+    )
+    assert metrics.selected_tax_rate_basis.quoteable_subject_row_count == 100
+    assert metrics.selected_tax_rate_basis.requested_year_effective_tax_rate_coverage_ratio == 0.2
+    assert metrics.selected_tax_rate_basis.requested_year_assignment_coverage_ratio == 0.6
+    assert metrics.selected_tax_rate_basis.selected_basis_effective_tax_rate_coverage_ratio == 0.92
+    assert metrics.selected_tax_rate_basis.selected_basis_assignment_coverage_ratio == 0.95
+    assert metrics.selected_tax_rate_basis.selected_basis_continuity_parcel_match_ratio == 0.88
+    assert metrics.selected_tax_rate_basis.selected_basis_warning_codes == (
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
+    )
+    assert (
+        metrics.selected_tax_rate_basis.basis_status
+        == TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES
+    )
     assert any("FROM parcel_year_snapshots pys" in statement for statement in cursor.statements)
     assert any(
         "CREATE TEMP TABLE tmp_instant_quote_subject_scope ON COMMIT DROP AS" in statement
         for statement in cursor.statements
     )
+    assert any(
+        "CREATE TEMP TABLE tmp_instant_quote_tax_rate_basis_selection" in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "etr.tax_year = tax_basis.effective_tax_rate_basis_year" in statement
+        for statement in cursor.statements
+    )
     assert not any("FROM instant_quote_subject_view" in statement for statement in cursor.statements)
+
+
+def test_choose_tax_rate_basis_prefers_requested_year_once_usable() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=30,
+                supportable_subject_row_count=27,
+                assignment_complete_row_count=28,
+                continuity_parcel_match_row_count=30,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=30,
+                supportable_subject_row_count=30,
+                assignment_complete_row_count=30,
+                continuity_parcel_match_row_count=29,
+            ),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.fallback_applied is False
+    assert selection.reason_code == "requested_year_usable"
+
+def test_assign_tax_rate_basis_status_marks_prior_year_fallback_as_adopted() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(
+                    tax_year=2026,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=0,
+                    assignment_complete_row_count=0,
+                    continuity_parcel_match_row_count=30,
+                ),
+                TaxRateBasisCandidate(
+                    tax_year=2025,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=26,
+                    assignment_complete_row_count=27,
+                    continuity_parcel_match_row_count=28,
+                ),
+            ],
+        )
+    )
+
+    assert selection.basis_tax_year == 2025
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES
+    assert selection.basis_status_reason == "basis_year_precedes_quote_year"
+
+
+def test_assign_tax_rate_basis_status_defaults_same_year_to_unofficial_without_proof() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(
+                    tax_year=2026,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=27,
+                    assignment_complete_row_count=28,
+                    continuity_parcel_match_row_count=30,
+                ),
+                TaxRateBasisCandidate(
+                    tax_year=2025,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=30,
+                    assignment_complete_row_count=30,
+                    continuity_parcel_match_row_count=29,
+                ),
+            ],
+        )
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert (
+        selection.basis_status
+        == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES
+    )
+    assert selection.basis_status_reason == "same_year_rates_without_final_adoption_proof"
+
+
+def test_assign_tax_rate_basis_status_uses_explicit_final_adoption_truth() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(
+                    tax_year=2026,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=27,
+                    assignment_complete_row_count=28,
+                    continuity_parcel_match_row_count=30,
+                ),
+                TaxRateBasisCandidate(
+                    tax_year=2025,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=30,
+                    assignment_complete_row_count=30,
+                    continuity_parcel_match_row_count=29,
+                ),
+            ],
+        ),
+        same_year_adoption_status=SameYearTaxRateAdoptionStatus(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status=TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+            adoption_status_reason="operator_marked_final_adopted",
+            status_source=TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+            source_note="Minutes reviewed.",
+        ),
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
+    assert selection.basis_status_reason == "operator_marked_final_adopted"
+    assert selection.selected_basis_warning_codes == ()
+
+
+def test_assign_tax_rate_basis_status_flags_legacy_final_adoption_without_audit_metadata() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(
+                    tax_year=2026,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=27,
+                    assignment_complete_row_count=28,
+                    continuity_parcel_match_row_count=30,
+                ),
+            ],
+        ),
+        same_year_adoption_status=SameYearTaxRateAdoptionStatus(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status=TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+            adoption_status_reason=None,
+            status_source=TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED,
+            source_note=None,
+        ),
+    )
+
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
+    assert selection.selected_basis_warning_codes == (
+        TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE,
+        TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED,
+    )
+
+def test_choose_tax_rate_basis_rejects_requested_year_with_row_floor_but_weak_coverage() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=40,
+                supportable_subject_row_count=20,
+                assignment_complete_row_count=39,
+                continuity_parcel_match_row_count=40,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=40,
+                supportable_subject_row_count=35,
+                assignment_complete_row_count=38,
+                continuity_parcel_match_row_count=37,
+            ),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2025
+    assert selection.fallback_applied is True
+    assert selection.reason_code == "fallback_requested_year_below_effective_coverage_threshold"
+    assert (
+        selection.requested_year_effective_tax_rate_coverage_ratio
+        < INSTANT_QUOTE_TAX_RATE_BASIS_MIN_EFFECTIVE_TAX_RATE_COVERAGE_RATIO
+    )
+
+def test_choose_tax_rate_basis_falls_back_to_nearest_prior_usable_year() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2027,
+        candidates=[
+            TaxRateBasisCandidate(
+                tax_year=2027,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=44,
+                assignment_complete_row_count=35,
+                continuity_parcel_match_row_count=50,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=46,
+                assignment_complete_row_count=47,
+                continuity_parcel_match_row_count=44,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=50,
+                supportable_subject_row_count=48,
+                assignment_complete_row_count=49,
+                continuity_parcel_match_row_count=42,
+            ),
+        ],
+    )
+
+    assert selection.basis_tax_year == 2026
+    assert selection.fallback_applied is True
+    assert selection.reason_code == "fallback_requested_year_below_assignment_coverage_threshold"
+    assert selection.selected_basis_warning_codes == (
+        "parcel_continuity_warning",
+    )
+
+
+def test_choose_tax_rate_basis_returns_safe_no_basis_when_no_year_is_usable() -> None:
+    selection = choose_tax_rate_basis(
+        quote_tax_year=2026,
+        candidates=[
+            TaxRateBasisCandidate(
+                tax_year=2026,
+                quoteable_subject_row_count=25,
+                supportable_subject_row_count=0,
+                assignment_complete_row_count=0,
+                continuity_parcel_match_row_count=25,
+            ),
+            TaxRateBasisCandidate(
+                tax_year=2025,
+                quoteable_subject_row_count=25,
+                supportable_subject_row_count=22,
+                assignment_complete_row_count=24,
+                continuity_parcel_match_row_count=18,
+            ),
+        ],
+    )
+
+    assert selection.basis_tax_year is None
+    assert selection.fallback_applied is False
+    assert selection.reason_code == "no_usable_tax_rate_basis"
 
 
 def test_calculate_distribution_stats_returns_monotonic_percentiles() -> None:

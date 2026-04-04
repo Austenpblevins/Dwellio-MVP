@@ -115,6 +115,29 @@ class StubDataReadinessService:
                     instant_quote_segment_stats_ready=True,
                     instant_quote_asset_ready=True,
                     instant_quote_ready=False,
+                    instant_quote_tax_rate_basis_year=2024,
+                    instant_quote_tax_rate_basis_reason=(
+                        "fallback_requested_year_missing_supportable_subjects"
+                    ),
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_rate_basis_status_reason="basis_year_precedes_quote_year",
+                    instant_quote_tax_rate_requested_year_supportable_subject_row_count=0,
+                    instant_quote_tax_rate_basis_supportable_subject_row_count=31,
+                    instant_quote_tax_rate_quoteable_subject_row_count=100,
+                    instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio=0.31,
+                    instant_quote_tax_rate_requested_year_assignment_coverage_ratio=0.62,
+                    instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio=0.93,
+                    instant_quote_tax_rate_basis_assignment_coverage_ratio=0.96,
+                    instant_quote_tax_rate_basis_continuity_parcel_match_row_count=88,
+                    instant_quote_tax_rate_basis_continuity_parcel_gap_row_count=12,
+                    instant_quote_tax_rate_basis_continuity_parcel_match_ratio=0.88,
+                    instant_quote_tax_rate_basis_continuity_account_number_match_row_count=5,
+                    instant_quote_tax_rate_basis_warning_codes=[
+                        "parcel_continuity_warning",
+                        "account_number_continuity_diagnostic",
+                        "current_year_final_adoption_metadata_incomplete",
+                    ],
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -229,6 +252,21 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "manual_backfill_required" in row.blockers
     assert "instant_quote_public_support_thin" in row.blockers
     assert row.derived.instant_quote_asset_ready is True
+    assert row.derived.instant_quote_tax_rate_basis_year == 2024
+    assert row.derived.instant_quote_tax_rate_basis_fallback_applied is True
+    assert row.derived.instant_quote_tax_rate_basis_reason == (
+        "fallback_requested_year_missing_supportable_subjects"
+    )
+    assert row.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
+    assert row.derived.instant_quote_tax_rate_basis_status_reason == (
+        "basis_year_precedes_quote_year"
+    )
+    assert row.derived.instant_quote_tax_rate_basis_continuity_parcel_match_ratio == 0.88
+    assert row.derived.instant_quote_tax_rate_basis_warning_codes == [
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
+        "current_year_final_adoption_metadata_incomplete",
+    ]
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"
     assert row.operational.stale_running_job_count == 1
@@ -236,6 +274,8 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "deeds_validation_regression" in row.operational.alerts
     assert "deeds_stale_jobs" in row.operational.alerts
     assert "instant_quote_support_too_thin" in row.operational.alerts
+    assert "instant_quote_tax_rate_parcel_continuity_warning" in row.operational.alerts
+    assert "instant_quote_tax_rate_final_adoption_metadata_incomplete" in row.operational.alerts
     assert dashboard.kpi_summary.critical_year_count == 1
     assert dashboard.kpi_summary.validation_regression_count == 1
 

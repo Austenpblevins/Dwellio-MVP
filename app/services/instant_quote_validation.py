@@ -29,6 +29,23 @@ class InstantQuoteValidationReport:
     instant_quote_supportable_rows: int
     supported_neighborhood_stats_rows: int
     supported_segment_stats_rows: int
+    tax_rate_basis_year: int | None = None
+    tax_rate_basis_reason: str | None = None
+    tax_rate_basis_fallback_applied: bool = False
+    tax_rate_basis_status: str | None = None
+    tax_rate_basis_status_reason: str | None = None
+    requested_tax_rate_supportable_subject_row_count: int = 0
+    tax_rate_basis_supportable_subject_row_count: int = 0
+    tax_rate_quoteable_subject_row_count: int = 0
+    requested_tax_rate_effective_tax_rate_coverage_ratio: float = 0.0
+    requested_tax_rate_assignment_coverage_ratio: float = 0.0
+    tax_rate_basis_effective_tax_rate_coverage_ratio: float = 0.0
+    tax_rate_basis_assignment_coverage_ratio: float = 0.0
+    tax_rate_basis_continuity_parcel_match_row_count: int = 0
+    tax_rate_basis_continuity_parcel_gap_row_count: int = 0
+    tax_rate_basis_continuity_parcel_match_ratio: float = 0.0
+    tax_rate_basis_continuity_account_number_match_row_count: int = 0
+    tax_rate_basis_warning_codes: list[str] = field(default_factory=list)
     subject_rows_without_usable_neighborhood_stats: int = 0
     subject_rows_without_usable_segment_stats: int = 0
     subject_rows_missing_segment_row: int = 0
@@ -191,6 +208,96 @@ class InstantQuoteValidationService:
             report_payload={
                 "county_id": county_id,
                 "tax_year": tax_year,
+                "tax_rate_basis_year": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_year")
+                ),
+                "tax_rate_basis_reason": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_reason")
+                ),
+                "tax_rate_basis_fallback_applied": bool(
+                    latest_refresh_run
+                    and latest_refresh_run.get("tax_rate_basis_fallback_applied")
+                ),
+                "tax_rate_basis_status": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_status")
+                ),
+                "tax_rate_basis_status_reason": (
+                    None
+                    if latest_refresh_run is None
+                    else latest_refresh_run.get("tax_rate_basis_status_reason")
+                ),
+                "requested_tax_rate_supportable_subject_row_count": int(
+                    (latest_refresh_run or {}).get(
+                        "requested_tax_rate_supportable_subject_row_count"
+                    )
+                    or 0
+                ),
+                "tax_rate_basis_supportable_subject_row_count": int(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_supportable_subject_row_count"
+                    )
+                    or 0
+                ),
+                "tax_rate_quoteable_subject_row_count": int(
+                    (latest_refresh_run or {}).get("tax_rate_quoteable_subject_row_count") or 0
+                ),
+                "requested_tax_rate_effective_tax_rate_coverage_ratio": float(
+                    (latest_refresh_run or {}).get(
+                        "requested_tax_rate_effective_tax_rate_coverage_ratio"
+                    )
+                    or 0.0
+                ),
+                "requested_tax_rate_assignment_coverage_ratio": float(
+                    (latest_refresh_run or {}).get(
+                        "requested_tax_rate_assignment_coverage_ratio"
+                    )
+                    or 0.0
+                ),
+                "tax_rate_basis_effective_tax_rate_coverage_ratio": float(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_effective_tax_rate_coverage_ratio"
+                    )
+                    or 0.0
+                ),
+                "tax_rate_basis_assignment_coverage_ratio": float(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_assignment_coverage_ratio"
+                    )
+                    or 0.0
+                ),
+                "tax_rate_basis_continuity_parcel_match_row_count": int(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_continuity_parcel_match_row_count"
+                    )
+                    or 0
+                ),
+                "tax_rate_basis_continuity_parcel_gap_row_count": int(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_continuity_parcel_gap_row_count"
+                    )
+                    or 0
+                ),
+                "tax_rate_basis_continuity_parcel_match_ratio": float(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_continuity_parcel_match_ratio"
+                    )
+                    or 0.0
+                ),
+                "tax_rate_basis_continuity_account_number_match_row_count": int(
+                    (latest_refresh_run or {}).get(
+                        "tax_rate_basis_continuity_account_number_match_row_count"
+                    )
+                    or 0
+                ),
+                "tax_rate_basis_warning_codes": list(
+                    (latest_refresh_run or {}).get("tax_rate_basis_warning_codes") or []
+                ),
                 "parcel_rows_with_living_area": parcel_rows_with_living_area,
                 "parcel_rows_with_effective_tax_rate": parcel_rows_with_effective_tax_rate,
                 "subject_cache_row_count": subject_cache_row_count,
@@ -230,6 +337,98 @@ class InstantQuoteValidationService:
         return InstantQuoteValidationReport(
             county_id=county_id,
             tax_year=tax_year,
+            tax_rate_basis_year=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_year") is None
+                    else int(latest_refresh_run["tax_rate_basis_year"])
+                )
+            ),
+            tax_rate_basis_reason=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_reason") is None
+                    else str(latest_refresh_run["tax_rate_basis_reason"])
+                )
+            ),
+            tax_rate_basis_fallback_applied=bool(
+                latest_refresh_run
+                and latest_refresh_run.get("tax_rate_basis_fallback_applied")
+            ),
+            tax_rate_basis_status=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_status") is None
+                    else str(latest_refresh_run["tax_rate_basis_status"])
+                )
+            ),
+            tax_rate_basis_status_reason=(
+                None
+                if latest_refresh_run is None
+                else (
+                    None
+                    if latest_refresh_run.get("tax_rate_basis_status_reason") is None
+                    else str(latest_refresh_run["tax_rate_basis_status_reason"])
+                )
+            ),
+            requested_tax_rate_supportable_subject_row_count=int(
+                (latest_refresh_run or {}).get("requested_tax_rate_supportable_subject_row_count")
+                or 0
+            ),
+            tax_rate_basis_supportable_subject_row_count=int(
+                (latest_refresh_run or {}).get("tax_rate_basis_supportable_subject_row_count")
+                or 0
+            ),
+            tax_rate_quoteable_subject_row_count=int(
+                (latest_refresh_run or {}).get("tax_rate_quoteable_subject_row_count") or 0
+            ),
+            requested_tax_rate_effective_tax_rate_coverage_ratio=float(
+                (latest_refresh_run or {}).get(
+                    "requested_tax_rate_effective_tax_rate_coverage_ratio"
+                )
+                or 0.0
+            ),
+            requested_tax_rate_assignment_coverage_ratio=float(
+                (latest_refresh_run or {}).get("requested_tax_rate_assignment_coverage_ratio")
+                or 0.0
+            ),
+            tax_rate_basis_effective_tax_rate_coverage_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_effective_tax_rate_coverage_ratio")
+                or 0.0
+            ),
+            tax_rate_basis_assignment_coverage_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_assignment_coverage_ratio")
+                or 0.0
+            ),
+            tax_rate_basis_continuity_parcel_match_row_count=int(
+                (latest_refresh_run or {}).get(
+                    "tax_rate_basis_continuity_parcel_match_row_count"
+                )
+                or 0
+            ),
+            tax_rate_basis_continuity_parcel_gap_row_count=int(
+                (latest_refresh_run or {}).get("tax_rate_basis_continuity_parcel_gap_row_count")
+                or 0
+            ),
+            tax_rate_basis_continuity_parcel_match_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_continuity_parcel_match_ratio")
+                or 0.0
+            ),
+            tax_rate_basis_continuity_account_number_match_row_count=int(
+                (latest_refresh_run or {}).get(
+                    "tax_rate_basis_continuity_account_number_match_row_count"
+                )
+                or 0
+            ),
+            tax_rate_basis_warning_codes=list(
+                (latest_refresh_run or {}).get("tax_rate_basis_warning_codes") or []
+            ),
             parcel_rows_with_living_area=parcel_rows_with_living_area,
             parcel_rows_with_effective_tax_rate=parcel_rows_with_effective_tax_rate,
             subject_cache_row_count=subject_cache_row_count,
@@ -451,7 +650,24 @@ class InstantQuoteValidationService:
               refresh_status,
               refresh_finished_at,
               validated_at,
-              cache_view_row_delta
+              cache_view_row_delta,
+              tax_rate_basis_year,
+              tax_rate_basis_reason,
+              tax_rate_basis_fallback_applied,
+              tax_rate_basis_status,
+              tax_rate_basis_status_reason,
+              requested_tax_rate_supportable_subject_row_count,
+              tax_rate_basis_supportable_subject_row_count,
+              tax_rate_quoteable_subject_row_count,
+              requested_tax_rate_effective_tax_rate_coverage_ratio,
+              requested_tax_rate_assignment_coverage_ratio,
+              tax_rate_basis_effective_tax_rate_coverage_ratio,
+              tax_rate_basis_assignment_coverage_ratio,
+              tax_rate_basis_continuity_parcel_match_row_count,
+              tax_rate_basis_continuity_parcel_gap_row_count,
+              tax_rate_basis_continuity_parcel_match_ratio,
+              tax_rate_basis_continuity_account_number_match_row_count,
+              tax_rate_basis_warning_codes
             FROM instant_quote_refresh_runs
             WHERE county_id = %s
               AND tax_year = %s

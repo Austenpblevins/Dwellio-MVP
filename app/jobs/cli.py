@@ -19,9 +19,14 @@ from app.jobs import (
     job_sales_ingestion,
     job_score_models,
     job_score_savings,
+    job_set_tax_rate_adoption_status,
     job_validate_instant_quote,
 )
 from app.jobs.runner import execute_job
+from app.services.instant_quote_tax_rate_basis import (
+    TAX_RATE_ADOPTION_STATUS_SOURCES,
+    TAX_RATE_BASIS_STATUSES,
+)
 
 JobCallable = Callable[..., None]
 
@@ -38,6 +43,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "job_comp_candidates": job_comp_candidates.run,
     "job_score_models": job_score_models.run,
     "job_score_savings": job_score_savings.run,
+    "job_set_tax_rate_adoption_status": job_set_tax_rate_adoption_status.run,
     "job_refresh_instant_quote": job_refresh_instant_quote.run,
     "job_validate_instant_quote": job_validate_instant_quote.run,
     "job_refresh_quote_cache": job_refresh_quote_cache.run,
@@ -52,6 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tax-year", default=None, type=int)
     parser.add_argument("--dataset-type", default=None)
     parser.add_argument("--import-batch-id", default=None)
+    parser.add_argument(
+        "--tax-rate-basis-status",
+        default=None,
+        choices=sorted(TAX_RATE_BASIS_STATUSES),
+    )
+    parser.add_argument("--tax-rate-basis-status-reason", default=None)
+    parser.add_argument("--tax-rate-basis-status-note", default=None)
+    parser.add_argument(
+        "--tax-rate-basis-status-source",
+        default=None,
+        choices=sorted(TAX_RATE_ADOPTION_STATUS_SOURCES),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -69,6 +87,14 @@ def main() -> None:
         job_kwargs["dataset_type"] = args.dataset_type
     if args.import_batch_id is not None:
         job_kwargs["import_batch_id"] = args.import_batch_id
+    if args.tax_rate_basis_status is not None:
+        job_kwargs["tax_rate_basis_status"] = args.tax_rate_basis_status
+    if args.tax_rate_basis_status_reason is not None:
+        job_kwargs["tax_rate_basis_status_reason"] = args.tax_rate_basis_status_reason
+    if args.tax_rate_basis_status_note is not None:
+        job_kwargs["tax_rate_basis_status_note"] = args.tax_rate_basis_status_note
+    if args.tax_rate_basis_status_source is not None:
+        job_kwargs["tax_rate_basis_status_source"] = args.tax_rate_basis_status_source
     if args.dry_run:
         job_kwargs["dry_run"] = True
 

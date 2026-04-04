@@ -38,6 +38,20 @@ Interpretation:
 - `staged = true`: staging rows exist through the latest import batch state
 - `canonical_published = true`: the latest import batch reached canonical publish
 - derived flags show whether summary/search/feature/comp/quote data is actually present for that county-year
+- instant-quote readiness can temporarily report a prior `instant_quote_tax_rate_basis_year` for a current quote year when current-year tax rates are not yet usable at refresh time
+- `instant_quote_tax_rate_basis_fallback_applied = true` means the current quote year is still being served with the nearest prior usable adopted tax-rate basis
+- `instant_quote_tax_rate_basis_status` is the internal/admin classification for the basis actually used:
+  - `prior_year_adopted_rates`
+  - `current_year_unofficial_or_proposed_rates`
+  - `current_year_final_adopted_rates`
+- `instant_quote_tax_rate_basis_year` and `instant_quote_tax_rate_basis_status` are different:
+  - basis year tells you which year's effective tax rate was used
+  - basis status tells you whether that basis is prior-year adopted or same-year unofficial/final
+- same-year usable rates stay `current_year_unofficial_or_proposed_rates` unless internal county-year adoption metadata explicitly marks them final adopted
+- requested-year tax-rate basis usability is now conservative:
+  - it still needs the `20` supportable-subject floor
+  - it also needs strong effective-tax-rate coverage and tax-assignment completeness on the current-year instant-quote cohort
+- fallback quality is now measurable through parcel continuity metrics between the requested quote year and the selected basis year
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 
 ## 3. Backfill a historical or current year from real county files
@@ -129,3 +143,107 @@ python3 -m app.jobs.cli job_run_ingestion --county-id harris --tax-year 2026 --d
 - Choose `2025` for QA when it is more complete than `2026`.
 - Do not assume a current year is backfill-ready just because it exists in `tax_years`.
 - Use readiness reporting to confirm raw, canonical, and derived status by county-year before using a year for valuation or comp QA.
+- For instant quote, no annual code change is required when current-year tax rates are late. Refresh will automatically use the requested year once its tax-rate basis becomes usable.
+- When current-year rates should be treated as final adopted for internal admin truth, insert or update the matching row in `instant_quote_tax_rate_adoption_statuses` before rerunning `job_refresh_instant_quote`. Without that explicit metadata, same-year rates remain classified as `current_year_unofficial_or_proposed_rates`.
+- When fallback is active, review continuity metrics before trusting the refresh for real current-year operations:
+  - `instant_quote_tax_rate_basis_continuity_parcel_match_ratio`
+  - `instant_quote_tax_rate_basis_warning_codes`
+
+## 6. Reconcile legacy Stage 17 migration state
+
+Some environments may already have seen the old standalone adoption-status `0050` before the integrated Stage 17 chain settled on:
+
+- `0050 = stage17_tax_rate_basis_hardening`
+- `0051 = stage17_tax_rate_adoption_status_admin_truth`
+
+Inspect the environment first:
+
+```bash
+python3 -m infra.scripts.reconcile_stage17_tax_rate_migrations
+```
+
+Important environment shapes:
+
+- `integrated_expected`: the environment already matches the integrated chain
+- `pending_normal_migrations`: run the normal migration chain
+- `legacy_old_0050_adoption_collision`: the environment likely recorded the old standalone adoption-status `0050`, so the hardening SQL can be skipped unless repaired
+- `artifact_drift_repairable`: `schema_migrations` says Stage 17 ran, but one or more expected Stage 17 artifacts are missing
+
+If the script reports a safe repairable shape, apply the targeted repair explicitly:
+
+```bash
+python3 -m infra.scripts.reconcile_stage17_tax_rate_migrations --apply-repair
+```
+
+Repair behavior:
+
+- it does not run automatically during normal migrations
+- it reapplies only the idempotent Stage 17 SQL needed for hardening/adoption artifacts
+- it restamps `schema_migrations` so the integrated chain is inspectable again
+- it is intended for known Stage 17 drift, not arbitrary manual schema surgery
+
+If the script reports `manual_review_required`, stop and inspect the reported `schema_migrations` rows and missing artifacts before changing anything.
+
+## 7. Update tax-rate adoption status
+
+Use the internal operator job when a county-year should be explicitly marked as:
+
+- `prior_year_adopted_rates`
+- `current_year_unofficial_or_proposed_rates`
+- `current_year_final_adopted_rates`
+
+Example commands:
+
+```bash
+python3 -m app.jobs.cli job_set_tax_rate_adoption_status \
+  --county-id harris \
+  --tax-year 2026 \
+  --tax-rate-basis-status current_year_unofficial_or_proposed_rates \
+  --tax-rate-basis-status-reason "Current-year rates are present but not yet final adopted." \
+  --tax-rate-basis-status-note "Use prior-year adopted posture during appeal-season estimate refresh."
+
+python3 -m app.jobs.cli job_set_tax_rate_adoption_status \
+  --county-id harris \
+  --tax-year 2026 \
+  --tax-rate-basis-status current_year_final_adopted_rates \
+  --tax-rate-basis-status-reason "Board-adopted rates confirmed internally." \
+  --tax-rate-basis-status-source governing_body_adoption_record \
+  --tax-rate-basis-status-note "Minutes posted and checked by ops."
+```
+
+Operational meaning:
+
+- `prior_year_adopted_rates`: internal/admin status for a county-year that should still be treated as prior-year adopted basis truth
+- `current_year_unofficial_or_proposed_rates`: same-year rates exist but should not yet be treated as final adopted
+- `current_year_final_adopted_rates`: same-year rates can be treated internally as final adopted
+
+Final-adoption guardrails:
+
+- `current_year_final_adopted_rates` now requires all of:
+  - `--tax-rate-basis-status-reason`
+  - `--tax-rate-basis-status-source`
+  - `--tax-rate-basis-status-note`
+- accepted final-adoption evidence sources are:
+  - `official_county_publication`
+  - `governing_body_adoption_record`
+  - `internal_verified_source_record`
+- `operator_asserted` remains acceptable for non-final statuses, but it is not accepted for `current_year_final_adopted_rates`
+- if a legacy row or manual DB edit marks same-year rates final without enough audit metadata, refresh surfaces internal warning codes such as:
+  - `current_year_final_adoption_metadata_incomplete`
+  - `current_year_final_adoption_source_unverified`
+
+After every status update, rerun:
+
+```bash
+python3 -m app.jobs.cli job_refresh_instant_quote --county-id harris --tax-year 2026
+python3 -m app.jobs.cli job_validate_instant_quote --county-id harris --tax-year 2026
+```
+
+Then inspect:
+
+- `instant_quote_refresh_runs.tax_rate_basis_year`
+- `instant_quote_refresh_runs.tax_rate_basis_status`
+- `instant_quote_refresh_runs.tax_rate_basis_status_reason`
+- `instant_quote_refresh_runs.tax_rate_basis_warning_codes`
+- readiness/admin output fields derived from the latest refresh run
+- `instant_quote_tax_rate_adoption_statuses` for the stored reason, source, and note

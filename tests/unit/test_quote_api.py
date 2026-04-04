@@ -175,6 +175,8 @@ def test_instant_quote_route_returns_public_safe_payload(monkeypatch) -> None:
     assert payload["served_tax_year"] == 2025
     assert payload["tax_year_fallback_applied"] is True
     assert payload["estimate"]["savings_range_high"] == 1500
+    assert "tax_rate_basis_status" not in payload
+    assert "tax_rate_basis_status_reason" not in payload
     assert "confidence_score" not in payload
     assert "target_psf" not in payload
 
