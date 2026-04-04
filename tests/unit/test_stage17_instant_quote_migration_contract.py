@@ -108,3 +108,10 @@ def test_stage17_tax_rate_adoption_status_admin_truth_migration_present() -> Non
     assert "effective_tax_rate_basis_status_reason" in sql
     assert "tax_rate_basis_status" in sql
     assert "tax_rate_basis_status_reason" in sql
+
+
+def test_stage17_tax_rate_migration_order_is_integrated_and_non_colliding() -> None:
+    migrations = {migration.version: migration.name for migration in discover_migrations()}
+
+    assert migrations["0050"] == "stage17_tax_rate_basis_hardening"
+    assert migrations["0051"] == "stage17_tax_rate_adoption_status_admin_truth"

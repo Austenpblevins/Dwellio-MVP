@@ -51,6 +51,10 @@ Tax-rate basis selection:
 - if the selected basis year is prior to the quote year, refresh marks `prior_year_adopted_rates`
 - if the selected basis year matches the quote year and no explicit internal final-adoption record exists, refresh marks `current_year_unofficial_or_proposed_rates`
 - refresh marks `current_year_final_adopted_rates` only when `instant_quote_tax_rate_adoption_statuses` contains an explicit same-year final-adopted assertion for that county-year
+- final-adopted assertions are operator-guarded:
+  - same-year final adoption requires a structured reason, source, and note
+  - accepted final-adoption sources are `official_county_publication`, `governing_body_adoption_record`, and `internal_verified_source_record`
+  - refresh emits warning codes when a legacy or manually edited final-adoption row lacks enough audit metadata
 
 Usability rule:
 - keep the canonical supportable-subject floor at `20`
@@ -83,4 +87,5 @@ Operational checks:
 - compare the refresh source row count to `subject_cache_row_count` in `instant_quote_refresh_runs`
 - treat non-zero `cache_view_row_delta` as a serving-layer mismatch warning
 - inspect `tax_rate_basis_year`, `tax_rate_basis_fallback_applied`, `tax_rate_basis_reason`, `tax_rate_basis_status`, `tax_rate_basis_status_reason`, supportable counts, coverage ratios, and continuity metrics in `instant_quote_refresh_runs` to see whether a county-year refresh used prior-year adopted rates or same-year unofficial/final rates and whether the fallback quality is healthy
+- inspect `tax_rate_basis_warning_codes` for continuity or final-adoption audit warnings before treating a same-year final-adopted refresh as production-ready
 - use `validated_at` plus `validation_report.supported_public_quote_exists` as the latest county-year validation gate

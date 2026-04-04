@@ -38,6 +38,11 @@ Tax-rate basis behavior:
   - basis year answers which tax year supplied the effective rate
   - basis status answers whether that basis should be treated internally as prior-year adopted, same-year unofficial/proposed, or same-year final adopted
 - same-year rates default to `current_year_unofficial_or_proposed_rates` unless the internal county-year adoption-status metadata explicitly marks them as final adopted
+- same-year final adoption is now guarded by structured internal evidence:
+  - a reason
+  - an allowed source classification
+  - an audit note
+- legacy or manually edited same-year final-adoption rows that lack that audit metadata surface internal warning codes during refresh instead of silently looking clean
 - this classification stays internal to refresh, readiness, validation, and admin surfaces and is not a public quote mode
 - requested-year usability is not row-floor only:
   - keep the `20` supportable-subject floor

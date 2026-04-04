@@ -136,6 +136,7 @@ class StubDataReadinessService:
                     instant_quote_tax_rate_basis_warning_codes=[
                         "parcel_continuity_warning",
                         "account_number_continuity_diagnostic",
+                        "current_year_final_adoption_metadata_incomplete",
                     ],
                     search_support_ready=True,
                     feature_ready=False,
@@ -264,6 +265,7 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert row.derived.instant_quote_tax_rate_basis_warning_codes == [
         "parcel_continuity_warning",
         "account_number_continuity_diagnostic",
+        "current_year_final_adoption_metadata_incomplete",
     ]
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"
@@ -273,6 +275,7 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "deeds_stale_jobs" in row.operational.alerts
     assert "instant_quote_support_too_thin" in row.operational.alerts
     assert "instant_quote_tax_rate_parcel_continuity_warning" in row.operational.alerts
+    assert "instant_quote_tax_rate_final_adoption_metadata_incomplete" in row.operational.alerts
     assert dashboard.kpi_summary.critical_year_count == 1
     assert dashboard.kpi_summary.validation_regression_count == 1
 

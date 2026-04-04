@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import pytest
 
 from app.jobs import cli
 from app.jobs.job_set_tax_rate_adoption_status import run as run_set_tax_rate_adoption_status
@@ -116,7 +117,7 @@ def test_job_set_tax_rate_adoption_status_runs_schema_check_and_upsert(monkeypat
         tax_rate_basis_status="current_year_final_adopted_rates",
         tax_rate_basis_status_reason="adopted at board meeting",
         tax_rate_basis_status_note="minutes posted internally",
-        tax_rate_basis_status_source="operator_asserted",
+        tax_rate_basis_status_source="governing_body_adoption_record",
     )
 
     assert captured["job_name"] == "job_set_tax_rate_adoption_status"
@@ -126,7 +127,7 @@ def test_job_set_tax_rate_adoption_status_runs_schema_check_and_upsert(monkeypat
         "tax_year": 2026,
         "adoption_status": "current_year_final_adopted_rates",
         "adoption_status_reason": "adopted at board meeting",
-        "status_source": "operator_asserted",
+        "status_source": "governing_body_adoption_record",
         "source_note": "minutes posted internally",
     }
 
@@ -170,3 +171,50 @@ def test_cli_passes_tax_rate_adoption_status_arguments(monkeypatch) -> None:
         "tax_rate_basis_status_reason": "pre-adoption estimate season",
         "tax_rate_basis_status_note": "operator review note",
     }
+
+
+def test_tax_rate_adoption_status_service_rejects_final_status_without_audit_metadata(
+    monkeypatch,
+) -> None:
+    cursor = _StatusCursor()
+    connection = _StatusConnection(cursor)
+    monkeypatch.setattr(
+        "app.services.instant_quote_tax_rate_adoption_status.get_connection",
+        lambda: connection,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        InstantQuoteTaxRateAdoptionStatusService().upsert_status(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status="current_year_final_adopted_rates",
+            adoption_status_reason="Board adopted the rates.",
+            source_note="Minutes checked.",
+        )
+
+    assert "--tax-rate-basis-status-source" in str(exc_info.value)
+    assert connection.committed is False
+
+
+def test_tax_rate_adoption_status_service_rejects_final_status_with_unapproved_source(
+    monkeypatch,
+) -> None:
+    cursor = _StatusCursor()
+    connection = _StatusConnection(cursor)
+    monkeypatch.setattr(
+        "app.services.instant_quote_tax_rate_adoption_status.get_connection",
+        lambda: connection,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        InstantQuoteTaxRateAdoptionStatusService().upsert_status(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status="current_year_final_adopted_rates",
+            adoption_status_reason="Board adopted the rates.",
+            status_source="operator_asserted",
+            source_note="Minutes checked.",
+        )
+
+    assert "Allowed values" in str(exc_info.value)
+    assert connection.committed is False

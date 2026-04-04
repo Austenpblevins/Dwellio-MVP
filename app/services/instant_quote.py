@@ -1462,7 +1462,8 @@ class InstantQuoteRefreshService:
             SELECT
               adoption_status,
               adoption_status_reason,
-              status_source
+              status_source,
+              source_note
             FROM instant_quote_tax_rate_adoption_statuses
             WHERE county_id = %s
               AND tax_year = %s
@@ -1483,6 +1484,9 @@ class InstantQuoteRefreshService:
             ),
             status_source=(
                 None if row.get("status_source") is None else str(row["status_source"])
+            ),
+            source_note=(
+                None if row.get("source_note") is None else str(row["source_note"])
             ),
         )
 

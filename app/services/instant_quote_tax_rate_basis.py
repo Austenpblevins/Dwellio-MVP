@@ -14,6 +14,37 @@ TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES = (
 TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES = (
     "current_year_final_adopted_rates"
 )
+TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED = "operator_asserted"
+TAX_RATE_ADOPTION_STATUS_SOURCE_OFFICIAL_COUNTY_PUBLICATION = (
+    "official_county_publication"
+)
+TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD = (
+    "governing_body_adoption_record"
+)
+TAX_RATE_ADOPTION_STATUS_SOURCE_INTERNAL_VERIFIED_SOURCE_RECORD = (
+    "internal_verified_source_record"
+)
+TAX_RATE_ADOPTION_STATUS_SOURCES = frozenset(
+    {
+        TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED,
+        TAX_RATE_ADOPTION_STATUS_SOURCE_OFFICIAL_COUNTY_PUBLICATION,
+        TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+        TAX_RATE_ADOPTION_STATUS_SOURCE_INTERNAL_VERIFIED_SOURCE_RECORD,
+    }
+)
+TAX_RATE_ADOPTION_STATUS_FINAL_EVIDENCE_SOURCES = frozenset(
+    {
+        TAX_RATE_ADOPTION_STATUS_SOURCE_OFFICIAL_COUNTY_PUBLICATION,
+        TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+        TAX_RATE_ADOPTION_STATUS_SOURCE_INTERNAL_VERIFIED_SOURCE_RECORD,
+    }
+)
+TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE = (
+    "current_year_final_adoption_metadata_incomplete"
+)
+TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED = (
+    "current_year_final_adoption_source_unverified"
+)
 TAX_RATE_BASIS_STATUSES = frozenset(
     {
         TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES,
@@ -65,6 +96,7 @@ class SameYearTaxRateAdoptionStatus:
     adoption_status: str
     adoption_status_reason: str | None = None
     status_source: str | None = None
+    source_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -246,6 +278,14 @@ def assign_tax_rate_basis_status(
             raise ValueError("same-year adoption metadata tax year does not match basis tax year")
         if same_year_adoption_status.adoption_status not in TAX_RATE_BASIS_STATUSES:
             raise ValueError("unsupported same-year tax-rate adoption status")
+        warning_codes = tuple(
+            dict.fromkeys(
+                [
+                    *selection.selected_basis_warning_codes,
+                    *_same_year_adoption_status_warning_codes(same_year_adoption_status),
+                ]
+            )
+        )
         return replace(
             selection,
             basis_status=same_year_adoption_status.adoption_status,
@@ -253,6 +293,7 @@ def assign_tax_rate_basis_status(
                 same_year_adoption_status.adoption_status_reason
                 or "explicit_same_year_tax_rate_adoption_status"
             ),
+            selected_basis_warning_codes=warning_codes,
         )
 
     return replace(
@@ -362,6 +403,30 @@ def _candidate_warning_codes(
         and candidate.continuity_account_number_match_row_count > 0
     ):
         warning_codes.append("account_number_continuity_diagnostic")
+    return tuple(warning_codes)
+
+
+def _same_year_adoption_status_warning_codes(
+    same_year_adoption_status: SameYearTaxRateAdoptionStatus,
+) -> tuple[str, ...]:
+    if (
+        same_year_adoption_status.adoption_status
+        != TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
+    ):
+        return ()
+
+    warning_codes: list[str] = []
+    if (
+        same_year_adoption_status.adoption_status_reason is None
+        or same_year_adoption_status.status_source is None
+        or same_year_adoption_status.source_note is None
+    ):
+        warning_codes.append(TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE)
+    if (
+        same_year_adoption_status.status_source
+        not in TAX_RATE_ADOPTION_STATUS_FINAL_EVIDENCE_SOURCES
+    ):
+        warning_codes.append(TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED)
     return tuple(warning_codes)
 
 

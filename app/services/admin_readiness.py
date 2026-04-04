@@ -712,6 +712,16 @@ class AdminReadinessService:
             alerts.append("instant_quote_tax_rate_basis_missing")
         if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
             alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
+        if (
+            "current_year_final_adoption_metadata_incomplete"
+            in readiness.derived.instant_quote_tax_rate_basis_warning_codes
+        ):
+            alerts.append("instant_quote_tax_rate_final_adoption_metadata_incomplete")
+        if (
+            "current_year_final_adoption_source_unverified"
+            in readiness.derived.instant_quote_tax_rate_basis_warning_codes
+        ):
+            alerts.append("instant_quote_tax_rate_final_adoption_source_unverified")
         if not searchable_ready:
             alerts.append("ingestion_to_searchable_incomplete")
         return list(dict.fromkeys(alerts))

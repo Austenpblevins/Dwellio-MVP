@@ -23,7 +23,10 @@ from app.jobs import (
     job_validate_instant_quote,
 )
 from app.jobs.runner import execute_job
-from app.services.instant_quote_tax_rate_basis import TAX_RATE_BASIS_STATUSES
+from app.services.instant_quote_tax_rate_basis import (
+    TAX_RATE_ADOPTION_STATUS_SOURCES,
+    TAX_RATE_BASIS_STATUSES,
+)
 
 JobCallable = Callable[..., None]
 
@@ -62,7 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tax-rate-basis-status-reason", default=None)
     parser.add_argument("--tax-rate-basis-status-note", default=None)
-    parser.add_argument("--tax-rate-basis-status-source", default=None)
+    parser.add_argument(
+        "--tax-rate-basis-status-source",
+        default=None,
+        choices=sorted(TAX_RATE_ADOPTION_STATUS_SOURCES),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 

@@ -25,12 +25,16 @@ from app.services.instant_quote import (
 )
 from app.services.instant_quote_tax_rate_basis import (
     INSTANT_QUOTE_TAX_RATE_BASIS_MIN_EFFECTIVE_TAX_RATE_COVERAGE_RATIO,
+    TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+    TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED,
     TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
     TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES,
     TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES,
+    TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE,
+    TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED,
     SameYearTaxRateAdoptionStatus,
-    assign_tax_rate_basis_status,
     TaxRateBasisCandidate,
+    assign_tax_rate_basis_status,
     choose_tax_rate_basis,
 )
 
@@ -367,13 +371,46 @@ def test_assign_tax_rate_basis_status_uses_explicit_final_adoption_truth() -> No
             tax_year=2026,
             adoption_status=TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
             adoption_status_reason="operator_marked_final_adopted",
-            status_source="operator_asserted",
+            status_source=TAX_RATE_ADOPTION_STATUS_SOURCE_GOVERNING_BODY_ADOPTION_RECORD,
+            source_note="Minutes reviewed.",
         ),
     )
 
     assert selection.basis_tax_year == 2026
     assert selection.basis_status == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
     assert selection.basis_status_reason == "operator_marked_final_adopted"
+    assert selection.selected_basis_warning_codes == ()
+
+
+def test_assign_tax_rate_basis_status_flags_legacy_final_adoption_without_audit_metadata() -> None:
+    selection = assign_tax_rate_basis_status(
+        selection=choose_tax_rate_basis(
+            quote_tax_year=2026,
+            candidates=[
+                TaxRateBasisCandidate(
+                    tax_year=2026,
+                    quoteable_subject_row_count=30,
+                    supportable_subject_row_count=27,
+                    assignment_complete_row_count=28,
+                    continuity_parcel_match_row_count=30,
+                ),
+            ],
+        ),
+        same_year_adoption_status=SameYearTaxRateAdoptionStatus(
+            county_id="harris",
+            tax_year=2026,
+            adoption_status=TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES,
+            adoption_status_reason=None,
+            status_source=TAX_RATE_ADOPTION_STATUS_SOURCE_OPERATOR_ASSERTED,
+            source_note=None,
+        ),
+    )
+
+    assert selection.basis_status == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_FINAL_ADOPTED_RATES
+    assert selection.selected_basis_warning_codes == (
+        TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_METADATA_INCOMPLETE,
+        TAX_RATE_BASIS_WARNING_FINAL_ADOPTION_SOURCE_UNVERIFIED,
+    )
 
 def test_choose_tax_rate_basis_rejects_requested_year_with_row_floor_but_weak_coverage() -> None:
     selection = choose_tax_rate_basis(
