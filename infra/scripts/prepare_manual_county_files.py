@@ -1044,6 +1044,17 @@ def _open_raw_text(path: Path):
     return path.open("r", encoding="utf-8-sig", errors="replace", newline="")
 
 
+def _open_sniffed_dict_reader(handle: Any, *, fallback_delimiter: str = ",") -> csv.DictReader:
+    sample = handle.read(8192)
+    handle.seek(0)
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t|")
+        delimiter = dialect.delimiter
+    except csv.Error:
+        delimiter = fallback_delimiter
+    return csv.DictReader(handle, delimiter=delimiter)
+
+
 def _prepare_harris_lookup_tables(
     connection: sqlite3.Connection,
     *,
@@ -1269,7 +1280,7 @@ def _index_fort_bend_owners(connection: sqlite3.Connection, source_path: Path) -
         WHERE excluded.ownership_pct > fort_bend_owner_lookup.ownership_pct
     """
     with _open_raw_text(source_path) as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        reader = _open_sniffed_dict_reader(handle, fallback_delimiter="\t")
         rows: list[tuple[Any, ...]] = []
         for row in reader:
             quick_ref = _strip(row.get("PropertyQuickRefID"))
@@ -1376,7 +1387,7 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
 def _index_fort_bend_exemptions(connection: sqlite3.Connection, source_path: Path) -> None:
     aggregate: dict[str, dict[str, int]] = {}
     with _open_raw_text(source_path) as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        reader = _open_sniffed_dict_reader(handle, fallback_delimiter="\t")
         for row in reader:
             quick_ref = _strip(row.get("OwnerQuickRefID"))
             if not quick_ref:

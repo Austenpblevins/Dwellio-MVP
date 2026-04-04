@@ -13,6 +13,7 @@ def test_stage17_instant_quote_migration_version_present() -> None:
     assert "0049" in versions
     assert "0050" in versions
     assert "0051" in versions
+    assert "0052" in versions
 
 
 def test_stage17_instant_quote_migration_contains_required_tables_and_view() -> None:
@@ -115,3 +116,13 @@ def test_stage17_tax_rate_migration_order_is_integrated_and_non_colliding() -> N
 
     assert migrations["0050"] == "stage17_tax_rate_basis_hardening"
     assert migrations["0051"] == "stage17_tax_rate_adoption_status_admin_truth"
+    assert migrations["0052"] == "stage19_publish_control_validation_scope"
+
+
+def test_stage19_publish_control_validation_scope_migration_present() -> None:
+    migration_path = MIGRATIONS_DIR / "0052_stage19_publish_control_validation_scope.sql"
+    sql = migration_path.read_text(encoding="utf-8")
+
+    assert "validation_scope_enum" in sql
+    assert "publish_control" in sql
+    assert "ALTER TYPE validation_scope_enum ADD VALUE 'publish_control'" in sql

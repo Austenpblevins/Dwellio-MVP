@@ -143,6 +143,73 @@ def test_prepare_manual_county_files_supports_explicit_override_for_noncanonical
     assert manifest["validation"]["status"] == "passed"
 
 
+def test_prepare_manual_county_files_accepts_comma_delimited_fort_bend_owner_and_exemption_exports(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    county_root = raw_root / "fort_bend"
+    county_root.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(tmp_path / "legacy_fort_bend_commas")
+
+    shutil.copyfile(fort_bend_paths.property_export, county_root / "PropertyExport.txt")
+    shutil.copyfile(fort_bend_paths.residential_segments, county_root / "WebsiteResidentialSegs.csv")
+    shutil.copyfile(fort_bend_paths.tax_rates, county_root / "Fort Bend Tax Rate Source.csv")
+
+    _rewrite_delimited_copy(
+        source_path=fort_bend_paths.owner_export,
+        target_path=county_root / "OwnerExport.txt",
+        input_delimiter="\t",
+        output_delimiter=",",
+    )
+    _rewrite_delimited_copy(
+        source_path=fort_bend_paths.exemption_export,
+        target_path=county_root / "ExemptionExport.txt",
+        input_delimiter="\t",
+        output_delimiter=",",
+    )
+
+    results = prepare_manual_county_files(
+        county_ids=["fort_bend"],
+        tax_year=2026,
+        dataset_types=["property_roll"],
+        raw_root=raw_root,
+        ready_root=ready_root,
+    )
+
+    assert len(results) == 1
+    assert results[0].dataset_type == "property_roll"
+    with (ready_root / "fort_bend_property_roll_2026.csv").open(
+        "r",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["account_id"] == "5910-04-022-0700-907"
+    assert rows[0]["market_value"] == "213077"
+
+
+def _rewrite_delimited_copy(
+    *,
+    source_path: Path,
+    target_path: Path,
+    input_delimiter: str,
+    output_delimiter: str,
+) -> None:
+    with source_path.open("r", encoding="utf-8", newline="") as source_handle:
+        reader = csv.DictReader(source_handle, delimiter=input_delimiter)
+        fieldnames = reader.fieldnames
+        assert fieldnames is not None
+        rows = list(reader)
+
+    with target_path.open("w", encoding="utf-8", newline="") as target_handle:
+        writer = csv.DictWriter(target_handle, fieldnames=fieldnames, delimiter=output_delimiter)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
     acct_owner_dir = raw_root / "2025 Harris_Real_acct_owner"
     building_land_dir = raw_root / "2025 Harris_Real_building_land"
