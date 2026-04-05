@@ -54,6 +54,7 @@ class TaxYearDerivedReadiness:
     instant_quote_tax_rate_basis_fallback_applied: bool = False
     instant_quote_tax_rate_basis_status: str | None = None
     instant_quote_tax_rate_basis_status_reason: str | None = None
+    instant_quote_tax_rate_basis_internal_note: str | None = None
     instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_quoteable_subject_row_count: int = 0
@@ -483,6 +484,42 @@ class DataReadinessService:
             and instant_quote_segment_stats_row_count > 0
             and int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0) == 0
         )
+        instant_quote_tax_rate_basis_year = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_year") is None
+                else int(latest_instant_quote_refresh.get("tax_rate_basis_year"))
+            )
+        )
+        instant_quote_tax_rate_basis_reason = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_reason") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_reason"))
+            )
+        )
+        instant_quote_tax_rate_basis_status = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_status") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_status"))
+            )
+        )
+        instant_quote_tax_rate_basis_status_reason = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_status_reason") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_status_reason"))
+            )
+        )
 
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
@@ -519,45 +556,18 @@ class DataReadinessService:
                 if latest_instant_quote_refresh is None
                 else int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0)
             ),
-            instant_quote_tax_rate_basis_year=(
-                None
-                if latest_instant_quote_refresh is None
-                else (
-                    None
-                    if latest_instant_quote_refresh.get("tax_rate_basis_year") is None
-                    else int(latest_instant_quote_refresh.get("tax_rate_basis_year"))
-                )
-            ),
-            instant_quote_tax_rate_basis_reason=(
-                None
-                if latest_instant_quote_refresh is None
-                else (
-                    None
-                    if latest_instant_quote_refresh.get("tax_rate_basis_reason") is None
-                    else str(latest_instant_quote_refresh.get("tax_rate_basis_reason"))
-                )
-            ),
+            instant_quote_tax_rate_basis_year=instant_quote_tax_rate_basis_year,
+            instant_quote_tax_rate_basis_reason=instant_quote_tax_rate_basis_reason,
             instant_quote_tax_rate_basis_fallback_applied=bool(
                 latest_instant_quote_refresh
                 and latest_instant_quote_refresh.get("tax_rate_basis_fallback_applied")
             ),
-            instant_quote_tax_rate_basis_status=(
-                None
-                if latest_instant_quote_refresh is None
-                else (
-                    None
-                    if latest_instant_quote_refresh.get("tax_rate_basis_status") is None
-                    else str(latest_instant_quote_refresh.get("tax_rate_basis_status"))
-                )
-            ),
-            instant_quote_tax_rate_basis_status_reason=(
-                None
-                if latest_instant_quote_refresh is None
-                else (
-                    None
-                    if latest_instant_quote_refresh.get("tax_rate_basis_status_reason") is None
-                    else str(latest_instant_quote_refresh.get("tax_rate_basis_status_reason"))
-                )
+            instant_quote_tax_rate_basis_status=instant_quote_tax_rate_basis_status,
+            instant_quote_tax_rate_basis_status_reason=instant_quote_tax_rate_basis_status_reason,
+            instant_quote_tax_rate_basis_internal_note=self._instant_quote_tax_rate_basis_internal_note(
+                tax_year=tax_year,
+                basis_tax_year=instant_quote_tax_rate_basis_year,
+                basis_status=instant_quote_tax_rate_basis_status,
             ),
             instant_quote_tax_rate_requested_year_supportable_subject_row_count=int(
                 (latest_instant_quote_refresh or {}).get(
@@ -712,6 +722,25 @@ class DataReadinessService:
             explanation_row_count=explanation_row_count,
             recommendation_row_count=recommendation_row_count,
             quote_row_count=quote_row_count,
+        )
+
+    def _instant_quote_tax_rate_basis_internal_note(
+        self,
+        *,
+        tax_year: int,
+        basis_tax_year: int | None,
+        basis_status: str | None,
+    ) -> str | None:
+        if (
+            basis_tax_year is None
+            or basis_tax_year >= tax_year
+            or basis_status != "prior_year_adopted_rates"
+        ):
+            return None
+        return (
+            f"{tax_year} instant quote currently uses {basis_tax_year} adopted tax-rate "
+            f"basis until {tax_year} rates are available and refreshed. Current-year "
+            "rates are typically updated later in the year, often around September-October."
         )
 
     def _tax_year_exists(self, connection: object, *, tax_year: int) -> bool:

@@ -383,6 +383,9 @@ class AdminReadinessService:
                 instant_quote_tax_rate_basis_status_reason=(
                     readiness.derived.instant_quote_tax_rate_basis_status_reason
                 ),
+                instant_quote_tax_rate_basis_internal_note=(
+                    readiness.derived.instant_quote_tax_rate_basis_internal_note
+                ),
                 instant_quote_tax_rate_requested_year_supportable_subject_row_count=(
                     readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count
                 ),

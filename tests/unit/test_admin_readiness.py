@@ -122,6 +122,11 @@ class StubDataReadinessService:
                     instant_quote_tax_rate_basis_fallback_applied=True,
                     instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
                     instant_quote_tax_rate_basis_status_reason="basis_year_precedes_quote_year",
+                    instant_quote_tax_rate_basis_internal_note=(
+                        "2025 instant quote currently uses 2024 adopted tax-rate basis until 2025 "
+                        "rates are available and refreshed. Current-year rates are typically updated "
+                        "later in the year, often around September-October."
+                    ),
                     instant_quote_tax_rate_requested_year_supportable_subject_row_count=0,
                     instant_quote_tax_rate_basis_supportable_subject_row_count=31,
                     instant_quote_tax_rate_quoteable_subject_row_count=100,
@@ -258,6 +263,11 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
         "fallback_requested_year_missing_supportable_subjects"
     )
     assert row.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
+    assert row.derived.instant_quote_tax_rate_basis_internal_note == (
+        "2025 instant quote currently uses 2024 adopted tax-rate basis until 2025 rates are "
+        "available and refreshed. Current-year rates are typically updated later in the year, "
+        "often around September-October."
+    )
     assert row.derived.instant_quote_tax_rate_basis_status_reason == (
         "basis_year_precedes_quote_year"
     )

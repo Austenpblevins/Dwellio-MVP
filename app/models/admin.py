@@ -48,6 +48,7 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_tax_rate_basis_fallback_applied: bool = False
     instant_quote_tax_rate_basis_status: str | None = None
     instant_quote_tax_rate_basis_status_reason: str | None = None
+    instant_quote_tax_rate_basis_internal_note: str | None = None
     instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_quoteable_subject_row_count: int = 0

@@ -89,7 +89,7 @@ class StubCursor:
                 "refresh_finished_at": None,
                 "validated_at": None,
                 "cache_view_row_delta": 0,
-                "tax_rate_basis_year": 2025,
+                "tax_rate_basis_year": 2024,
                 "tax_rate_basis_reason": "fallback_requested_year_missing_supportable_subjects",
                 "tax_rate_basis_fallback_applied": True,
                 "tax_rate_basis_status": "prior_year_adopted_rates",
@@ -183,7 +183,7 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_supported_segment_stats_row_count == 0
     assert readiness.derived.instant_quote_refresh_status == "completed"
     assert readiness.derived.instant_quote_cache_view_row_delta == 0
-    assert readiness.derived.instant_quote_tax_rate_basis_year == 2025
+    assert readiness.derived.instant_quote_tax_rate_basis_year == 2024
     assert readiness.derived.instant_quote_tax_rate_basis_reason == (
         "fallback_requested_year_missing_supportable_subjects"
     )
@@ -191,6 +191,11 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
     assert readiness.derived.instant_quote_tax_rate_basis_status_reason == (
         "basis_year_precedes_quote_year"
+    )
+    assert readiness.derived.instant_quote_tax_rate_basis_internal_note == (
+        "2025 instant quote currently uses 2024 adopted tax-rate basis until 2025 rates "
+        "are available and refreshed. Current-year rates are typically updated later in "
+        "the year, often around September-October."
     )
     assert readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count == 0
     assert readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count == 24
