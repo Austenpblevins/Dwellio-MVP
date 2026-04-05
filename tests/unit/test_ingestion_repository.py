@@ -152,6 +152,97 @@ def test_bulk_property_roll_upsert_populates_parcel_improvements_summary() -> No
     assert connection.cursor_instance.copy_rows[0][26] == 2004
 
 
+def test_bulk_property_roll_upsert_materializes_target_ids_and_skips_unchanged_addresses() -> None:
+    connection = RecordingConnection()
+    repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]
+
+    repository._bulk_upsert_property_roll_core_records(
+        county_id="harris",
+        tax_year=2026,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        appraisal_district_id="district-1",
+        normalized_records=[
+            {
+                "parcel": {
+                    "account_number": "1001001001001",
+                    "cad_property_id": "cad-1",
+                    "situs_address": "123 Main St",
+                    "situs_city": "Houston",
+                    "situs_zip": "77001",
+                    "owner_name": "Jane Doe",
+                    "property_type_code": "sfr",
+                    "property_class_code": "A1",
+                    "neighborhood_code": "NBHD-1",
+                    "subdivision_name": "Oak Creek",
+                    "school_district_name": "HISD",
+                    "source_record_hash": "hash-1",
+                },
+                "address": {
+                    "normalized_address": "123 MAIN ST HOUSTON TX 77001",
+                },
+                "characteristics": {
+                    "property_type_code": "sfr",
+                    "property_class_code": "A1",
+                    "neighborhood_code": "NBHD-1",
+                    "subdivision_name": "Oak Creek",
+                    "school_district_name": "HISD",
+                    "homestead_flag": True,
+                    "owner_occupied_flag": True,
+                    "primary_use_code": "residential",
+                    "neighborhood_group": "NBHD-1",
+                    "effective_age": 10,
+                },
+                "improvements": [
+                    {
+                        "living_area_sf": 2150,
+                        "year_built": 2004,
+                        "effective_year_built": 2012,
+                        "effective_age": 10,
+                        "bedrooms": 4,
+                        "full_baths": 2,
+                        "half_baths": 1,
+                        "stories": 2,
+                        "quality_code": "AVG",
+                        "condition_code": "GOOD",
+                        "garage_spaces": 2,
+                        "pool_flag": False,
+                    }
+                ],
+                "assessment": {
+                    "land_value": 120000,
+                    "improvement_value": 180000,
+                    "market_value": 300000,
+                    "assessed_value": 300000,
+                    "capped_value": 290000,
+                    "appraised_value": 300000,
+                    "exemption_value_total": 40000,
+                    "notice_value": 300000,
+                    "certified_value": 295000,
+                    "prior_year_market_value": 280000,
+                    "prior_year_assessed_value": 270000,
+                },
+            }
+        ],
+    )
+
+    joined_queries = "\n".join(connection.cursor_instance.queries)
+
+    assert "CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_target_parcels" in joined_queries
+    assert "CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_address_changes" in joined_queries
+    assert "CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_target_snapshots" in joined_queries
+    assert "LEFT JOIN parcel_addresses pa" in joined_queries
+    assert "WHERE pa.parcel_address_id IS NULL" in joined_queries
+    assert "FROM tmp_property_roll_address_changes ac" in joined_queries
+    assert "JOIN tmp_property_roll_target_parcels tp" in joined_queries
+    assert "JOIN tmp_property_roll_target_snapshots ts" in joined_queries
+    assert "WHERE parcel_year_snapshots.county_id IS DISTINCT FROM EXCLUDED.county_id" in joined_queries
+    assert "WHERE property_characteristics.property_type_code IS DISTINCT FROM EXCLUDED.property_type_code" in joined_queries
+    assert "WHERE parcel_improvements.living_area_sf IS DISTINCT FROM EXCLUDED.living_area_sf" in joined_queries
+    assert "WHERE parcel_assessments.land_value IS DISTINCT FROM EXCLUDED.land_value" in joined_queries
+
+
 def test_set_based_tax_assignment_refresh_builds_temp_context_and_bulk_effective_rates() -> None:
     connection = RecordingConnection()
     repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]

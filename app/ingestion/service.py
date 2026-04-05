@@ -902,6 +902,9 @@ class IngestionLifecycleService:
                     "batch": batch,
                     "job_run_id": job_run_id,
                     "rollback_manifest": rollback_manifest,
+                    "rollback_manifest_metadata": self._build_bulk_property_roll_manifest_metadata(
+                        rollback_manifest
+                    ),
                     "deferred_steps": deferred_steps,
                     "final_row_count": final_row_count,
                     "publish_result": publish_result,
@@ -958,6 +961,7 @@ class IngestionLifecycleService:
             batch = post_commit_search_context["batch"]
             job_run_id = post_commit_search_context["job_run_id"]
             rollback_manifest = post_commit_search_context["rollback_manifest"]
+            rollback_manifest_metadata = post_commit_search_context["rollback_manifest_metadata"]
             deferred_steps = post_commit_search_context["deferred_steps"]
             final_row_count = post_commit_search_context["final_row_count"]
             publish_result = post_commit_search_context["publish_result"]
@@ -1020,7 +1024,7 @@ class IngestionLifecycleService:
                             "dataset_type": dataset_type,
                             "dry_run": dry_run,
                             "publish_result": publish_result.details_json,
-                            "rollback_manifest": rollback_manifest,
+                            "rollback_manifest_summary": rollback_manifest_metadata,
                             "deferred_post_publish_steps": deferred_steps,
                             "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
@@ -1049,7 +1053,7 @@ class IngestionLifecycleService:
                             "dataset_type": dataset_type,
                             "dry_run": dry_run,
                             "publish_result": publish_result.details_json,
-                            "rollback_manifest": rollback_manifest,
+                            "rollback_manifest_summary": rollback_manifest_metadata,
                             "deferred_post_publish_steps": deferred_steps,
                             "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
@@ -1081,6 +1085,23 @@ class IngestionLifecycleService:
                 row_count=final_row_count,
                 publish_version=publish_result.publish_version,
             )
+
+    def _build_bulk_property_roll_manifest_metadata(
+        self,
+        rollback_manifest: dict[str, Any],
+    ) -> dict[str, Any]:
+        entries = list(rollback_manifest.get("entries", []))
+        sample_accounts = [
+            str(entry.get("account_number"))
+            for entry in entries[:5]
+            if entry.get("account_number") is not None
+        ]
+        return {
+            "dataset_type": "property_roll",
+            "storage_mode": "summary_only_bulk_property_roll",
+            "entry_count": len(entries),
+            "sample_account_numbers": sample_accounts,
+        }
 
     def rollback_publish(
         self,

@@ -663,8 +663,40 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     assert search_refresh_calls
     assert updates[-1]["status"] == "normalized"
     assert completed_runs[-1]["status"] == "succeeded"
+    assert "rollback_manifest" not in completed_runs[-1]["metadata_json"]
+    assert completed_runs[-1]["metadata_json"]["rollback_manifest_summary"] == {
+        "dataset_type": "property_roll",
+        "storage_mode": "summary_only_bulk_property_roll",
+        "entry_count": 1,
+        "sample_account_numbers": ["1001001001001"],
+    }
     assert completed_runs[-1]["metadata_json"]["post_commit_tax_assignment_refresh"] is True
     assert completed_runs[-1]["metadata_json"]["post_commit_search_refresh"] is True
+
+
+def test_build_bulk_property_roll_manifest_metadata_returns_small_summary() -> None:
+    service = IngestionLifecycleService()
+
+    summary = service._build_bulk_property_roll_manifest_metadata(
+        {
+            "dataset_type": "property_roll",
+            "entries": [
+                {"account_number": "1"},
+                {"account_number": "2"},
+                {"account_number": "3"},
+                {"account_number": "4"},
+                {"account_number": "5"},
+                {"account_number": "6"},
+            ],
+        }
+    )
+
+    assert summary == {
+        "dataset_type": "property_roll",
+        "storage_mode": "summary_only_bulk_property_roll",
+        "entry_count": 6,
+        "sample_account_numbers": ["1", "2", "3", "4", "5"],
+    }
 
 
 def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:

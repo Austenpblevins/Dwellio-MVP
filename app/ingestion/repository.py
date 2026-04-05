@@ -1664,15 +1664,80 @@ class IngestionRepository:
             )
             cursor.execute(
                 """
-                UPDATE parcel_addresses pa
-                SET is_current = false
-                FROM parcels p
-                JOIN tmp_property_roll_core_upsert t
-                  ON t.account_number = p.account_number
-                WHERE pa.parcel_id = p.parcel_id
-                  AND p.county_id = %s
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_target_parcels (
+                  account_number text PRIMARY KEY,
+                  parcel_id uuid NOT NULL
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_target_parcels")
+            cursor.execute(
+                """
+                INSERT INTO tmp_property_roll_target_parcels (
+                  account_number,
+                  parcel_id
+                )
+                SELECT
+                  t.account_number,
+                  p.parcel_id
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
                 """,
                 (county_id,),
+            )
+            cursor.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_address_changes (
+                  parcel_id uuid PRIMARY KEY,
+                  situs_address text,
+                  situs_city text,
+                  situs_zip text,
+                  normalized_address text,
+                  source_record_hash text
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_address_changes")
+            cursor.execute(
+                """
+                INSERT INTO tmp_property_roll_address_changes (
+                  parcel_id,
+                  situs_address,
+                  situs_city,
+                  situs_zip,
+                  normalized_address,
+                  source_record_hash
+                )
+                SELECT
+                  tp.parcel_id,
+                  t.situs_address,
+                  t.situs_city,
+                  t.situs_zip,
+                  t.normalized_address,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN tmp_property_roll_target_parcels tp
+                  ON tp.account_number = t.account_number
+                LEFT JOIN parcel_addresses pa
+                  ON pa.parcel_id = tp.parcel_id
+                 AND pa.is_current = true
+                WHERE pa.parcel_address_id IS NULL
+                   OR pa.situs_address IS DISTINCT FROM t.situs_address
+                   OR pa.situs_city IS DISTINCT FROM t.situs_city
+                   OR pa.situs_zip IS DISTINCT FROM t.situs_zip
+                   OR pa.normalized_address IS DISTINCT FROM t.normalized_address
+                """,
+            )
+            cursor.execute(
+                """
+                UPDATE parcel_addresses pa
+                SET is_current = false
+                FROM tmp_property_roll_address_changes ac
+                WHERE pa.parcel_id = ac.parcel_id
+                  AND pa.is_current = true
+                """
             )
             cursor.execute(
                 """
@@ -1688,21 +1753,18 @@ class IngestionRepository:
                   source_record_hash
                 )
                 SELECT
-                  p.parcel_id,
-                  t.situs_address,
-                  t.situs_city,
+                  ac.parcel_id,
+                  ac.situs_address,
+                  ac.situs_city,
                   'TX',
-                  t.situs_zip,
-                  t.normalized_address,
+                  ac.situs_zip,
+                  ac.normalized_address,
                   true,
                   %s,
-                  t.source_record_hash
-                FROM tmp_property_roll_core_upsert t
-                JOIN parcels p
-                  ON p.county_id = %s
-                 AND p.account_number = t.account_number
+                  ac.source_record_hash
+                FROM tmp_property_roll_address_changes ac
                 """,
-                (source_system_id, county_id),
+                (source_system_id,),
             )
             cursor.execute(
                 """
@@ -1720,7 +1782,7 @@ class IngestionRepository:
                   source_record_hash
                 )
                 SELECT
-                  p.parcel_id,
+                  tp.parcel_id,
                   %s,
                   %s,
                   %s,
@@ -1732,9 +1794,8 @@ class IngestionRepository:
                   t.cad_owner_name_normalized,
                   t.source_record_hash
                 FROM tmp_property_roll_core_upsert t
-                JOIN parcels p
-                  ON p.county_id = %s
-                 AND p.account_number = t.account_number
+                JOIN tmp_property_roll_target_parcels tp
+                  ON tp.account_number = t.account_number
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   county_id = EXCLUDED.county_id,
@@ -1747,6 +1808,15 @@ class IngestionRepository:
                   cad_owner_name_normalized = EXCLUDED.cad_owner_name_normalized,
                   source_record_hash = EXCLUDED.source_record_hash,
                   updated_at = now()
+                WHERE parcel_year_snapshots.county_id IS DISTINCT FROM EXCLUDED.county_id
+                   OR parcel_year_snapshots.appraisal_district_id IS DISTINCT FROM EXCLUDED.appraisal_district_id
+                   OR parcel_year_snapshots.account_number IS DISTINCT FROM EXCLUDED.account_number
+                   OR parcel_year_snapshots.source_system_id IS DISTINCT FROM EXCLUDED.source_system_id
+                   OR parcel_year_snapshots.import_batch_id IS DISTINCT FROM EXCLUDED.import_batch_id
+                   OR parcel_year_snapshots.job_run_id IS DISTINCT FROM EXCLUDED.job_run_id
+                   OR parcel_year_snapshots.cad_owner_name IS DISTINCT FROM EXCLUDED.cad_owner_name
+                   OR parcel_year_snapshots.cad_owner_name_normalized IS DISTINCT FROM EXCLUDED.cad_owner_name_normalized
+                   OR parcel_year_snapshots.source_record_hash IS DISTINCT FROM EXCLUDED.source_record_hash
                 """,
                 (
                     county_id,
@@ -1755,8 +1825,35 @@ class IngestionRepository:
                     source_system_id,
                     import_batch_id,
                     job_run_id,
-                    county_id,
                 ),
+            )
+            cursor.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_target_snapshots (
+                  account_number text PRIMARY KEY,
+                  parcel_id uuid NOT NULL,
+                  parcel_year_snapshot_id uuid NOT NULL
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_target_snapshots")
+            cursor.execute(
+                """
+                INSERT INTO tmp_property_roll_target_snapshots (
+                  account_number,
+                  parcel_id,
+                  parcel_year_snapshot_id
+                )
+                SELECT
+                  tp.account_number,
+                  tp.parcel_id,
+                  pys.parcel_year_snapshot_id
+                FROM tmp_property_roll_target_parcels tp
+                JOIN parcel_year_snapshots pys
+                  ON pys.parcel_id = tp.parcel_id
+                 AND pys.tax_year = %s
+                """,
+                (tax_year,),
             )
             cursor.execute(
                 """
@@ -1774,7 +1871,7 @@ class IngestionRepository:
                   effective_age
                 )
                 SELECT
-                  pys.parcel_year_snapshot_id,
+                  ts.parcel_year_snapshot_id,
                   t.characteristics_property_type_code,
                   t.characteristics_property_class_code,
                   t.characteristics_neighborhood_code,
@@ -1786,12 +1883,8 @@ class IngestionRepository:
                   t.neighborhood_group,
                   t.effective_age
                 FROM tmp_property_roll_core_upsert t
-                JOIN parcels p
-                  ON p.county_id = %s
-                 AND p.account_number = t.account_number
-                JOIN parcel_year_snapshots pys
-                  ON pys.parcel_id = p.parcel_id
-                 AND pys.tax_year = %s
+                JOIN tmp_property_roll_target_snapshots ts
+                  ON ts.account_number = t.account_number
                 ON CONFLICT (parcel_year_snapshot_id)
                 DO UPDATE SET
                   property_type_code = EXCLUDED.property_type_code,
@@ -1805,8 +1898,17 @@ class IngestionRepository:
                   neighborhood_group = EXCLUDED.neighborhood_group,
                   effective_age = EXCLUDED.effective_age,
                   updated_at = now()
+                WHERE property_characteristics.property_type_code IS DISTINCT FROM EXCLUDED.property_type_code
+                   OR property_characteristics.property_class_code IS DISTINCT FROM EXCLUDED.property_class_code
+                   OR property_characteristics.neighborhood_code IS DISTINCT FROM EXCLUDED.neighborhood_code
+                   OR property_characteristics.subdivision_name IS DISTINCT FROM EXCLUDED.subdivision_name
+                   OR property_characteristics.school_district_name IS DISTINCT FROM EXCLUDED.school_district_name
+                   OR property_characteristics.homestead_flag IS DISTINCT FROM EXCLUDED.homestead_flag
+                   OR property_characteristics.owner_occupied_flag IS DISTINCT FROM EXCLUDED.owner_occupied_flag
+                   OR property_characteristics.primary_use_code IS DISTINCT FROM EXCLUDED.primary_use_code
+                   OR property_characteristics.neighborhood_group IS DISTINCT FROM EXCLUDED.neighborhood_group
+                   OR property_characteristics.effective_age IS DISTINCT FROM EXCLUDED.effective_age
                 """,
-                (county_id, tax_year),
             )
             cursor.execute(
                 """
@@ -1829,7 +1931,7 @@ class IngestionRepository:
                   source_record_hash
                 )
                 SELECT
-                  p.parcel_id,
+                  tp.parcel_id,
                   %s,
                   t.living_area_sf,
                   t.year_built,
@@ -1846,9 +1948,8 @@ class IngestionRepository:
                   %s,
                   t.source_record_hash
                 FROM tmp_property_roll_core_upsert t
-                JOIN parcels p
-                  ON p.county_id = %s
-                 AND p.account_number = t.account_number
+                JOIN tmp_property_roll_target_parcels tp
+                  ON tp.account_number = t.account_number
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   living_area_sf = EXCLUDED.living_area_sf,
@@ -1866,8 +1967,22 @@ class IngestionRepository:
                   source_system_id = EXCLUDED.source_system_id,
                   source_record_hash = EXCLUDED.source_record_hash,
                   updated_at = now()
+                WHERE parcel_improvements.living_area_sf IS DISTINCT FROM EXCLUDED.living_area_sf
+                   OR parcel_improvements.year_built IS DISTINCT FROM EXCLUDED.year_built
+                   OR parcel_improvements.effective_year_built IS DISTINCT FROM EXCLUDED.effective_year_built
+                   OR parcel_improvements.effective_age IS DISTINCT FROM EXCLUDED.effective_age
+                   OR parcel_improvements.bedrooms IS DISTINCT FROM EXCLUDED.bedrooms
+                   OR parcel_improvements.full_baths IS DISTINCT FROM EXCLUDED.full_baths
+                   OR parcel_improvements.half_baths IS DISTINCT FROM EXCLUDED.half_baths
+                   OR parcel_improvements.stories IS DISTINCT FROM EXCLUDED.stories
+                   OR parcel_improvements.quality_code IS DISTINCT FROM EXCLUDED.quality_code
+                   OR parcel_improvements.condition_code IS DISTINCT FROM EXCLUDED.condition_code
+                   OR parcel_improvements.garage_spaces IS DISTINCT FROM EXCLUDED.garage_spaces
+                   OR parcel_improvements.pool_flag IS DISTINCT FROM EXCLUDED.pool_flag
+                   OR parcel_improvements.source_system_id IS DISTINCT FROM EXCLUDED.source_system_id
+                   OR parcel_improvements.source_record_hash IS DISTINCT FROM EXCLUDED.source_record_hash
                 """,
-                (tax_year, source_system_id, county_id),
+                (tax_year, source_system_id),
             )
             cursor.execute(
                 """
@@ -1890,7 +2005,7 @@ class IngestionRepository:
                   source_record_hash
                 )
                 SELECT
-                  p.parcel_id,
+                  tp.parcel_id,
                   %s,
                   t.land_value,
                   t.improvement_value,
@@ -1907,9 +2022,8 @@ class IngestionRepository:
                   %s,
                   t.source_record_hash
                 FROM tmp_property_roll_core_upsert t
-                JOIN parcels p
-                  ON p.county_id = %s
-                 AND p.account_number = t.account_number
+                JOIN tmp_property_roll_target_parcels tp
+                  ON tp.account_number = t.account_number
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   land_value = EXCLUDED.land_value,
@@ -1927,8 +2041,22 @@ class IngestionRepository:
                   source_system_id = EXCLUDED.source_system_id,
                   source_record_hash = EXCLUDED.source_record_hash,
                   updated_at = now()
+                WHERE parcel_assessments.land_value IS DISTINCT FROM EXCLUDED.land_value
+                   OR parcel_assessments.improvement_value IS DISTINCT FROM EXCLUDED.improvement_value
+                   OR parcel_assessments.market_value IS DISTINCT FROM EXCLUDED.market_value
+                   OR parcel_assessments.assessed_value IS DISTINCT FROM EXCLUDED.assessed_value
+                   OR parcel_assessments.capped_value IS DISTINCT FROM EXCLUDED.capped_value
+                   OR parcel_assessments.appraised_value IS DISTINCT FROM EXCLUDED.appraised_value
+                   OR parcel_assessments.exemption_value_total IS DISTINCT FROM EXCLUDED.exemption_value_total
+                   OR parcel_assessments.notice_value IS DISTINCT FROM EXCLUDED.notice_value
+                   OR parcel_assessments.certified_value IS DISTINCT FROM EXCLUDED.certified_value
+                   OR parcel_assessments.prior_year_market_value IS DISTINCT FROM EXCLUDED.prior_year_market_value
+                   OR parcel_assessments.prior_year_assessed_value IS DISTINCT FROM EXCLUDED.prior_year_assessed_value
+                   OR parcel_assessments.homestead_flag IS DISTINCT FROM EXCLUDED.homestead_flag
+                   OR parcel_assessments.source_system_id IS DISTINCT FROM EXCLUDED.source_system_id
+                   OR parcel_assessments.source_record_hash IS DISTINCT FROM EXCLUDED.source_record_hash
                 """,
-                (tax_year, source_system_id, county_id),
+                (tax_year, source_system_id),
             )
 
     def upsert_deed_records(
