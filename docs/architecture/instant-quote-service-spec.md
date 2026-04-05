@@ -47,6 +47,7 @@ Tax-rate basis behavior:
 - requested-year usability is not row-floor only:
   - keep the `20` supportable-subject floor
   - also require strong effective-tax-rate coverage and tax-assignment completeness on the current-year quoteable cohort
+  - tax-assignment completeness is based on the tax-unit types that are actually canonically present for that county-year basis, rather than assuming `school` rows always exist
   - require measured parcel continuity before prior-year fallback is treated as usable
 
 Assessment basis:

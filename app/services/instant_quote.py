@@ -693,17 +693,37 @@ class InstantQuoteRefreshService:
                     ),
                     tax_assignment_rollup AS (
                       SELECT
-                        ptu.parcel_id,
-                        ptu.tax_year,
+                        scope.parcel_id,
+                        scope.tax_year,
                         COUNT(*) FILTER (WHERE tu.unit_type_code = 'county')::integer AS county_assignment_count,
                         COUNT(*) FILTER (WHERE tu.unit_type_code = 'school')::integer AS school_assignment_count
-                      FROM parcel_taxing_units ptu
-                      JOIN tmp_instant_quote_subject_scope scope
-                        ON scope.parcel_id = ptu.parcel_id
-                       AND scope.tax_year = ptu.tax_year
+                      FROM tmp_instant_quote_subject_scope scope
+                      JOIN tmp_instant_quote_tax_rate_basis_selection tax_basis
+                        ON tax_basis.county_id = scope.county_id
+                       AND tax_basis.tax_year = scope.tax_year
+                      JOIN parcel_taxing_units ptu
+                        ON ptu.parcel_id = scope.parcel_id
+                       AND ptu.tax_year = tax_basis.effective_tax_rate_basis_year
                       JOIN taxing_units tu
                         ON tu.taxing_unit_id = ptu.taxing_unit_id
-                      GROUP BY ptu.parcel_id, ptu.tax_year
+                      GROUP BY scope.parcel_id, scope.tax_year
+                    ),
+                    tax_assignment_requirements AS (
+                      SELECT
+                        tax_basis.county_id,
+                        tax_basis.tax_year,
+                        COALESCE(BOOL_OR(tu.unit_type_code = 'county'), false) AS requires_county_assignment,
+                        COALESCE(BOOL_OR(tu.unit_type_code = 'school'), false) AS requires_school_assignment
+                      FROM tmp_instant_quote_tax_rate_basis_selection tax_basis
+                      LEFT JOIN parcel_taxing_units ptu
+                        ON ptu.tax_year = tax_basis.effective_tax_rate_basis_year
+                      LEFT JOIN parcels basis_parcel
+                        ON basis_parcel.parcel_id = ptu.parcel_id
+                       AND basis_parcel.county_id = tax_basis.county_id
+                      LEFT JOIN taxing_units tu
+                        ON tu.taxing_unit_id = ptu.taxing_unit_id
+                       AND tu.unit_type_code IN ('county', 'school')
+                      GROUP BY tax_basis.county_id, tax_basis.tax_year
                     ),
                     geometry_flags AS (
                       SELECT
@@ -774,6 +794,8 @@ class InstantQuoteRefreshService:
                         tax_basis.effective_tax_rate_basis_status_reason,
                         COALESCE(tar.county_assignment_count, 0) AS county_assignment_count,
                         COALESCE(tar.school_assignment_count, 0) AS school_assignment_count,
+                        COALESCE(tarq.requires_county_assignment, false) AS requires_county_assignment,
+                        COALESCE(tarq.requires_school_assignment, false) AS requires_school_assignment,
                         COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
                         COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
                         pc.property_characteristic_id IS NOT NULL AS has_characteristics,
@@ -810,6 +832,9 @@ class InstantQuoteRefreshService:
                       LEFT JOIN tax_assignment_rollup tar
                         ON tar.parcel_id = scope.parcel_id
                        AND tar.tax_year = scope.tax_year
+                      LEFT JOIN tax_assignment_requirements tarq
+                        ON tarq.county_id = scope.county_id
+                       AND tarq.tax_year = scope.tax_year
                       LEFT JOIN current_owner_rollups cor
                         ON cor.parcel_id = scope.parcel_id
                        AND cor.tax_year = scope.tax_year
@@ -866,7 +891,21 @@ class InstantQuoteRefreshService:
                             (CASE WHEN sb.has_land THEN 1 ELSE 0 END) +
                             (CASE WHEN sb.has_assessment THEN 1 ELSE 0 END) +
                             (CASE WHEN sb.exemption_record_count > 0 OR sb.exemption_value_total IS NOT NULL THEN 1 ELSE 0 END) +
-                            (CASE WHEN sb.county_assignment_count > 0 OR sb.school_assignment_count > 0 THEN 1 ELSE 0 END) +
+                            (
+                              CASE
+                                WHEN (
+                                  (
+                                    NOT sb.requires_county_assignment
+                                    OR sb.county_assignment_count > 0
+                                  )
+                                  AND (
+                                    NOT sb.requires_school_assignment
+                                    OR sb.school_assignment_count > 0
+                                  )
+                                ) THEN 1
+                                ELSE 0
+                              END
+                            ) +
                             (CASE WHEN sb.has_effective_tax_rate THEN 1 ELSE 0 END) +
                             (CASE WHEN sb.has_owner_rollup THEN 1 ELSE 0 END) +
                             (CASE WHEN sb.has_parcel_polygon OR sb.has_parcel_centroid THEN 1 ELSE 0 END)
@@ -894,8 +933,16 @@ class InstantQuoteRefreshService:
                           CASE WHEN NOT sb.has_land THEN 'missing_land' END,
                           CASE WHEN NOT sb.has_assessment THEN 'missing_assessment' END,
                           CASE WHEN sb.exemption_record_count = 0 AND sb.exemption_value_total IS NULL THEN 'missing_exemption_data' END,
-                          CASE WHEN sb.county_assignment_count = 0 THEN 'missing_county_assignment' END,
-                          CASE WHEN sb.school_assignment_count = 0 THEN 'missing_school_assignment' END,
+                          CASE
+                            WHEN sb.requires_county_assignment
+                              AND sb.county_assignment_count = 0
+                            THEN 'missing_county_assignment'
+                          END,
+                          CASE
+                            WHEN sb.requires_school_assignment
+                              AND sb.school_assignment_count = 0
+                            THEN 'missing_school_assignment'
+                          END,
                           CASE WHEN NOT sb.has_effective_tax_rate THEN 'missing_effective_tax_rate' END,
                           CASE WHEN NOT sb.has_owner_rollup THEN 'missing_owner_rollup' END,
                           CASE
@@ -1334,6 +1381,22 @@ class InstantQuoteRefreshService:
                 ON base.parcel_id = etr.parcel_id
               WHERE etr.tax_year < %s
             ),
+            basis_assignment_requirements AS (
+              SELECT
+                candidate.basis_year,
+                COALESCE(BOOL_OR(tu.unit_type_code = 'county'), false) AS requires_county_assignment,
+                COALESCE(BOOL_OR(tu.unit_type_code = 'school'), false) AS requires_school_assignment
+              FROM candidate_basis_years candidate
+              LEFT JOIN parcel_taxing_units ptu
+                ON ptu.tax_year = candidate.basis_year
+              LEFT JOIN parcels basis_parcel
+                ON basis_parcel.parcel_id = ptu.parcel_id
+               AND basis_parcel.county_id = %s
+              LEFT JOIN taxing_units tu
+                ON tu.taxing_unit_id = ptu.taxing_unit_id
+               AND tu.unit_type_code IN ('county', 'school')
+              GROUP BY candidate.basis_year
+            ),
             basis_assignments AS (
               SELECT
                 ptu.parcel_id,
@@ -1382,8 +1445,14 @@ class InstantQuoteRefreshService:
               )::integer AS supportable_subject_row_count
               ,
               COUNT(*) FILTER (
-                WHERE COALESCE(assignments.county_assignment_count, 0) > 0
-                  AND COALESCE(assignments.school_assignment_count, 0) > 0
+                WHERE (
+                  NOT COALESCE(requirements.requires_county_assignment, false)
+                  OR COALESCE(assignments.county_assignment_count, 0) > 0
+                )
+                  AND (
+                    NOT COALESCE(requirements.requires_school_assignment, false)
+                    OR COALESCE(assignments.school_assignment_count, 0) > 0
+                  )
               )::integer AS assignment_complete_row_count,
               COUNT(*) FILTER (
                 WHERE candidate_basis_years.basis_year = %s
@@ -1402,6 +1471,8 @@ class InstantQuoteRefreshService:
             LEFT JOIN basis_assignments assignments
               ON assignments.parcel_id = quoteable_cohort.parcel_id
              AND assignments.tax_year = candidate_basis_years.basis_year
+            LEFT JOIN basis_assignment_requirements requirements
+              ON requirements.basis_year = candidate_basis_years.basis_year
             LEFT JOIN basis_parcel_continuity continuity
               ON continuity.parcel_id = quoteable_cohort.parcel_id
              AND continuity.tax_year = candidate_basis_years.basis_year
@@ -1411,7 +1482,16 @@ class InstantQuoteRefreshService:
             GROUP BY candidate_basis_years.basis_year
             ORDER BY candidate_basis_years.basis_year DESC
             """,
-            (county_id, tax_year, tax_year, tax_year, county_id, tax_year, tax_year),
+            (
+                county_id,
+                tax_year,
+                tax_year,
+                tax_year,
+                county_id,
+                county_id,
+                tax_year,
+                tax_year,
+            ),
         )
         candidates = [
             TaxRateBasisCandidate(

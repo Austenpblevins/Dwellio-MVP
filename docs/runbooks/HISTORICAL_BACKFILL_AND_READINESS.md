@@ -51,6 +51,7 @@ Interpretation:
 - requested-year tax-rate basis usability is now conservative:
   - it still needs the `20` supportable-subject floor
   - it also needs strong effective-tax-rate coverage and tax-assignment completeness on the current-year instant-quote cohort
+  - tax-assignment completeness uses the materially present tax-unit types for the county-year basis, so counties that canonically publish only `county` parcel-taxing-unit rows are not blocked just because `school` rows are absent from the canonical layer
 - fallback quality is now measurable through parcel continuity metrics between the requested quote year and the selected basis year
 - historical validation ranking helps choose a fuller QA year such as `2025` instead of defaulting to sparse `2026`
 

@@ -59,7 +59,10 @@ Tax-rate basis selection:
 Usability rule:
 - keep the canonical supportable-subject floor at `20`
 - require requested-year effective-tax-rate coverage of at least `85%` across the current-year quoteable cohort
-- require requested-year county+school assignment completeness of at least `90%` across that same cohort
+- require requested-year tax-assignment completeness of at least `90%` across that same cohort
+- treat assignment completeness as "all materially present tax-unit types for that county-year basis":
+  - if both `county` and `school` assignments exist canonically for that basis year, require both
+  - if only `county` assignments are canonically present, require `county` only
 - require fallback basis parcel continuity by `parcel_id` of at least `85%`
 - emit a continuity warning when fallback continuity is below `90%`, even if the fallback basis is still usable
 
