@@ -386,6 +386,18 @@ class AdminReadinessService:
                 instant_quote_tax_rate_basis_internal_note=(
                     readiness.derived.instant_quote_tax_rate_basis_internal_note
                 ),
+                instant_quote_tax_completeness_status=(
+                    readiness.derived.instant_quote_tax_completeness_status
+                ),
+                instant_quote_tax_completeness_reason=(
+                    readiness.derived.instant_quote_tax_completeness_reason
+                ),
+                instant_quote_tax_completeness_internal_note=(
+                    readiness.derived.instant_quote_tax_completeness_internal_note
+                ),
+                instant_quote_tax_completeness_warning_codes=(
+                    readiness.derived.instant_quote_tax_completeness_warning_codes
+                ),
                 instant_quote_tax_rate_requested_year_supportable_subject_row_count=(
                     readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count
                 ),
@@ -713,6 +725,18 @@ class AdminReadinessService:
             alerts.append("instant_quote_support_too_thin")
         if readiness.derived.instant_quote_tax_rate_basis_year is None:
             alerts.append("instant_quote_tax_rate_basis_missing")
+        if readiness.derived.instant_quote_tax_completeness_status == "operational_with_caveats":
+            alerts.append("instant_quote_tax_completeness_operational_caveat")
+        if (
+            "risky_caution_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_risky_caution_monitored")
+        if (
+            "continuity_gap_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_continuity_gap_monitored")
         if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
             alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
         if (

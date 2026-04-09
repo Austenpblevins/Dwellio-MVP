@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.instant_quote_tax_completeness import InstantQuoteTaxCompletenessPosture
 from app.services.data_readiness import DataReadinessService
 
 
@@ -230,3 +231,39 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.explanation_ready is True
     assert readiness.derived.recommendation_ready is True
     assert readiness.derived.quote_ready is True
+
+
+def test_data_readiness_surfaces_tax_completeness_posture(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.data_readiness.get_connection", lambda: StubConnection())
+    monkeypatch.setattr(
+        "app.services.data_readiness.classify_instant_quote_tax_completeness",
+        lambda **kwargs: InstantQuoteTaxCompletenessPosture(
+            status="operational_with_caveats",
+            reason="fort_bend_revalidation_residual_risk",
+            internal_note="Fort Bend 2026 parcel tax completeness is operational with caveats.",
+            warning_codes=(
+                "acceptable_caution_rows_operational",
+                "risky_caution_rows_monitored",
+                "continuity_gap_rows_monitored",
+            ),
+        ),
+    )
+
+    readiness = DataReadinessService().build_tax_year_readiness(
+        county_id="fort_bend",
+        tax_year=2026,
+    )
+
+    assert readiness.derived.instant_quote_ready is False
+    assert readiness.derived.instant_quote_tax_completeness_status == "operational_with_caveats"
+    assert readiness.derived.instant_quote_tax_completeness_reason == (
+        "fort_bend_revalidation_residual_risk"
+    )
+    assert readiness.derived.instant_quote_tax_completeness_internal_note == (
+        "Fort Bend 2026 parcel tax completeness is operational with caveats."
+    )
+    assert readiness.derived.instant_quote_tax_completeness_warning_codes == [
+        "acceptable_caution_rows_operational",
+        "risky_caution_rows_monitored",
+        "continuity_gap_rows_monitored",
+    ]

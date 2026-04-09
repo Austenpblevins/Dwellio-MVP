@@ -7,6 +7,12 @@ from psycopg.types.json import Jsonb
 
 from app.db.connection import get_connection
 from app.services.instant_quote import InstantQuoteService
+from app.services.instant_quote_tax_completeness import (
+    classify_instant_quote_tax_completeness,
+)
+from app.services.instant_quote_tax_rate_basis import (
+    INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS,
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,10 @@ class InstantQuoteValidationReport:
     tax_rate_basis_fallback_applied: bool = False
     tax_rate_basis_status: str | None = None
     tax_rate_basis_status_reason: str | None = None
+    tax_completeness_status: str | None = None
+    tax_completeness_reason: str | None = None
+    tax_completeness_internal_note: str | None = None
+    tax_completeness_warning_codes: list[str] = field(default_factory=list)
     requested_tax_rate_supportable_subject_row_count: int = 0
     tax_rate_basis_supportable_subject_row_count: int = 0
     tax_rate_quoteable_subject_row_count: int = 0
@@ -166,6 +176,44 @@ class InstantQuoteValidationService:
                     county_id=county_id,
                     tax_year=tax_year,
                 )
+        instant_quote_ready = (
+            latest_refresh_run is not None
+            and str(latest_refresh_run.get("refresh_status")) == "completed"
+            and subject_cache_row_count > 0
+            and supported_neighborhood_stats_rows > 0
+            and supported_segment_stats_rows > 0
+            and int(latest_refresh_run.get("cache_view_row_delta") or 0) == 0
+            and instant_quote_supportable_rows >= INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS
+        )
+        tax_completeness_posture = classify_instant_quote_tax_completeness(
+            county_id=county_id,
+            tax_year=tax_year,
+            instant_quote_ready=instant_quote_ready,
+            basis_tax_year=(
+                None if latest_refresh_run is None else latest_refresh_run.get("tax_rate_basis_year")
+            ),
+            basis_status=(
+                None
+                if latest_refresh_run is None
+                else latest_refresh_run.get("tax_rate_basis_status")
+            ),
+            basis_effective_tax_rate_coverage_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_effective_tax_rate_coverage_ratio")
+                or 0.0
+            ),
+            basis_assignment_coverage_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_assignment_coverage_ratio")
+                or 0.0
+            ),
+            continuity_parcel_gap_row_count=int(
+                (latest_refresh_run or {}).get("tax_rate_basis_continuity_parcel_gap_row_count")
+                or 0
+            ),
+            continuity_parcel_match_ratio=float(
+                (latest_refresh_run or {}).get("tax_rate_basis_continuity_parcel_match_ratio")
+                or 0.0
+            ),
+        )
 
         examples: list[InstantQuoteExampleResult] = []
         supported_public_quote_exists = False
@@ -232,6 +280,10 @@ class InstantQuoteValidationService:
                     if latest_refresh_run is None
                     else latest_refresh_run.get("tax_rate_basis_status_reason")
                 ),
+                "tax_completeness_status": tax_completeness_posture.status,
+                "tax_completeness_reason": tax_completeness_posture.reason,
+                "tax_completeness_internal_note": tax_completeness_posture.internal_note,
+                "tax_completeness_warning_codes": list(tax_completeness_posture.warning_codes),
                 "requested_tax_rate_supportable_subject_row_count": int(
                     (latest_refresh_run or {}).get(
                         "requested_tax_rate_supportable_subject_row_count"
@@ -377,6 +429,10 @@ class InstantQuoteValidationService:
                     else str(latest_refresh_run["tax_rate_basis_status_reason"])
                 )
             ),
+            tax_completeness_status=tax_completeness_posture.status,
+            tax_completeness_reason=tax_completeness_posture.reason,
+            tax_completeness_internal_note=tax_completeness_posture.internal_note,
+            tax_completeness_warning_codes=list(tax_completeness_posture.warning_codes),
             requested_tax_rate_supportable_subject_row_count=int(
                 (latest_refresh_run or {}).get("requested_tax_rate_supportable_subject_row_count")
                 or 0

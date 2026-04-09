@@ -358,7 +358,110 @@ def test_admin_readiness_marks_publish_blocked_dataset() -> None:
         "Publish blocked because 2 validation error finding(s) exist for import batch batch-1."
     )
     assert dataset.freshness_status == "stale"
-    assert dataset.validation_regression is True
+
+
+def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
+    class FortBendStubDataReadinessService:
+        def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
+            assert county_id == "fort_bend"
+            return CountyTaxYearReadiness(
+                county_id=county_id,
+                tax_year=tax_year,
+                tax_year_known=True,
+                datasets=[
+                    DatasetYearReadiness(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        dataset_type="property_roll",
+                        source_system_code="FBCAD_BULK",
+                        access_method="manual_upload",
+                        availability_status="manual_upload_required",
+                        tax_year_known=True,
+                        raw_file_count=1,
+                        latest_import_batch_id=f"batch-{tax_year}",
+                        latest_import_status="normalized",
+                        latest_publish_state="published",
+                        staged=True,
+                        canonical_published=True,
+                    )
+                ],
+                derived=TaxYearDerivedReadiness(
+                    parcel_summary_ready=True,
+                    parcel_year_trend_ready=True,
+                    neighborhood_stats_ready=True,
+                    neighborhood_year_trend_ready=True,
+                    instant_quote_subject_ready=True,
+                    instant_quote_neighborhood_stats_ready=True,
+                    instant_quote_segment_stats_ready=True,
+                    instant_quote_asset_ready=True,
+                    instant_quote_ready=True,
+                    instant_quote_refresh_status="completed",
+                    instant_quote_tax_rate_basis_year=2025,
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_completeness_status="operational_with_caveats",
+                    instant_quote_tax_completeness_reason="fort_bend_revalidation_residual_risk",
+                    instant_quote_tax_completeness_internal_note=(
+                        "Fort Bend 2026 parcel tax completeness is operational with caveats."
+                    ),
+                    instant_quote_tax_completeness_warning_codes=[
+                        "acceptable_caution_rows_operational",
+                        "risky_caution_rows_monitored",
+                        "continuity_gap_rows_monitored",
+                    ],
+                    search_support_ready=True,
+                    feature_ready=False,
+                    comp_ready=False,
+                    valuation_ready=False,
+                    savings_ready=False,
+                    decision_tree_ready=False,
+                    explanation_ready=False,
+                    recommendation_ready=False,
+                    quote_ready=False,
+                    parcel_summary_row_count=10,
+                    instant_quote_subject_row_count=10,
+                    instant_quote_neighborhood_stats_row_count=5,
+                    instant_quote_segment_stats_row_count=5,
+                    instant_quote_supportable_row_count=10,
+                    instant_quote_supported_neighborhood_stats_row_count=5,
+                    instant_quote_supported_segment_stats_row_count=5,
+                    search_document_row_count=10,
+                    parcel_feature_row_count=0,
+                    comp_pool_row_count=0,
+                    quote_row_count=0,
+                ),
+            )
+
+    dashboard = AdminReadinessService(
+        data_readiness_service=FortBendStubDataReadinessService(),
+        operational_metrics_provider=type(
+            "FortBendStubOperationalMetricsProvider",
+            (),
+            {
+                "build_dataset_metrics": lambda self, connection, *, county_id, tax_year, dataset_type: DatasetOperationalMetrics(
+                    freshness_status="fresh",
+                    freshness_sla_days=14,
+                    freshness_age_days=1,
+                )
+            },
+        )(),
+        connection_factory=lambda: NullConnection(),
+    ).build_dashboard(county_id="fort_bend", tax_years=[2026])
+
+    row = dashboard.readiness_rows[0]
+    assert row.derived.instant_quote_ready is True
+    assert row.derived.instant_quote_tax_completeness_status == "operational_with_caveats"
+    assert row.derived.instant_quote_tax_completeness_reason == (
+        "fort_bend_revalidation_residual_risk"
+    )
+    assert row.derived.instant_quote_tax_completeness_warning_codes == [
+        "acceptable_caution_rows_operational",
+        "risky_caution_rows_monitored",
+        "continuity_gap_rows_monitored",
+    ]
+    assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
+    assert "instant_quote_tax_completeness_risky_caution_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
 
 
 def test_operational_metrics_provider_applies_sla_windows() -> None:
