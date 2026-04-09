@@ -89,6 +89,61 @@ def test_build_assignment_rows_matches_only_existing_rate_bearing_units() -> Non
         ("parcel-2", "M215"),
     }
     assert unmatched == {"T206": 1}
+    assert {
+        (row["parcel_id"], row["unit_code"]): row["is_primary"]
+        for row in assignments
+    } == {
+        ("parcel-1", "D01"): True,
+        ("parcel-1", "G01"): True,
+        ("parcel-2", "G01"): True,
+        ("parcel-2", "M215"): True,
+    }
+
+
+def test_build_assignment_rows_marks_lowest_unit_code_primary_within_type() -> None:
+    parcel_scope = [
+        FortBendParcelScopeRow(
+            parcel_id="parcel-1",
+            account_number="001",
+            cad_property_id="P100",
+        )
+    ]
+    tax_units = {
+        "C09": FortBendTaxUnitRow(
+            taxing_unit_id="tu-c09",
+            unit_code="C09",
+            unit_name="Fresno",
+            unit_type_code="city",
+        ),
+        "C21": FortBendTaxUnitRow(
+            taxing_unit_id="tu-c21",
+            unit_code="C21",
+            unit_name="Sugar Land",
+            unit_type_code="city",
+        ),
+        "D01": FortBendTaxUnitRow(
+            taxing_unit_id="tu-d01",
+            unit_code="D01",
+            unit_name="Fort Bend Drainage",
+            unit_type_code="special",
+        ),
+    }
+
+    assignments, unmatched = build_assignment_rows(
+        entity_code_sets={"P100": {"C21", "C09", "D01"}},
+        parcel_scope=parcel_scope,
+        tax_units_by_code=tax_units,
+    )
+
+    assert unmatched == {}
+    assert {
+        (row["unit_type_code"], row["unit_code"]): row["is_primary"]
+        for row in assignments
+    } == {
+        ("city", "C09"): True,
+        ("city", "C21"): False,
+        ("special", "D01"): True,
+    }
 
 
 def test_build_preferred_school_unit_name_map_prefers_s_code_units() -> None:

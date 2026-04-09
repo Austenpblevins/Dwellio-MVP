@@ -118,6 +118,18 @@ def build_assignment_rows(
                     "unit_type_code": tax_unit.unit_type_code,
                 }
             )
+    preferred_codes_by_type: dict[tuple[str, str], str] = {}
+    for assignment in assignments:
+        key = (assignment["parcel_id"], assignment["unit_type_code"])
+        current_code = preferred_codes_by_type.get(key)
+        if current_code is None or assignment["unit_code"] < current_code:
+            preferred_codes_by_type[key] = assignment["unit_code"]
+
+    for assignment in assignments:
+        assignment["is_primary"] = (
+            assignment["unit_code"]
+            == preferred_codes_by_type[(assignment["parcel_id"], assignment["unit_type_code"])]
+        )
     return assignments, unmatched_code_counts
 
 
@@ -297,7 +309,7 @@ def replace_assignments_from_entity_codes(
                     assignment["taxing_unit_id"],
                     "source_direct",
                     MATCH_ENTITY_ASSIGNMENT_CONFIDENCE,
-                    False,
+                    assignment["is_primary"],
                     property_source_system_id,
                     property_import_batch_id,
                     job_run_id,
@@ -314,36 +326,6 @@ def replace_assignments_from_entity_codes(
                 )
                 for assignment in assignment_rows
             ],
-        )
-
-        cursor.execute(
-            """
-            WITH ranked AS (
-              SELECT
-                ptu.parcel_taxing_unit_id,
-                ROW_NUMBER() OVER (
-                  PARTITION BY ptu.parcel_id, tu.unit_type_code
-                  ORDER BY tu.unit_code ASC, ptu.parcel_taxing_unit_id ASC
-                ) AS unit_rank
-              FROM parcel_taxing_units ptu
-              JOIN taxing_units tu
-                ON tu.taxing_unit_id = ptu.taxing_unit_id
-              JOIN parcels p
-                ON p.parcel_id = ptu.parcel_id
-              JOIN tmp_fort_bend_entity_target_parcels target
-                ON target.parcel_id = ptu.parcel_id
-              WHERE p.county_id = %s
-                AND ptu.tax_year = %s
-                AND ptu.assignment_method <> 'manual'
-            )
-            UPDATE parcel_taxing_units ptu
-            SET
-              is_primary = ranked.unit_rank = 1,
-              updated_at = now()
-            FROM ranked
-            WHERE ranked.parcel_taxing_unit_id = ptu.parcel_taxing_unit_id
-            """,
-            (FORT_BEND_COUNTY_ID, tax_year),
         )
 
 
