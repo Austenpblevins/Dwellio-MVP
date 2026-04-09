@@ -134,3 +134,91 @@ def test_tax_assignment_engine_prefers_more_specific_single_assignment_match() -
     assert assignments[0].taxing_unit_id == "mud-account"
     assert assignments[0].assignment_method == "source_direct"
     assert assignments[0].is_primary is True
+
+
+def test_tax_assignment_engine_uses_special_family_bridge_for_a31_and_skips_overlay_codes() -> None:
+    parcels = [
+        ParcelTaxContext(
+            parcel_id="parcel-a31",
+            county_id="harris",
+            tax_year=2026,
+            account_number="0451420000005",
+            situs_city="Crosby",
+            situs_zip="77532",
+            school_district_name="Crosby ISD",
+        )
+    ]
+    taxing_units = [
+        TaxingUnitContext(
+            taxing_unit_id="tu-a31",
+            county_id="harris",
+            tax_year=2026,
+            unit_type_code="mud",
+            unit_code="A31",
+            unit_name="NEWPORT MUD DA 2",
+            metadata_json={
+                "rate_bearing_status": "rate_bearing",
+                "assignment_hints": {
+                    "account_numbers": ["0451420000005"],
+                    "source": "real_acct_jurs_special_family_bridge",
+                },
+            },
+        ),
+        TaxingUnitContext(
+            taxing_unit_id="tu-a20",
+            county_id="harris",
+            tax_year=2026,
+            unit_type_code="special",
+            unit_code="A20",
+            unit_name="TIRZ 1- CITY OF LAPORTE ANNEX 2",
+            metadata_json={
+                "rate_bearing_status": "linked_to_other_taxing_unit",
+                "assignment_hints": {
+                    "account_numbers": ["0451420000005"],
+                    "source": "real_acct_jurs_special_family_bridge",
+                },
+            },
+        ),
+    ]
+
+    assignments = build_tax_assignments(parcels=parcels, taxing_units=taxing_units)
+
+    assert [assignment.taxing_unit_id for assignment in assignments] == ["tu-a31"]
+    assert assignments[0].assignment_reason_code == "match_account_number"
+    assert assignments[0].match_basis_json["hint_source"] == "real_acct_jurs_special_family_bridge"
+
+
+def test_tax_assignment_engine_allows_caveated_unit_identity_without_rate_row() -> None:
+    parcels = [
+        ParcelTaxContext(
+            parcel_id="parcel-a76",
+            county_id="harris",
+            tax_year=2026,
+            account_number="0402100000030",
+            situs_city="Houston",
+            situs_zip="77001",
+        )
+    ]
+    taxing_units = [
+        TaxingUnitContext(
+            taxing_unit_id="tu-a76",
+            county_id="harris",
+            tax_year=2026,
+            unit_type_code="mud",
+            unit_code="A76",
+            unit_name="HC MUD 568",
+            metadata_json={
+                "rate_bearing_status": "caveated_rate_row_deferred",
+                "assignment_hints": {
+                    "account_numbers": ["0402100000030"],
+                    "source": "real_acct_jurs_special_family_bridge",
+                },
+            },
+        )
+    ]
+
+    assignments = build_tax_assignments(parcels=parcels, taxing_units=taxing_units)
+
+    assert len(assignments) == 1
+    assert assignments[0].taxing_unit_id == "tu-a76"
+    assert assignments[0].match_basis_json["rate_bearing_status"] == "caveated_rate_row_deferred"

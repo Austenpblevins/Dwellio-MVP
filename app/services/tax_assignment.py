@@ -40,6 +40,7 @@ MATCH_REASON_CODES = {
     "neighborhood_codes": "match_neighborhood_code",
     "zip_codes": "match_zip_code",
 }
+EXCLUDED_RATE_BEARING_STATUSES = {"non_rate", "linked_to_other_taxing_unit"}
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,8 @@ def build_tax_assignments(
 
 def _match_taxing_unit(*, parcel: ParcelTaxContext, unit: TaxingUnitContext) -> _MatchCandidate | None:
     metadata_json = unit.metadata_json or {}
+    if str(metadata_json.get("rate_bearing_status") or "").strip() in EXCLUDED_RATE_BEARING_STATUSES:
+        return None
     assignment_hints = dict(metadata_json.get("assignment_hints") or {})
 
     if unit.unit_type_code == "county" and _normalize_value(parcel.county_id) == _normalize_value(unit.county_id):
@@ -228,10 +231,20 @@ def _build_candidate(
             "unit_code": unit.unit_code,
             "unit_name": unit.unit_name,
             "parcel_id": parcel.parcel_id,
+            "hint_source": assignment_hints_source(unit.metadata_json),
+            "rate_bearing_status": (unit.metadata_json or {}).get("rate_bearing_status", "rate_bearing"),
         },
         priority=priority,
         unit_code=unit.unit_code,
     )
+
+
+def assignment_hints_source(metadata_json: dict[str, Any] | None) -> str | None:
+    hints = dict((metadata_json or {}).get("assignment_hints") or {})
+    value = hints.get("source")
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def _normalize_list(values: Any) -> list[str]:
