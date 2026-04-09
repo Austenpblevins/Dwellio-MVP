@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.instant_quote_tax_completeness import InstantQuoteTaxCompletenessPosture
 from app.services.instant_quote_validation import InstantQuoteValidationService
 
 
@@ -200,3 +201,38 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.supported_public_quote_exists is True
     assert report.examples[0].account_number == "1001001001001"
     assert report.examples[0].supported is True
+
+
+def test_instant_quote_validation_surfaces_tax_completeness_posture(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.instant_quote_validation.get_connection",
+        lambda: StubConnection(),
+    )
+    monkeypatch.setattr(
+        "app.services.instant_quote_validation.classify_instant_quote_tax_completeness",
+        lambda **kwargs: InstantQuoteTaxCompletenessPosture(
+            status="operational_with_caveats",
+            reason="fort_bend_revalidation_residual_risk",
+            internal_note="Fort Bend 2026 parcel tax completeness is operational with caveats.",
+            warning_codes=(
+                "acceptable_caution_rows_operational",
+                "risky_caution_rows_monitored",
+                "continuity_gap_rows_monitored",
+            ),
+        ),
+    )
+
+    report = InstantQuoteValidationService(
+        quote_service=StubQuoteService(),  # type: ignore[arg-type]
+    ).build_report(county_id="fort_bend", tax_year=2026)
+
+    assert report.tax_completeness_status == "operational_with_caveats"
+    assert report.tax_completeness_reason == "fort_bend_revalidation_residual_risk"
+    assert report.tax_completeness_internal_note == (
+        "Fort Bend 2026 parcel tax completeness is operational with caveats."
+    )
+    assert report.tax_completeness_warning_codes == [
+        "acceptable_caution_rows_operational",
+        "risky_caution_rows_monitored",
+        "continuity_gap_rows_monitored",
+    ]

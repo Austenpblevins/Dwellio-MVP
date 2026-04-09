@@ -11,6 +11,9 @@ from app.db.connection import get_connection
 from app.services.instant_quote_tax_rate_basis import (
     INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS,
 )
+from app.services.instant_quote_tax_completeness import (
+    classify_instant_quote_tax_completeness,
+)
 
 INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS
 
@@ -55,6 +58,10 @@ class TaxYearDerivedReadiness:
     instant_quote_tax_rate_basis_status: str | None = None
     instant_quote_tax_rate_basis_status_reason: str | None = None
     instant_quote_tax_rate_basis_internal_note: str | None = None
+    instant_quote_tax_completeness_status: str | None = None
+    instant_quote_tax_completeness_reason: str | None = None
+    instant_quote_tax_completeness_internal_note: str | None = None
+    instant_quote_tax_completeness_warning_codes: list[str] = field(default_factory=list)
     instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
     instant_quote_tax_rate_quoteable_subject_row_count: int = 0
@@ -520,6 +527,42 @@ class DataReadinessService:
                 else str(latest_instant_quote_refresh.get("tax_rate_basis_status_reason"))
             )
         )
+        instant_quote_ready = (
+            instant_quote_asset_ready
+            and instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
+            and instant_quote_supported_neighborhood_stats_row_count > 0
+        )
+        tax_completeness_posture = classify_instant_quote_tax_completeness(
+            county_id=county_id,
+            tax_year=tax_year,
+            instant_quote_ready=instant_quote_ready,
+            basis_tax_year=instant_quote_tax_rate_basis_year,
+            basis_status=instant_quote_tax_rate_basis_status,
+            basis_effective_tax_rate_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_effective_tax_rate_coverage_ratio"
+                )
+                or 0.0
+            ),
+            basis_assignment_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_assignment_coverage_ratio"
+                )
+                or 0.0
+            ),
+            continuity_parcel_gap_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_gap_row_count"
+                )
+                or 0
+            ),
+            continuity_parcel_match_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_match_ratio"
+                )
+                or 0.0
+            ),
+        )
 
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
@@ -530,12 +573,7 @@ class DataReadinessService:
             instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
             instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
             instant_quote_asset_ready=instant_quote_asset_ready,
-            instant_quote_ready=(
-                instant_quote_asset_ready
-                and
-                instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
-                and instant_quote_supported_neighborhood_stats_row_count > 0
-            ),
+            instant_quote_ready=instant_quote_ready,
             instant_quote_refresh_status=(
                 None
                 if latest_instant_quote_refresh is None
@@ -568,6 +606,12 @@ class DataReadinessService:
                 tax_year=tax_year,
                 basis_tax_year=instant_quote_tax_rate_basis_year,
                 basis_status=instant_quote_tax_rate_basis_status,
+            ),
+            instant_quote_tax_completeness_status=tax_completeness_posture.status,
+            instant_quote_tax_completeness_reason=tax_completeness_posture.reason,
+            instant_quote_tax_completeness_internal_note=tax_completeness_posture.internal_note,
+            instant_quote_tax_completeness_warning_codes=list(
+                tax_completeness_posture.warning_codes
             ),
             instant_quote_tax_rate_requested_year_supportable_subject_row_count=int(
                 (latest_instant_quote_refresh or {}).get(
