@@ -473,6 +473,9 @@ class AdminReadinessService:
                 instant_quote_monitored_extreme_savings_watchlist_count=(
                     readiness.derived.instant_quote_monitored_extreme_savings_watchlist_count
                 ),
+                instant_quote_monitored_extreme_savings_flagged_count=(
+                    readiness.derived.instant_quote_monitored_extreme_savings_flagged_count
+                ),
                 instant_quote_subject_rows_without_usable_neighborhood_stats=(
                     readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats
                 ),
@@ -783,6 +786,8 @@ class AdminReadinessService:
             in readiness.derived.instant_quote_tax_completeness_warning_codes
         ):
             alerts.append("instant_quote_tax_completeness_missing_school_assignment_monitored")
+        if readiness.derived.instant_quote_monitored_extreme_savings_flagged_count > 0:
+            alerts.append("instant_quote_extreme_savings_review_required")
         if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
             alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
         if (

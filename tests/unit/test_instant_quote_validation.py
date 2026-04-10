@@ -258,7 +258,10 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.monitored_zero_savings_quote_count == 1
     assert report.monitored_zero_savings_quote_share == 0.5
     assert report.monitored_extreme_savings_watchlist_count == 2
+    assert report.monitored_extreme_savings_flagged_count == 0
     assert report.monitored_extreme_savings_watchlist[0]["account_number"] == "1001001001002"
+    assert report.monitored_extreme_savings_watchlist[0]["projected_savings_ratio"] == 2500.0 / 300000.0
+    assert report.monitored_extreme_savings_watchlist[0]["flagged_by_ratio_threshold"] is False
     assert report.examples[0].account_number == "1001001001001"
     assert report.examples[0].supported is True
 

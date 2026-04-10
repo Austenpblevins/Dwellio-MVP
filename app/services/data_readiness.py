@@ -87,6 +87,7 @@ class TaxYearDerivedReadiness:
     instant_quote_monitored_zero_savings_quote_count: int = 0
     instant_quote_monitored_zero_savings_quote_share: float = 0.0
     instant_quote_monitored_extreme_savings_watchlist_count: int = 0
+    instant_quote_monitored_extreme_savings_flagged_count: int = 0
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
     instant_quote_subject_rows_missing_segment_row: int = 0
@@ -767,6 +768,12 @@ class DataReadinessService:
             instant_quote_monitored_extreme_savings_watchlist_count=int(
                 ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
                     "monitored_extreme_savings_watchlist_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_extreme_savings_flagged_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_extreme_savings_flagged_count"
                 )
                 or 0
             ),
