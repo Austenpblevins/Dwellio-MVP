@@ -17,15 +17,50 @@ class StubCursor:
     def execute(self, sql: str, params: tuple[object, ...] | None = None) -> None:
         if "SET LOCAL max_parallel_workers_per_gather = 0" in sql:
             self._rows = []
+        elif (
+            "FROM instant_quote_subject_cache" in sql
+            and "support_blocker_code IS NULL" in sql
+            and "ORDER BY md5(account_number), account_number" in sql
+        ):
+            self._rows = [
+                {"account_number": "1001001001001"},
+                {"account_number": "1001001001002"},
+            ]
+        elif (
+            "FROM instant_quote_subject_cache" in sql
+            and "support_blocker_code IS NULL" in sql
+            and "ORDER BY assessment_basis_value DESC" in sql
+        ):
+            self._rows = [
+                {
+                    "account_number": "1001001001001",
+                    "assessment_basis_value": 450000.0,
+                    "effective_tax_rate": 0.021,
+                },
+                {
+                    "account_number": "1001001001002",
+                    "assessment_basis_value": 300000.0,
+                    "effective_tax_rate": 0.019,
+                },
+            ]
         elif "FROM instant_quote_subject_cache" in sql and "living_area_sf" in sql:
             self._rows = [{"count": 15}]
-        elif "FROM instant_quote_subject_cache" in sql and "effective_tax_rate" in sql:
+        elif (
+            "FROM instant_quote_subject_cache" in sql
+            and "COALESCE(effective_tax_rate, 0) > 0" in sql
+        ):
             self._rows = [{"count": 12}]
         elif "GROUP BY COALESCE(support_blocker_code, 'supportable')" in sql:
             self._rows = [
                 {"blocker_code": "missing_effective_tax_rate", "count": 8},
                 {"blocker_code": "supportable", "count": 4},
             ]
+        elif "percentile_cont(0.95)" in sql:
+            self._rows = [{"subject_row_count": 3, "supportable_row_count": 2}]
+        elif "special_stack_count" in sql:
+            assert params is not None
+            assert params[0] == 2025
+            self._rows = [{"subject_row_count": 5, "supportable_row_count": 4}]
         elif (
             "FROM instant_quote_subject_cache" in sql
             and "support_blocker_code IS NULL" in sql
@@ -131,20 +166,32 @@ class StubConnection:
 class StubEstimate:
     estimate_bucket = "moderate"
     estimate_strength_label = "medium"
+    savings_midpoint_display = 1250.0
 
 
 class StubResponse:
-    def __init__(self, *, supported: bool, unsupported_reason: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        supported: bool,
+        unsupported_reason: str | None = None,
+        savings_midpoint_display: float = 1250.0,
+    ) -> None:
         self.supported = supported
         self.unsupported_reason = unsupported_reason
         self.served_tax_year = 2025
+        self.basis_code = "assessment_basis_segment_blend"
         self.estimate = None if not supported else StubEstimate()
+        if self.estimate is not None:
+            self.estimate.savings_midpoint_display = savings_midpoint_display
 
 
 class StubQuoteService:
     def get_quote(self, *, county_id: str, tax_year: int, account_number: str) -> StubResponse:
         if account_number == "1001001001001":
-            return StubResponse(supported=True)
+            return StubResponse(supported=True, savings_midpoint_display=0.0)
+        if account_number == "1001001001002":
+            return StubResponse(supported=True, savings_midpoint_display=2500.0)
         return StubResponse(supported=False, unsupported_reason="thin_market_support")
 
 
@@ -199,6 +246,19 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
         "supportable": 4,
     }
     assert report.supported_public_quote_exists is True
+    assert report.supportable_row_rate == 4 / 9
+    assert report.high_value_subject_row_count == 3
+    assert report.high_value_supportable_subject_row_count == 2
+    assert report.high_value_support_rate == 2 / 3
+    assert report.special_district_heavy_subject_row_count == 5
+    assert report.special_district_heavy_supportable_subject_row_count == 4
+    assert report.special_district_heavy_support_rate == 4 / 5
+    assert report.monitored_zero_savings_sample_row_count == 2
+    assert report.monitored_zero_savings_supported_quote_count == 2
+    assert report.monitored_zero_savings_quote_count == 1
+    assert report.monitored_zero_savings_quote_share == 0.5
+    assert report.monitored_extreme_savings_watchlist_count == 2
+    assert report.monitored_extreme_savings_watchlist[0]["account_number"] == "1001001001002"
     assert report.examples[0].account_number == "1001001001001"
     assert report.examples[0].supported is True
 

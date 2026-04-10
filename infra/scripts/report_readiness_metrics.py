@@ -29,6 +29,19 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
                 "readiness_score": row.readiness_score,
                 "blockers": row.blockers,
                 "operational": row.operational.model_dump(mode="json"),
+                "derived_monitoring": {
+                    "instant_quote_supportable_row_rate": row.derived.instant_quote_supportable_row_rate,
+                    "instant_quote_high_value_support_rate": row.derived.instant_quote_high_value_support_rate,
+                    "instant_quote_special_district_heavy_support_rate": (
+                        row.derived.instant_quote_special_district_heavy_support_rate
+                    ),
+                    "instant_quote_monitored_zero_savings_quote_share": (
+                        row.derived.instant_quote_monitored_zero_savings_quote_share
+                    ),
+                    "instant_quote_monitored_extreme_savings_watchlist_count": (
+                        row.derived.instant_quote_monitored_extreme_savings_watchlist_count
+                    ),
+                },
                 "datasets": [
                     {
                         "dataset_type": dataset.dataset_type,
