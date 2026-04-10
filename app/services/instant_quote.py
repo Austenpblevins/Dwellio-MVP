@@ -761,8 +761,8 @@ class InstantQuoteRefreshService:
                         COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
                         COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
                         COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
-                        pi.living_area_sf,
-                        pi.year_built,
+                        COALESCE(pi.living_area_sf, pi_prior.living_area_sf) AS living_area_sf,
+                        COALESCE(pi.year_built, pi_prior.year_built) AS year_built,
                         pl.parcel_land_id,
                         pa.parcel_assessment_id,
                         pa.market_value,
@@ -799,7 +799,14 @@ class InstantQuoteRefreshService:
                         COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
                         COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
                         pc.property_characteristic_id IS NOT NULL AS has_characteristics,
-                        pi.parcel_improvement_id IS NOT NULL AS has_improvement,
+                        (
+                          pi.parcel_improvement_id IS NOT NULL
+                          OR pi_prior.parcel_improvement_id IS NOT NULL
+                        ) AS has_improvement,
+                        (
+                          COALESCE(pi.living_area_sf, 0) <= 0
+                          AND COALESCE(pi_prior.living_area_sf, 0) > 0
+                        ) AS used_prior_year_living_area_fallback,
                         pl.parcel_land_id IS NOT NULL AS has_land,
                         pa.parcel_assessment_id IS NOT NULL AS has_assessment,
                         cor.current_owner_rollup_id IS NOT NULL AS has_owner_rollup,
@@ -814,6 +821,9 @@ class InstantQuoteRefreshService:
                       LEFT JOIN parcel_improvements pi
                         ON pi.parcel_id = scope.parcel_id
                        AND pi.tax_year = scope.tax_year
+                      LEFT JOIN parcel_improvements pi_prior
+                        ON pi_prior.parcel_id = scope.parcel_id
+                       AND pi_prior.tax_year = scope.tax_year - 1
                       LEFT JOIN parcel_lands pl
                         ON pl.parcel_id = scope.parcel_id
                        AND pl.tax_year = scope.tax_year
@@ -971,6 +981,10 @@ class InstantQuoteRefreshService:
                           CASE
                             WHEN NOT (sb.has_parcel_polygon OR sb.has_parcel_centroid)
                             THEN 'missing_geometry'
+                          END,
+                          CASE
+                            WHEN sb.used_prior_year_living_area_fallback
+                            THEN 'prior_year_living_area_fallback'
                           END
                         ],
                         NULL

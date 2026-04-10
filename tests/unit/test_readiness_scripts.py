@@ -65,6 +65,11 @@ def _dashboard() -> AdminCountyYearReadinessDashboard:
                 ],
                 derived=AdminCountyYearDerivedReadiness(
                     parcel_summary_ready=True,
+                    instant_quote_supportable_row_rate=0.75,
+                    instant_quote_high_value_support_rate=0.6,
+                    instant_quote_special_district_heavy_support_rate=0.8,
+                    instant_quote_monitored_zero_savings_quote_share=0.4,
+                    instant_quote_monitored_extreme_savings_watchlist_count=10,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -108,6 +113,7 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
     assert payload["county_id"] == "harris"
     assert payload["kpi_summary"]["healthy_year_count"] == 1
     assert payload["readiness_rows"][0]["operational"]["quality_status"] == "healthy"
+    assert payload["readiness_rows"][0]["derived_monitoring"]["instant_quote_supportable_row_rate"] == 0.75
     assert payload["readiness_rows"][0]["datasets"][0]["latest_import_batch_id"] == "batch-property"
 
 

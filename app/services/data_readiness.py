@@ -75,6 +75,18 @@ class TaxYearDerivedReadiness:
     instant_quote_tax_rate_basis_continuity_account_number_match_row_count: int = 0
     instant_quote_tax_rate_basis_warning_codes: list[str] = field(default_factory=list)
     instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_supportable_row_rate: float = 0.0
+    instant_quote_high_value_subject_row_count: int = 0
+    instant_quote_high_value_supportable_subject_row_count: int = 0
+    instant_quote_high_value_support_rate: float = 0.0
+    instant_quote_special_district_heavy_subject_row_count: int = 0
+    instant_quote_special_district_heavy_supportable_subject_row_count: int = 0
+    instant_quote_special_district_heavy_support_rate: float = 0.0
+    instant_quote_monitored_zero_savings_sample_row_count: int = 0
+    instant_quote_monitored_zero_savings_supported_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_share: float = 0.0
+    instant_quote_monitored_extreme_savings_watchlist_count: int = 0
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
     instant_quote_subject_rows_missing_segment_row: int = 0
@@ -685,6 +697,78 @@ class DataReadinessService:
                 and (latest_instant_quote_refresh.get("validation_report") or {}).get(
                     "supported_public_quote_exists"
                 )
+            ),
+            instant_quote_supportable_row_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "supportable_row_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_high_value_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_high_value_supportable_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_high_value_support_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_support_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_special_district_heavy_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_special_district_heavy_supportable_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_special_district_heavy_support_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_support_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_monitored_zero_savings_sample_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_sample_row_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_supported_quote_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_supported_quote_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_quote_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_quote_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_quote_share=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_quote_share"
+                )
+                or 0.0
+            ),
+            instant_quote_monitored_extreme_savings_watchlist_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_extreme_savings_watchlist_count"
+                )
+                or 0
             ),
             instant_quote_subject_rows_without_usable_neighborhood_stats=int(
                 (
