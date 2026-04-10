@@ -6,7 +6,10 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from app.db.connection import get_connection
-from app.services.instant_quote import InstantQuoteService
+from app.services.instant_quote import (
+    EXTREME_SAVINGS_REVIEW_RATIO,
+    InstantQuoteService,
+)
 from app.services.instant_quote_tax_completeness import (
     classify_instant_quote_tax_completeness,
 )
@@ -82,6 +85,7 @@ class InstantQuoteValidationReport:
     monitored_zero_savings_quote_count: int = 0
     monitored_zero_savings_quote_share: float = 0.0
     monitored_extreme_savings_watchlist_count: int = 0
+    monitored_extreme_savings_flagged_count: int = 0
     monitored_extreme_savings_watchlist: list[dict[str, Any]] = field(default_factory=list)
     examples: list[InstantQuoteExampleResult] = field(default_factory=list)
 
@@ -304,6 +308,24 @@ class InstantQuoteValidationService:
                         responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
                         or 0.0
                     ),
+                    "projected_savings_ratio": (
+                        0.0
+                        if float(row.get("assessment_basis_value") or 0.0) <= 0.0
+                        else float(
+                            responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
+                            or 0.0
+                        )
+                        / float(row.get("assessment_basis_value") or 0.0)
+                    ),
+                    "flagged_by_ratio_threshold": (
+                        float(row.get("assessment_basis_value") or 0.0) > 0.0
+                        and float(
+                            responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
+                            or 0.0
+                        )
+                        / float(row.get("assessment_basis_value") or 0.0)
+                        > EXTREME_SAVINGS_REVIEW_RATIO
+                    ),
                     "basis_code": responses_by_account[str(row["account_number"])].basis_code,
                     "estimate_bucket": (
                         None
@@ -323,6 +345,11 @@ class InstantQuoteValidationService:
             ),
             reverse=True,
         )[:10]
+        monitored_extreme_savings_flagged_count = sum(
+            1
+            for item in monitored_extreme_savings_watchlist
+            if bool(item.get("flagged_by_ratio_threshold"))
+        )
 
         examples: list[InstantQuoteExampleResult] = []
         supported_public_quote_exists = False
@@ -517,6 +544,9 @@ class InstantQuoteValidationService:
                 "monitored_extreme_savings_watchlist_count": len(
                     monitored_extreme_savings_watchlist
                 ),
+                "monitored_extreme_savings_flagged_count": (
+                    monitored_extreme_savings_flagged_count
+                ),
                 "monitored_extreme_savings_watchlist": monitored_extreme_savings_watchlist,
                 "examples": [asdict(example) for example in examples],
             },
@@ -693,6 +723,7 @@ class InstantQuoteValidationService:
             monitored_extreme_savings_watchlist_count=len(
                 monitored_extreme_savings_watchlist
             ),
+            monitored_extreme_savings_flagged_count=monitored_extreme_savings_flagged_count,
             monitored_extreme_savings_watchlist=monitored_extreme_savings_watchlist,
             examples=examples,
         )

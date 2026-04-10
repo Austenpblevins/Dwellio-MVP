@@ -41,6 +41,9 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
                     "instant_quote_monitored_extreme_savings_watchlist_count": (
                         row.derived.instant_quote_monitored_extreme_savings_watchlist_count
                     ),
+                    "instant_quote_monitored_extreme_savings_flagged_count": (
+                        row.derived.instant_quote_monitored_extreme_savings_flagged_count
+                    ),
                 },
                 "datasets": [
                     {

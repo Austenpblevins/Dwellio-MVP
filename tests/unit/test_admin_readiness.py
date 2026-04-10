@@ -423,6 +423,7 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
                     instant_quote_monitored_zero_savings_quote_count=9,
                     instant_quote_monitored_zero_savings_quote_share=0.5,
                     instant_quote_monitored_extreme_savings_watchlist_count=10,
+                    instant_quote_monitored_extreme_savings_flagged_count=2,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -478,9 +479,11 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
     assert row.derived.instant_quote_special_district_heavy_support_rate == 0.8
     assert row.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
     assert row.derived.instant_quote_monitored_extreme_savings_watchlist_count == 10
+    assert row.derived.instant_quote_monitored_extreme_savings_flagged_count == 2
     assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
     assert "instant_quote_tax_completeness_risky_caution_monitored" in row.operational.alerts
     assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
+    assert "instant_quote_extreme_savings_review_required" in row.operational.alerts
 
 
 def test_admin_readiness_surfaces_harris_caveated_special_family_monitoring() -> None:

@@ -124,6 +124,7 @@ class StubCursor:
                     "monitored_zero_savings_quote_count": 9,
                     "monitored_zero_savings_quote_share": 0.5,
                     "monitored_extreme_savings_watchlist_count": 10,
+                    "monitored_extreme_savings_flagged_count": 1,
                     "subject_rows_without_usable_neighborhood_stats": 1,
                     "subject_rows_without_usable_segment_stats": 9,
                     "subject_rows_missing_segment_row": 7,
@@ -238,6 +239,7 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_monitored_zero_savings_quote_count == 9
     assert readiness.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
     assert readiness.derived.instant_quote_monitored_extreme_savings_watchlist_count == 10
+    assert readiness.derived.instant_quote_monitored_extreme_savings_flagged_count == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9
     assert readiness.derived.instant_quote_subject_rows_missing_segment_row == 7
