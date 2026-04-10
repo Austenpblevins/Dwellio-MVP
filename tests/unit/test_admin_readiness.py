@@ -464,6 +464,89 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
     assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
 
 
+def test_admin_readiness_surfaces_harris_caveated_special_family_monitoring() -> None:
+    class HarrisStubDataReadinessService:
+        def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
+            assert county_id == "harris"
+            return CountyTaxYearReadiness(
+                county_id=county_id,
+                tax_year=tax_year,
+                tax_year_known=True,
+                datasets=[],
+                derived=TaxYearDerivedReadiness(
+                    parcel_summary_ready=True,
+                    parcel_year_trend_ready=True,
+                    neighborhood_stats_ready=True,
+                    neighborhood_year_trend_ready=True,
+                    instant_quote_subject_ready=True,
+                    instant_quote_neighborhood_stats_ready=True,
+                    instant_quote_segment_stats_ready=True,
+                    instant_quote_asset_ready=True,
+                    instant_quote_ready=True,
+                    instant_quote_refresh_status="completed",
+                    instant_quote_tax_rate_basis_year=2025,
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_completeness_status="operational_with_caveats",
+                    instant_quote_tax_completeness_reason="harris_refreshed_special_family_recovery",
+                    instant_quote_tax_completeness_internal_note=(
+                        "Harris 2026 parcel tax completeness is operational with caveats."
+                    ),
+                    instant_quote_tax_completeness_warning_codes=[
+                        "recovered_special_family_billable_rows_operational",
+                        "caveated_special_family_rows_monitored",
+                        "missing_school_assignment_rows_monitored",
+                        "continuity_gap_rows_monitored",
+                    ],
+                    search_support_ready=True,
+                    feature_ready=False,
+                    comp_ready=False,
+                    valuation_ready=False,
+                    savings_ready=False,
+                    decision_tree_ready=False,
+                    explanation_ready=False,
+                    recommendation_ready=False,
+                    quote_ready=False,
+                    parcel_summary_row_count=10,
+                    instant_quote_subject_row_count=10,
+                    instant_quote_neighborhood_stats_row_count=5,
+                    instant_quote_segment_stats_row_count=5,
+                    instant_quote_supportable_row_count=10,
+                    instant_quote_supported_neighborhood_stats_row_count=5,
+                    instant_quote_supported_segment_stats_row_count=5,
+                    search_document_row_count=10,
+                    parcel_feature_row_count=0,
+                    comp_pool_row_count=0,
+                    quote_row_count=0,
+                ),
+            )
+
+    dashboard = AdminReadinessService(
+        data_readiness_service=HarrisStubDataReadinessService(),
+        operational_metrics_provider=type(
+            "HarrisStubOperationalMetricsProvider",
+            (),
+            {
+                "build_dataset_metrics": lambda self, connection, *, county_id, tax_year, dataset_type: DatasetOperationalMetrics(
+                    freshness_status="fresh",
+                    freshness_sla_days=14,
+                    freshness_age_days=1,
+                )
+            },
+        )(),
+        connection_factory=lambda: NullConnection(),
+    ).build_dashboard(county_id="harris", tax_years=[2026])
+
+    row = dashboard.readiness_rows[0]
+    assert row.derived.instant_quote_tax_completeness_reason == (
+        "harris_refreshed_special_family_recovery"
+    )
+    assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
+    assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_caveated_special_family_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_missing_school_assignment_monitored" in row.operational.alerts
+
+
 def test_operational_metrics_provider_applies_sla_windows() -> None:
     provider = AdminOperationalMetricsProvider(
         now_fn=lambda: datetime(2026, 3, 27, tzinfo=timezone.utc)

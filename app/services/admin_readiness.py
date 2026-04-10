@@ -737,6 +737,16 @@ class AdminReadinessService:
             in readiness.derived.instant_quote_tax_completeness_warning_codes
         ):
             alerts.append("instant_quote_tax_completeness_continuity_gap_monitored")
+        if (
+            "caveated_special_family_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_caveated_special_family_monitored")
+        if (
+            "missing_school_assignment_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_missing_school_assignment_monitored")
         if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
             alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
         if (
