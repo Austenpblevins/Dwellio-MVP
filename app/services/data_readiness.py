@@ -76,6 +76,12 @@ class TaxYearDerivedReadiness:
     instant_quote_tax_rate_basis_warning_codes: list[str] = field(default_factory=list)
     instant_quote_supported_public_quote_exists: bool = False
     instant_quote_supportable_row_rate: float = 0.0
+    instant_quote_support_rate_all_sfr_flagged_denominator_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged_supportable_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged: float = 0.0
+    instant_quote_support_rate_strict_sfr_eligible_denominator_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible_supportable_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible: float = 0.0
     instant_quote_high_value_subject_row_count: int = 0
     instant_quote_high_value_supportable_subject_row_count: int = 0
     instant_quote_high_value_support_rate: float = 0.0
@@ -702,6 +708,42 @@ class DataReadinessService:
             instant_quote_supportable_row_rate=float(
                 ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
                     "supportable_row_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_support_rate_all_sfr_flagged_denominator_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_all_sfr_flagged_supportable_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_all_sfr_flagged=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged"
+                )
+                or 0.0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible_denominator_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible_supportable_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible"
                 )
                 or 0.0
             ),

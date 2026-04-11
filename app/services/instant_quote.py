@@ -500,7 +500,15 @@ class InstantQuoteRefreshService:
                       pys.cad_owner_name,
                       pys.cad_owner_name_normalized
                     FROM parcel_year_snapshots pys
-                    WHERE pys.is_current = true
+                    JOIN parcels p
+                      ON p.parcel_id = pys.parcel_id
+	                    LEFT JOIN property_characteristics pc
+	                      ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+	                    WHERE pys.is_current = true
+	                      AND CASE
+	                        WHEN pc.property_characteristic_id IS NOT NULL THEN pc.property_type_code
+	                        ELSE p.property_type_code
+	                      END = 'sfr'
                       AND (%s::text IS NULL OR pys.county_id = %s)
                       AND (%s::integer IS NULL OR pys.tax_year = %s)
                     """,
@@ -758,7 +766,10 @@ class InstantQuoteRefreshService:
                         COALESCE(cor.override_flag, false) AS owner_override_flag,
                         scope.cad_owner_name,
                         scope.cad_owner_name_normalized,
-                        COALESCE(pc.property_type_code, p.property_type_code) AS property_type_code,
+	                        CASE
+	                          WHEN pc.property_characteristic_id IS NOT NULL THEN pc.property_type_code
+	                          ELSE p.property_type_code
+	                        END AS property_type_code,
                         COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
                         COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
                         COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
