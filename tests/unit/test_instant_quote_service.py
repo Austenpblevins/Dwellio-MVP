@@ -259,6 +259,15 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
         for statement in cursor.statements
     )
     assert any(
+        "COALESCE(NULLIF(pi.living_area_sf, 0), pi_prior.living_area_sf) AS living_area_sf"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "THEN COALESCE(pi_prior.year_built, pi.year_built)" in statement
+        for statement in cursor.statements
+    )
+    assert any(
         "LEFT JOIN parcel_improvements pi_prior" in statement
         and "pi_prior.tax_year = scope.tax_year - 1" in statement
         for statement in cursor.statements

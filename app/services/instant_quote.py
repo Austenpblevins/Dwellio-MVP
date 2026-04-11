@@ -762,8 +762,13 @@ class InstantQuoteRefreshService:
                         COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
                         COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
                         COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
-                        COALESCE(pi.living_area_sf, pi_prior.living_area_sf) AS living_area_sf,
-                        COALESCE(pi.year_built, pi_prior.year_built) AS year_built,
+                        COALESCE(NULLIF(pi.living_area_sf, 0), pi_prior.living_area_sf) AS living_area_sf,
+                        CASE
+                          WHEN COALESCE(pi.living_area_sf, 0) <= 0
+                            AND COALESCE(pi_prior.living_area_sf, 0) > 0
+                            THEN COALESCE(pi_prior.year_built, pi.year_built)
+                          ELSE COALESCE(pi.year_built, pi_prior.year_built)
+                        END AS year_built,
                         pl.parcel_land_id,
                         COALESCE(pa.parcel_assessment_id, pa_prior.parcel_assessment_id) AS parcel_assessment_id,
                         COALESCE(pa.market_value, pa_prior.market_value) AS market_value,
