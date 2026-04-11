@@ -191,6 +191,48 @@ def test_prepare_manual_county_files_accepts_comma_delimited_fort_bend_owner_and
     assert rows[0]["market_value"] == "213077"
 
 
+def test_fort_bend_property_summary_square_footage_recovers_missing_residential_segment_area(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "legacy_fort_bend_property_summary"
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(raw_root)
+    _rewrite_fort_bend_residential_segment_areas(fort_bend_paths.residential_segments, area_value="")
+    property_summary_export = raw_root / "PropertyDataExport4558080.txt"
+    property_summary_export.write_text(
+        "RecordType,PropertyID,QuickRefID,PropertyNumber,SquareFootage\n"
+        "1,50090,R100000,5910-04-022-0700-907,1216\n",
+        encoding="utf-8",
+    )
+
+    outputs = resolve_outputs(ready_dir)
+    connection = _open_sqlite(tmp_path / "conversion.sqlite3")
+    try:
+        counts = convert_fort_bend(
+            connection=connection,
+            tax_year=2025,
+            raw_paths=FortBendRawPaths(
+                property_export=fort_bend_paths.property_export,
+                owner_export=fort_bend_paths.owner_export,
+                exemption_export=fort_bend_paths.exemption_export,
+                residential_segments=fort_bend_paths.residential_segments,
+                tax_rates=fort_bend_paths.tax_rates,
+                property_summary_export=property_summary_export,
+            ),
+            property_roll_output=outputs.fort_bend_property_roll,
+            tax_rates_output=outputs.fort_bend_tax_rates,
+        )
+    finally:
+        connection.close()
+
+    assert counts["property_roll"] == 1
+    with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
+        fort_bend_rows = list(csv.DictReader(handle))
+    assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+
+
 def _rewrite_delimited_copy(
     *,
     source_path: Path,
@@ -206,6 +248,21 @@ def _rewrite_delimited_copy(
 
     with target_path.open("w", encoding="utf-8", newline="") as target_handle:
         writer = csv.DictWriter(target_handle, fieldnames=fieldnames, delimiter=output_delimiter)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _rewrite_fort_bend_residential_segment_areas(source_path: Path, *, area_value: str) -> None:
+    with source_path.open("r", encoding="utf-8", newline="") as source_handle:
+        reader = csv.DictReader(source_handle)
+        fieldnames = reader.fieldnames
+        assert fieldnames is not None
+        rows = list(reader)
+    for row in rows:
+        row["fArea"] = area_value
+        row["vTSGRSeg_AdjArea"] = area_value
+    with source_path.open("w", encoding="utf-8", newline="") as target_handle:
+        writer = csv.DictWriter(target_handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 

@@ -40,6 +40,7 @@ HARRIS_RAW_OVERRIDE_KEYS = {
 }
 FORT_BEND_RAW_OVERRIDE_KEYS = {
     "property_export",
+    "property_summary_export",
     "owner_export",
     "exemption_export",
     "residential_segments",
@@ -124,6 +125,7 @@ class FortBendRawPaths:
     exemption_export: Path
     residential_segments: Path
     tax_rates: Path
+    property_summary_export: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -500,6 +502,8 @@ def prepare_fort_bend(
             ("residential_segments", raw_paths.residential_segments),
             ("tax_rates", raw_paths.tax_rates),
         ]
+        if raw_paths.property_summary_export is not None:
+            property_inputs.append(("property_summary_export", raw_paths.property_summary_export))
         _require_named_files("fort_bend", "property_roll", property_inputs)
         entity_lookup = _build_fort_bend_tax_entity_lookup(raw_paths.tax_rates)
         _prepare_fort_bend_lookup_tables(connection, raw_paths)
@@ -724,6 +728,20 @@ def resolve_fort_bend_paths(
                 Path("WebsiteResidentialSegs-7-22.csv"),
             ],
         ),
+        property_summary_export=_resolve_optional_raw_file_path(
+            raw_root=raw_root,
+            county_id="fort_bend",
+            canonical_filename="PropertyPropertyExport.txt",
+            override=overrides.get("property_summary_export"),
+            legacy_relative_paths=[
+                Path("Fort Bend_Property Data -3-27-2026 - Redacted")
+                / "PropertyProperty-E"
+                / "PropertyDataExport4558080.txt",
+            ],
+            county_glob_patterns=[
+                "Fort Bend_Property Data*/PropertyProperty-E/PropertyDataExport*.txt",
+            ],
+        ),
         tax_rates=_resolve_raw_file_path(
             raw_root=raw_root,
             county_id="fort_bend",
@@ -761,6 +779,32 @@ def _resolve_raw_file_path(
         if candidate.exists():
             return candidate.resolve()
     return candidates[0].resolve()
+
+
+def _resolve_optional_raw_file_path(
+    *,
+    raw_root: Path,
+    county_id: str,
+    canonical_filename: str,
+    override: Path | None,
+    legacy_relative_paths: Sequence[Path],
+    county_glob_patterns: Sequence[str] = (),
+) -> Path | None:
+    if override is not None:
+        return override.expanduser().resolve()
+
+    county_root = raw_root / county_id
+    candidates = [
+        county_root / canonical_filename,
+        raw_root / canonical_filename,
+    ]
+    candidates.extend(raw_root / relative_path for relative_path in legacy_relative_paths)
+    for glob_pattern in county_glob_patterns:
+        candidates.extend(sorted(county_root.glob(glob_pattern)))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return None
 
 
 def _legacy_fort_bend_export_filename(*, tax_year: int, suffix: str) -> str:
@@ -827,6 +871,8 @@ def convert_fort_bend(
         ("residential_segments", raw_paths.residential_segments),
         ("tax_rates", raw_paths.tax_rates),
     ]
+    if raw_paths.property_summary_export is not None:
+        property_inputs.append(("property_summary_export", raw_paths.property_summary_export))
     _require_named_files("fort_bend", "property_roll", property_inputs)
     entity_lookup = _build_fort_bend_tax_entity_lookup(raw_paths.tax_rates)
     _prepare_fort_bend_lookup_tables(connection, raw_paths)
@@ -1131,6 +1177,8 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
     )
     _index_fort_bend_owners(connection, raw_paths.owner_export)
     _index_fort_bend_residential_segments(connection, raw_paths.residential_segments)
+    if raw_paths.property_summary_export is not None:
+        _index_fort_bend_property_square_footage(connection, raw_paths.property_summary_export)
     _index_fort_bend_exemptions(connection, raw_paths.exemption_export)
     connection.commit()
 
@@ -1379,6 +1427,40 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
             quality_grade,
             condition_grade
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+
+
+def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, source_path: Path) -> None:
+    rows: list[tuple[str, int]] = []
+    with _open_raw_text(source_path) as handle:
+        reader = _open_sniffed_dict_reader(handle)
+        for row in reader:
+            quick_ref = _strip(row.get("QuickRefID"))
+            sqft = _as_int(row.get("SquareFootage"))
+            if not quick_ref or not sqft:
+                continue
+            rows.append((quick_ref, sqft))
+            if len(rows) >= 5000:
+                _upsert_fort_bend_property_square_footage(connection, rows)
+                rows.clear()
+    if rows:
+        _upsert_fort_bend_property_square_footage(connection, rows)
+
+
+def _upsert_fort_bend_property_square_footage(
+    connection: sqlite3.Connection,
+    rows: Sequence[tuple[str, int]],
+) -> None:
+    connection.executemany(
+        """
+        INSERT INTO fort_bend_residential_lookup (property_quick_ref_id, bldg_sqft)
+        VALUES (?, ?)
+        ON CONFLICT(property_quick_ref_id) DO UPDATE SET
+            bldg_sqft = excluded.bldg_sqft
+        WHERE fort_bend_residential_lookup.bldg_sqft <= 0
+          AND excluded.bldg_sqft > 0
         """,
         rows,
     )
