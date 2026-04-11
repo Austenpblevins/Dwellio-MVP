@@ -307,8 +307,23 @@ Run this after the weekly Harris/Fort Bend quote refresh and validation jobs:
 
 ```bash
 python3 infra/scripts/report_quote_quality_monitor.py \
-  --county-ids harris fort_bend \
+  --county-ids harris,fort_bend \
   --tax-year 2026
+```
+
+Cron-compatible soft-fail wrapper:
+
+```bash
+python3 infra/scripts/run_weekly_quote_quality_monitor.py \
+  --county-ids harris,fort_bend \
+  --tax-year 2026 \
+  --output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
+```
+
+Example weekly cron entry:
+
+```cron
+0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
 ```
 
 Default outputs:
@@ -318,10 +333,12 @@ Default outputs:
 - `/tmp/stage19_refresh_watchlist_zero_savings.csv`
 - `/tmp/stage19_refresh_watchlist_top_outliers.csv`
 - `/tmp/stage19_refresh_watchlist_summary.md`
+- Wrapper run state: `/tmp/stage19_weekly_quote_quality_monitor_artifacts/run_state.json`
 
 Interpretation:
 
 - Denominator shift: review any `threshold_exceeded` status for `total_count_all_sfr_flagged` or `total_count_strict_sfr_eligible`. The default threshold is `5%`, configurable with `DWELLIO_INSTANT_QUOTE_DENOMINATOR_SHIFT_ALERT_THRESHOLD`.
+- Validation freshness: review any `validation_stale` or `validation_missing` warning before using the weekly metrics. The default monitor threshold is `24` hours and can be adjusted with `--freshness-threshold-hours`.
 - Excluded-class leakage: `strong_signal_excluded` should stay near zero. Any material leakage means a non-SFR class may be suppressing true SFR quote subjects or a source-class mapping changed.
 - `$0` share: compare the current monitored zero-savings share against prior weekly reports. A sudden rise is a product/valuation-review signal first, not a tax-rate change by default.
 - Extreme-savings watchlist: review the top-outlier CSV and escalate any row that breaches the public-safe savings threshold, has implausible effective-tax-rate metadata, or appears to be a non-SFR class in the quoteable SFR cohort.
@@ -335,8 +352,15 @@ Manual review rubric:
 
 Optional monthly non-prod divergence drill:
 
+Purpose: verify the all-SFR and strict-SFR denominator paths remain independently monitored when cohorts are intentionally mixed.
+
+Frequency: monthly, non-prod only.
+
+Procedure:
+
 1. Run only outside production; do not mutate canonical production parcel or quote rows.
 2. Use a fixture or temporary query-layer simulation with mixed cohorts, for example all-SFR `75/100` and strict-SFR `75/80`.
 3. Confirm `support_rate_all_sfr_flagged != support_rate_strict_sfr_eligible`.
 4. Pass when the drill reports `diverged = true`; fail if both KPI variants use the same denominator or rate.
 5. Cleanup is no-op for fixture-driven runs. If a temporary non-prod table/view is used, drop only that temporary object after the drill.
+6. Record the drill date, environment, and pass/fail result in the weekly monitor notes; do not persist fixture rows into production datasets.

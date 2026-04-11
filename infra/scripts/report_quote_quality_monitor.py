@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ DEFAULT_MARKDOWN_OUTPUT = Path("/tmp/stage19_weekly_quote_quality_monitor.md")
 DEFAULT_ZERO_WATCHLIST_OUTPUT = Path("/tmp/stage19_refresh_watchlist_zero_savings.csv")
 DEFAULT_OUTLIER_WATCHLIST_OUTPUT = Path("/tmp/stage19_refresh_watchlist_top_outliers.csv")
 DEFAULT_WATCHLIST_SUMMARY_OUTPUT = Path("/tmp/stage19_refresh_watchlist_summary.md")
+DEFAULT_FRESHNESS_THRESHOLD_HOURS = 24.0
 
 
 def pct_change(*, current: int, prior: int | None) -> float | None:
@@ -53,6 +53,46 @@ def denominator_shift_status(
         "prior": prior,
         "pct_change": change,
         "abs_pct_change": abs_change,
+    }
+
+
+def normalize_county_ids(raw_county_ids: list[str]) -> list[str]:
+    county_ids: list[str] = []
+    for raw_value in raw_county_ids:
+        county_ids.extend(
+            county_id.strip()
+            for county_id in str(raw_value).split(",")
+            if county_id.strip()
+        )
+    return county_ids or list(DEFAULT_COUNTIES)
+
+
+def validation_freshness_status(
+    *,
+    latest_validated_at: Any,
+    now: Any,
+    threshold_hours: float,
+) -> dict[str, Any]:
+    latest = _coerce_datetime(latest_validated_at)
+    threshold = float(threshold_hours)
+    if latest is None:
+        return {
+            "latest_validation_timestamp": None,
+            "age_hours": None,
+            "threshold_hours": threshold,
+            "status": "missing",
+            "warning_code": "validation_missing",
+        }
+
+    current_time = _coerce_datetime(now) or datetime.now(timezone.utc)
+    age_hours = max(0.0, (current_time - latest).total_seconds() / 3600.0)
+    is_stale = age_hours > threshold
+    return {
+        "latest_validation_timestamp": latest.isoformat(),
+        "age_hours": age_hours,
+        "threshold_hours": threshold,
+        "status": "stale" if is_stale else "fresh",
+        "warning_code": "validation_stale" if is_stale else None,
     }
 
 
@@ -132,6 +172,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=get_settings().instant_quote_denominator_shift_alert_threshold,
     )
+    parser.add_argument(
+        "--freshness-threshold-hours",
+        type=float,
+        default=DEFAULT_FRESHNESS_THRESHOLD_HOURS,
+        help="Warn when the latest completed validation is older than this many hours.",
+    )
     parser.add_argument("--json-output", type=Path, default=DEFAULT_JSON_OUTPUT)
     parser.add_argument("--markdown-output", type=Path, default=DEFAULT_MARKDOWN_OUTPUT)
     parser.add_argument("--zero-watchlist-output", type=Path, default=DEFAULT_ZERO_WATCHLIST_OUTPUT)
@@ -150,9 +196,12 @@ def build_payload(
     tax_year: int,
     recent_run_limit: int,
     threshold_pct: float,
+    freshness_threshold_hours: float = DEFAULT_FRESHNESS_THRESHOLD_HOURS,
+    now_fn: Any = lambda: datetime.now(timezone.utc),
     connection_factory: Any = get_connection,
 ) -> dict[str, Any]:
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at_dt = now_fn()
+    generated_at = _iso(generated_at_dt) or datetime.now(timezone.utc).isoformat()
     with connection_factory() as connection:
         with connection.cursor() as cursor:
             county_payloads = [
@@ -162,6 +211,8 @@ def build_payload(
                     tax_year=tax_year,
                     recent_run_limit=recent_run_limit,
                     threshold_pct=threshold_pct,
+                    freshness_threshold_hours=freshness_threshold_hours,
+                    now=generated_at_dt,
                 )
                 for county_id in county_ids
             ]
@@ -175,6 +226,7 @@ def build_payload(
         "tax_year": tax_year,
         "county_ids": county_ids,
         "threshold_pct": threshold_pct,
+        "freshness_threshold_hours": freshness_threshold_hours,
         "counties": county_payloads,
         "combined": _combined_payload(county_payloads),
         "non_prod_divergence_drill": divergence_drill_result(
@@ -214,6 +266,8 @@ def _build_county_payload(
     tax_year: int,
     recent_run_limit: int,
     threshold_pct: float,
+    freshness_threshold_hours: float,
+    now: Any,
 ) -> dict[str, Any]:
     runs = _fetch_recent_validation_runs(
         cursor,
@@ -244,6 +298,11 @@ def _build_county_payload(
     )
     zero_sample_count = int(current_report.get("monitored_zero_savings_supported_quote_count") or 0)
     zero_count = int(current_report.get("monitored_zero_savings_quote_count") or 0)
+    validation_freshness = validation_freshness_status(
+        latest_validated_at=current.get("validated_at"),
+        now=now,
+        threshold_hours=freshness_threshold_hours,
+    )
     return {
         "county_id": county_id,
         "latest_refresh_run_id": str(current.get("instant_quote_refresh_run_id") or ""),
@@ -251,6 +310,7 @@ def _build_county_payload(
         "latest_refresh_started_at": _iso(current.get("refresh_started_at")),
         "latest_refresh_finished_at": _iso(current.get("refresh_finished_at")),
         "latest_validated_at": _iso(current.get("validated_at")),
+        "validation_freshness": validation_freshness,
         "denominator_shift": {
             "total_count_all_sfr_flagged": all_current,
             "prior_total_count_all_sfr_flagged": all_prior,
@@ -335,6 +395,11 @@ def _combined_payload(counties: list[dict[str, Any]]) -> dict[str, Any]:
         "strong_signal_leakage_count": sum(
             int(county["excluded_class_leakage"]["strong_signal_excluded"])
             for county in counties
+        ),
+        "validation_freshness_warning_count": sum(
+            1
+            for county in counties
+            if county.get("validation_freshness", {}).get("warning_code") is not None
         ),
     }
 
@@ -581,11 +646,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
         denom = county["denominator_shift"]
         leakage = county["excluded_class_leakage"]
         zero = county["zero_savings"]
+        freshness = county["validation_freshness"]
         lines.extend(
             [
                 f"### {county['county_id']}",
                 f"- Latest refresh run: `{county['latest_refresh_run_id']}`",
                 f"- Validation status: `{county['latest_refresh_status']}` at `{county['latest_validated_at']}`",
+                f"- Validation freshness: `{freshness['status']}` "
+                f"(age `{freshness['age_hours']}`, threshold `{freshness['threshold_hours']}` hours, "
+                f"warning `{freshness['warning_code']}`)",
                 f"- All-SFR denominator: `{denom['total_count_all_sfr_flagged']}` "
                 f"(prior `{denom['prior_total_count_all_sfr_flagged']}`, "
                 f"status `{denom['all_sfr_flagged']['status']}`)",
@@ -606,6 +675,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Monitored $0 share: `{combined['monitored_zero_savings_quote_share']:.6f}`",
             f"- Denominator-shift alert count: `{combined['denominator_shift_alert_count']}`",
             f"- Strong-signal leakage count: `{combined['strong_signal_leakage_count']}`",
+            f"- Validation freshness warning count: `{combined['validation_freshness_warning_count']}`",
             "",
         ]
     )
@@ -667,16 +737,35 @@ def _iso(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
+def _coerce_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def main() -> None:
     args = build_parser().parse_args()
+    county_ids = normalize_county_ids(args.county_ids)
     payload = build_payload(
-        county_ids=args.county_ids,
+        county_ids=county_ids,
         tax_year=args.tax_year,
         recent_run_limit=args.recent_run_limit,
         threshold_pct=args.threshold_pct,
+        freshness_threshold_hours=args.freshness_threshold_hours,
     )
     zero_rows, outlier_rows = build_watchlists(
-        county_ids=args.county_ids,
+        county_ids=county_ids,
         tax_year=args.tax_year,
         limit_per_county=args.watchlist_limit,
     )
