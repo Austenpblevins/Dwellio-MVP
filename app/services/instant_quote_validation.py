@@ -78,9 +78,13 @@ class InstantQuoteValidationReport:
     support_rate_all_sfr_flagged_denominator_count: int = 0
     support_rate_all_sfr_flagged_supportable_count: int = 0
     support_rate_all_sfr_flagged: float = 0.0
+    total_count_all_sfr_flagged: int = 0
+    support_count_all_sfr_flagged: int = 0
     support_rate_strict_sfr_eligible_denominator_count: int = 0
     support_rate_strict_sfr_eligible_supportable_count: int = 0
     support_rate_strict_sfr_eligible: float = 0.0
+    total_count_strict_sfr_eligible: int = 0
+    support_count_strict_sfr_eligible: int = 0
     high_value_subject_row_count: int = 0
     high_value_supportable_subject_row_count: int = 0
     high_value_support_rate: float = 0.0
@@ -540,6 +544,12 @@ class InstantQuoteValidationService:
                 "support_rate_all_sfr_flagged": float(
                     denominator_quality_metrics["all_sfr_flagged_support_rate"]
                 ),
+                "total_count_all_sfr_flagged": int(
+                    denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                ),
+                "support_count_all_sfr_flagged": int(
+                    denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+                ),
                 "support_rate_strict_sfr_eligible_denominator_count": int(
                     denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
                 ),
@@ -548,6 +558,12 @@ class InstantQuoteValidationService:
                 ),
                 "support_rate_strict_sfr_eligible": float(
                     denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+                ),
+                "total_count_strict_sfr_eligible": int(
+                    denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+                ),
+                "support_count_strict_sfr_eligible": int(
+                    denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
                 ),
                 "high_value_subject_row_count": int(
                     high_value_support_metrics["subject_row_count"]
@@ -739,6 +755,12 @@ class InstantQuoteValidationService:
             support_rate_all_sfr_flagged=float(
                 denominator_quality_metrics["all_sfr_flagged_support_rate"]
             ),
+            total_count_all_sfr_flagged=int(
+                denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+            ),
+            support_count_all_sfr_flagged=int(
+                denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+            ),
             support_rate_strict_sfr_eligible_denominator_count=int(
                 denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
             ),
@@ -747,6 +769,12 @@ class InstantQuoteValidationService:
             ),
             support_rate_strict_sfr_eligible=float(
                 denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+            ),
+            total_count_strict_sfr_eligible=int(
+                denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+            ),
+            support_count_strict_sfr_eligible=int(
+                denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
             ),
             high_value_subject_row_count=int(high_value_support_metrics["subject_row_count"]),
             high_value_supportable_subject_row_count=int(

@@ -79,9 +79,13 @@ class TaxYearDerivedReadiness:
     instant_quote_support_rate_all_sfr_flagged_denominator_count: int = 0
     instant_quote_support_rate_all_sfr_flagged_supportable_count: int = 0
     instant_quote_support_rate_all_sfr_flagged: float = 0.0
+    instant_quote_total_count_all_sfr_flagged: int = 0
+    instant_quote_support_count_all_sfr_flagged: int = 0
     instant_quote_support_rate_strict_sfr_eligible_denominator_count: int = 0
     instant_quote_support_rate_strict_sfr_eligible_supportable_count: int = 0
     instant_quote_support_rate_strict_sfr_eligible: float = 0.0
+    instant_quote_total_count_strict_sfr_eligible: int = 0
+    instant_quote_support_count_strict_sfr_eligible: int = 0
     instant_quote_high_value_subject_row_count: int = 0
     instant_quote_high_value_supportable_subject_row_count: int = 0
     instant_quote_high_value_support_rate: float = 0.0
@@ -729,6 +733,24 @@ class DataReadinessService:
                 )
                 or 0.0
             ),
+            instant_quote_total_count_all_sfr_flagged=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "total_count_all_sfr_flagged"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_count_all_sfr_flagged=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_count_all_sfr_flagged"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_supportable_count"
+                )
+                or 0
+            ),
             instant_quote_support_rate_strict_sfr_eligible_denominator_count=int(
                 ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
                     "support_rate_strict_sfr_eligible_denominator_count"
@@ -746,6 +768,24 @@ class DataReadinessService:
                     "support_rate_strict_sfr_eligible"
                 )
                 or 0.0
+            ),
+            instant_quote_total_count_strict_sfr_eligible=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "total_count_strict_sfr_eligible"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_count_strict_sfr_eligible=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_count_strict_sfr_eligible"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_supportable_count"
+                )
+                or 0
             ),
             instant_quote_high_value_subject_row_count=int(
                 ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
@@ -960,6 +1000,10 @@ class DataReadinessService:
                 WHERE ib.county_id = %s
                   AND ib.tax_year = %s
                   AND ib.dataset_type = %s
+                  AND NOT (
+                    ib.status = 'rolled_back'
+                    AND ib.publish_state = 'rolled_back'
+                  )
                 ORDER BY ib.created_at DESC, ib.import_batch_id DESC
                 LIMIT 1
                 """,

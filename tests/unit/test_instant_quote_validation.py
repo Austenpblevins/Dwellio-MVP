@@ -259,9 +259,14 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.support_rate_all_sfr_flagged_denominator_count == 9
     assert report.support_rate_all_sfr_flagged_supportable_count == 4
     assert report.support_rate_all_sfr_flagged == 4 / 9
+    assert report.total_count_all_sfr_flagged == 9
+    assert report.support_count_all_sfr_flagged == 4
     assert report.support_rate_strict_sfr_eligible_denominator_count == 5
     assert report.support_rate_strict_sfr_eligible_supportable_count == 4
     assert report.support_rate_strict_sfr_eligible == 4 / 5
+    assert report.total_count_strict_sfr_eligible == 5
+    assert report.support_count_strict_sfr_eligible == 4
+    assert report.support_rate_all_sfr_flagged != report.support_rate_strict_sfr_eligible
     assert report.high_value_subject_row_count == 3
     assert report.high_value_supportable_subject_row_count == 2
     assert report.high_value_support_rate == 2 / 3
