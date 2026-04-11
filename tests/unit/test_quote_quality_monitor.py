@@ -1,0 +1,187 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from infra.scripts.report_quote_quality_monitor import (
+    build_payload,
+    denominator_shift_status,
+    divergence_drill_result,
+    select_watchlist_rows,
+)
+
+
+class StubCursor:
+    def __init__(self) -> None:
+        self._rows: list[dict[str, object]] = []
+
+    def __enter__(self) -> StubCursor:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple[object, ...] | None = None) -> None:
+        if "FROM instant_quote_refresh_runs" in sql and "validation_report IS NOT NULL" in sql:
+            county_id = params[0] if params is not None else "harris"
+            self._rows = [
+                {
+                    "instant_quote_refresh_run_id": "run-current",
+                    "refresh_status": "completed",
+                    "refresh_started_at": datetime(2026, 4, 11, tzinfo=timezone.utc),
+                    "refresh_finished_at": datetime(2026, 4, 11, 1, tzinfo=timezone.utc),
+                    "validated_at": datetime(2026, 4, 11, 2, tzinfo=timezone.utc),
+                    "validation_report": {
+                        "total_count_all_sfr_flagged": 105,
+                        "support_count_all_sfr_flagged": 100,
+                        "support_rate_all_sfr_flagged": 100 / 105,
+                        "total_count_strict_sfr_eligible": 80,
+                        "support_count_strict_sfr_eligible": 78,
+                        "support_rate_strict_sfr_eligible": 78 / 80,
+                        "denominator_shift_alert": {
+                            "status": "within_threshold",
+                            "triggered": False,
+                        },
+                        "monitored_zero_savings_supported_quote_count": 10,
+                        "monitored_zero_savings_quote_count": 4,
+                        "high_value_support_rate": 0.9,
+                        "special_district_heavy_support_rate": 0.95,
+                    },
+                },
+                {
+                    "instant_quote_refresh_run_id": f"{county_id}-run-prior",
+                    "refresh_status": "completed",
+                    "refresh_started_at": datetime(2026, 4, 4, tzinfo=timezone.utc),
+                    "refresh_finished_at": datetime(2026, 4, 4, 1, tzinfo=timezone.utc),
+                    "validated_at": datetime(2026, 4, 4, 2, tzinfo=timezone.utc),
+                    "validation_report": {
+                        "total_count_all_sfr_flagged": 100,
+                        "total_count_strict_sfr_eligible": 79,
+                    },
+                },
+            ]
+        elif "WITH excluded AS" in sql:
+            self._rows = [
+                {
+                    "total_excluded": 12,
+                    "strong_signal_excluded": 0,
+                    "leakage_ratio": 0,
+                    "top_class_codes": [
+                        {
+                            "property_class_code": "F1",
+                            "excluded_count": 10,
+                            "strong_signal_count": 0,
+                        }
+                    ],
+                }
+            ]
+        elif "WITH latest_runs AS" in sql:
+            self._rows = [
+                {
+                    "county_id": "harris",
+                    "account_number": "B",
+                    "account_hash": "002",
+                    "supported": True,
+                    "projected_savings_display": 0,
+                },
+                {
+                    "county_id": "harris",
+                    "account_number": "A",
+                    "account_hash": "001",
+                    "supported": True,
+                    "projected_savings_display": 5000,
+                },
+            ]
+        else:
+            raise AssertionError(f"Unexpected SQL: {sql}")
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self._rows
+
+
+class StubConnection:
+    def __enter__(self) -> StubConnection:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def cursor(self) -> StubCursor:
+        return StubCursor()
+
+
+def test_denominator_shift_status_threshold_behavior() -> None:
+    assert denominator_shift_status(current=105, prior=100, threshold_pct=0.05)[
+        "triggered"
+    ] is False
+    assert denominator_shift_status(current=106, prior=100, threshold_pct=0.05)[
+        "triggered"
+    ] is True
+    assert denominator_shift_status(current=100, prior=None, threshold_pct=0.05)[
+        "status"
+    ] == "no_prior_run"
+
+
+def test_weekly_monitor_payload_contains_denominator_and_leakage_trends() -> None:
+    payload = build_payload(
+        county_ids=["harris"],
+        tax_year=2026,
+        recent_run_limit=2,
+        threshold_pct=0.05,
+        connection_factory=lambda: StubConnection(),
+    )
+
+    county = payload["counties"][0]
+    assert county["denominator_shift"]["total_count_all_sfr_flagged"] == 105
+    assert county["denominator_shift"]["prior_total_count_all_sfr_flagged"] == 100
+    assert county["excluded_class_leakage"]["strong_signal_excluded"] == 0
+    assert county["zero_savings"]["monitored_zero_savings_quote_share"] == 0.4
+    assert payload["combined"]["strong_signal_leakage_count"] == 0
+
+
+def test_watchlist_selection_is_deterministic_by_kind() -> None:
+    rows = [
+        {
+            "county_id": "harris",
+            "account_number": "B",
+            "account_hash": "002",
+            "supported": True,
+            "projected_savings_display": 0,
+        },
+        {
+            "county_id": "harris",
+            "account_number": "A",
+            "account_hash": "001",
+            "supported": True,
+            "projected_savings_display": 0,
+        },
+        {
+            "county_id": "harris",
+            "account_number": "C",
+            "account_hash": "003",
+            "supported": True,
+            "projected_savings_display": 5000,
+            "assessment_basis_value": 700000,
+        },
+    ]
+
+    zero_rows = select_watchlist_rows(rows, kind="zero_savings", limit_per_county=2)
+    outlier_rows = select_watchlist_rows(rows, kind="top_outliers", limit_per_county=1)
+
+    assert [row["account_number"] for row in zero_rows] == ["A", "B"]
+    assert [row["account_number"] for row in outlier_rows] == ["C"]
+
+
+def test_non_prod_divergence_drill_proves_kpi_paths_can_diverge() -> None:
+    result = divergence_drill_result(
+        all_sfr_total=100,
+        all_sfr_supported=75,
+        strict_sfr_total=80,
+        strict_sfr_supported=75,
+    )
+
+    assert result["environment"] == "non_prod_only"
+    assert result["diverged"] is True
+    assert result["pass"] is True
