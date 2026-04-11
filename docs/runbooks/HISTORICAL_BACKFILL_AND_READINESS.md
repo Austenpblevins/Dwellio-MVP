@@ -300,3 +300,43 @@ When an interrupted manual import leaves a staged draft residue:
 4. Close the draft by marking only that batch `status = 'rolled_back'`, `publish_state = 'rolled_back'`, and a `status_reason` that states no canonical publish occurred.
 5. Do not delete raw files or staging rows; keep them as audit evidence.
 6. Re-run instant-quote refresh, validation, and readiness reporting for the affected county-year.
+
+## 9. Stage 19 Weekly Quote Quality Monitoring
+
+Run this after the weekly Harris/Fort Bend quote refresh and validation jobs:
+
+```bash
+python3 infra/scripts/report_quote_quality_monitor.py \
+  --county-ids harris fort_bend \
+  --tax-year 2026
+```
+
+Default outputs:
+
+- `/tmp/stage19_weekly_quote_quality_monitor.json`
+- `/tmp/stage19_weekly_quote_quality_monitor.md`
+- `/tmp/stage19_refresh_watchlist_zero_savings.csv`
+- `/tmp/stage19_refresh_watchlist_top_outliers.csv`
+- `/tmp/stage19_refresh_watchlist_summary.md`
+
+Interpretation:
+
+- Denominator shift: review any `threshold_exceeded` status for `total_count_all_sfr_flagged` or `total_count_strict_sfr_eligible`. The default threshold is `5%`, configurable with `DWELLIO_INSTANT_QUOTE_DENOMINATOR_SHIFT_ALERT_THRESHOLD`.
+- Excluded-class leakage: `strong_signal_excluded` should stay near zero. Any material leakage means a non-SFR class may be suppressing true SFR quote subjects or a source-class mapping changed.
+- `$0` share: compare the current monitored zero-savings share against prior weekly reports. A sudden rise is a product/valuation-review signal first, not a tax-rate change by default.
+- Extreme-savings watchlist: review the top-outlier CSV and escalate any row that breaches the public-safe savings threshold, has implausible effective-tax-rate metadata, or appears to be a non-SFR class in the quoteable SFR cohort.
+
+Manual review rubric:
+
+- `likely_legitimate_no_reduction`: supported quote, plausible tax rate, no material reduction signal, no completeness blocker.
+- `likely_data_quality_issue`: unexpected blocker, stale source metadata, implausible class/type, or denominator/leakage alert nearby.
+- `likely_valuation_model_outlier`: high savings driven by valuation assumptions rather than tax-rate or source metadata.
+- `escalate`: public-safe savings threshold breach, implausible tax component metadata, or non-SFR leakage into the strict SFR cohort.
+
+Optional monthly non-prod divergence drill:
+
+1. Run only outside production; do not mutate canonical production parcel or quote rows.
+2. Use a fixture or temporary query-layer simulation with mixed cohorts, for example all-SFR `75/100` and strict-SFR `75/80`.
+3. Confirm `support_rate_all_sfr_flagged != support_rate_strict_sfr_eligible`.
+4. Pass when the drill reports `diverged = true`; fail if both KPI variants use the same denominator or rate.
+5. Cleanup is no-op for fixture-driven runs. If a temporary non-prod table/view is used, drop only that temporary object after the drill.
