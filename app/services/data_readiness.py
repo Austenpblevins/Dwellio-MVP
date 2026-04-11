@@ -86,6 +86,8 @@ class TaxYearDerivedReadiness:
     instant_quote_support_rate_strict_sfr_eligible: float = 0.0
     instant_quote_total_count_strict_sfr_eligible: int = 0
     instant_quote_support_count_strict_sfr_eligible: int = 0
+    instant_quote_denominator_shift_alert: dict[str, object] = field(default_factory=dict)
+    instant_quote_denominator_shift_warning_codes: list[str] = field(default_factory=list)
     instant_quote_high_value_subject_row_count: int = 0
     instant_quote_high_value_supportable_subject_row_count: int = 0
     instant_quote_high_value_support_rate: float = 0.0
@@ -786,6 +788,28 @@ class DataReadinessService:
                     "support_rate_strict_sfr_eligible_supportable_count"
                 )
                 or 0
+            ),
+            instant_quote_denominator_shift_alert=dict(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "denominator_shift_alert"
+                )
+                or {}
+            ),
+            instant_quote_denominator_shift_warning_codes=list(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "denominator_shift_warning_codes"
+                )
+                or (
+                    ((latest_instant_quote_refresh or {}).get("validation_report") or {})
+                    .get("denominator_shift_alert", {})
+                    .get("warning_codes", [])
+                    if isinstance(
+                        ((latest_instant_quote_refresh or {}).get("validation_report") or {})
+                        .get("denominator_shift_alert", {}),
+                        dict,
+                    )
+                    else []
+                )
             ),
             instant_quote_high_value_subject_row_count=int(
                 ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(

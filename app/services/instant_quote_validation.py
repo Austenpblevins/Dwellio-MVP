@@ -5,6 +5,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from app.core.config import get_settings
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.db.connection import get_connection
 from app.services.instant_quote import (
@@ -85,6 +86,8 @@ class InstantQuoteValidationReport:
     support_rate_strict_sfr_eligible: float = 0.0
     total_count_strict_sfr_eligible: int = 0
     support_count_strict_sfr_eligible: int = 0
+    denominator_shift_alert: dict[str, Any] = field(default_factory=dict)
+    denominator_shift_warning_codes: list[str] = field(default_factory=list)
     high_value_subject_row_count: int = 0
     high_value_supportable_subject_row_count: int = 0
     high_value_support_rate: float = 0.0
@@ -208,6 +211,20 @@ class InstantQuoteValidationService:
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
+                )
+                denominator_shift_alert = self._denominator_shift_alert(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    current_refresh_run_id=(
+                        None
+                        if latest_refresh_run is None
+                        else str(latest_refresh_run.get("instant_quote_refresh_run_id") or "")
+                    ),
+                    current_total_count_all_sfr_flagged=int(
+                        denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                    ),
+                    threshold_pct=get_settings().instant_quote_denominator_shift_alert_threshold,
                 )
                 special_district_heavy_support_metrics = (
                     self._special_district_heavy_support_metrics(
@@ -565,6 +582,10 @@ class InstantQuoteValidationService:
                 "support_count_strict_sfr_eligible": int(
                     denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
                 ),
+                "denominator_shift_alert": denominator_shift_alert,
+                "denominator_shift_warning_codes": list(
+                    denominator_shift_alert.get("warning_codes") or []
+                ),
                 "high_value_subject_row_count": int(
                     high_value_support_metrics["subject_row_count"]
                 ),
@@ -776,6 +797,10 @@ class InstantQuoteValidationService:
             support_count_strict_sfr_eligible=int(
                 denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
             ),
+            denominator_shift_alert=denominator_shift_alert,
+            denominator_shift_warning_codes=list(
+                denominator_shift_alert.get("warning_codes") or []
+            ),
             high_value_subject_row_count=int(high_value_support_metrics["subject_row_count"]),
             high_value_supportable_subject_row_count=int(
                 high_value_support_metrics["supportable_row_count"]
@@ -972,6 +997,7 @@ class InstantQuoteValidationService:
             """
             SELECT
               refresh_status,
+              instant_quote_refresh_run_id,
               refresh_finished_at,
               validated_at,
               cache_view_row_delta,
@@ -1165,6 +1191,88 @@ class InstantQuoteValidationService:
                 else 0.0
             ),
         }
+
+    def _denominator_shift_alert(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+        current_refresh_run_id: str | None,
+        current_total_count_all_sfr_flagged: int,
+        threshold_pct: float,
+    ) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT
+              instant_quote_refresh_run_id,
+              COALESCE(
+                NULLIF(validation_report->>'total_count_all_sfr_flagged', '')::integer,
+                NULLIF(validation_report->>'support_rate_all_sfr_flagged_denominator_count', '')::integer
+              ) AS prior_total_count_all_sfr_flagged
+            FROM instant_quote_refresh_runs
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND refresh_status = 'completed'
+              AND validated_at IS NOT NULL
+              AND validation_report IS NOT NULL
+              AND (
+                %s::uuid IS NULL
+                OR instant_quote_refresh_run_id <> %s::uuid
+              )
+              AND COALESCE(
+                NULLIF(validation_report->>'total_count_all_sfr_flagged', '')::integer,
+                NULLIF(validation_report->>'support_rate_all_sfr_flagged_denominator_count', '')::integer
+              ) IS NOT NULL
+            ORDER BY validated_at DESC, refresh_started_at DESC
+            LIMIT 1
+            """,
+            (
+                county_id,
+                tax_year,
+                current_refresh_run_id or None,
+                current_refresh_run_id or None,
+            ),
+        )
+        prior_row = cursor.fetchone()
+        alert: dict[str, Any] = {
+            "status": "no_prior_run",
+            "triggered": False,
+            "threshold_pct": float(threshold_pct),
+            "current_total_count_all_sfr_flagged": int(current_total_count_all_sfr_flagged),
+            "prior_total_count_all_sfr_flagged": None,
+            "pct_change": None,
+            "abs_pct_change": None,
+            "prior_refresh_run_id": None,
+            "warning_codes": [],
+        }
+        if prior_row is None:
+            return alert
+
+        prior_total = int(prior_row.get("prior_total_count_all_sfr_flagged") or 0)
+        alert["prior_total_count_all_sfr_flagged"] = prior_total
+        alert["prior_refresh_run_id"] = str(prior_row.get("instant_quote_refresh_run_id") or "")
+        if prior_total <= 0:
+            alert["status"] = "prior_denominator_zero"
+            return alert
+
+        pct_change = (
+            float(current_total_count_all_sfr_flagged - prior_total) / float(prior_total)
+        )
+        abs_pct_change = abs(pct_change)
+        triggered = abs_pct_change > float(threshold_pct)
+        alert.update(
+            {
+                "status": "threshold_exceeded" if triggered else "within_threshold",
+                "triggered": triggered,
+                "pct_change": pct_change,
+                "abs_pct_change": abs_pct_change,
+                "warning_codes": (
+                    ["all_sfr_flagged_denominator_shift_exceeded"] if triggered else []
+                ),
+            }
+        )
+        return alert
 
     def _strict_sfr_class_codes(self, *, county_id: str) -> tuple[str, ...]:
         config = load_county_adapter_config(county_id)

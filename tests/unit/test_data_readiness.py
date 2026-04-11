@@ -123,6 +123,19 @@ class StubCursor:
                     "support_rate_strict_sfr_eligible": 0.8,
                     "total_count_strict_sfr_eligible": 15,
                     "support_count_strict_sfr_eligible": 12,
+                    "denominator_shift_alert": {
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 18,
+                        "prior_total_count_all_sfr_flagged": 15,
+                        "pct_change": 0.2,
+                        "abs_pct_change": 0.2,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    "denominator_shift_warning_codes": [
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
                     "high_value_subject_row_count": 30,
                     "high_value_supportable_subject_row_count": 21,
                     "high_value_support_rate": 0.7,
@@ -248,6 +261,12 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible == 0.8
     assert readiness.derived.instant_quote_total_count_strict_sfr_eligible == 15
     assert readiness.derived.instant_quote_support_count_strict_sfr_eligible == 12
+    assert readiness.derived.instant_quote_denominator_shift_alert["status"] == (
+        "threshold_exceeded"
+    )
+    assert readiness.derived.instant_quote_denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
     assert readiness.derived.instant_quote_high_value_subject_row_count == 30
     assert readiness.derived.instant_quote_high_value_supportable_subject_row_count == 21
     assert readiness.derived.instant_quote_high_value_support_rate == 0.7

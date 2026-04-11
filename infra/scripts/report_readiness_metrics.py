@@ -61,6 +61,12 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
                     "instant_quote_support_count_strict_sfr_eligible": (
                         row.derived.instant_quote_support_count_strict_sfr_eligible
                     ),
+                    "instant_quote_denominator_shift_alert": (
+                        row.derived.instant_quote_denominator_shift_alert
+                    ),
+                    "instant_quote_denominator_shift_warning_codes": (
+                        row.derived.instant_quote_denominator_shift_warning_codes
+                    ),
                     "instant_quote_high_value_support_rate": row.derived.instant_quote_high_value_support_rate,
                     "instant_quote_special_district_heavy_support_rate": (
                         row.derived.instant_quote_special_district_heavy_support_rate
