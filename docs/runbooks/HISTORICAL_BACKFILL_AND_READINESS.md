@@ -305,35 +305,58 @@ When an interrupted manual import leaves a staged draft residue:
 
 Run this after the weekly Harris/Fort Bend quote refresh and validation jobs:
 
+Freshness gate: skip refresh if the latest completed validation is less than `24` hours old; otherwise run refresh and validation for Harris and Fort Bend before running the monitor.
+
 ```bash
 python3 infra/scripts/report_quote_quality_monitor.py \
   --county-ids harris,fort_bend \
   --tax-year 2026
 ```
 
-Cron-compatible soft-fail wrapper:
+Scheduler path:
+
+No CI scheduler file is currently committed in this repository, so use the cron/systemd-compatible wrapper as the scheduler entrypoint until a team CI scheduler is added.
 
 ```bash
 python3 infra/scripts/run_weekly_quote_quality_monitor.py \
   --county-ids harris,fort_bend \
   --tax-year 2026 \
-  --output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
+  --output-dir artifacts/quote_quality_monitor/latest \
+  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
 ```
 
 Example weekly cron entry:
 
 ```cron
-0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
+0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir artifacts/quote_quality_monitor/latest --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
 ```
 
-Default outputs:
+Durable outputs:
 
-- `/tmp/stage19_weekly_quote_quality_monitor.json`
-- `/tmp/stage19_weekly_quote_quality_monitor.md`
-- `/tmp/stage19_refresh_watchlist_zero_savings.csv`
-- `/tmp/stage19_refresh_watchlist_top_outliers.csv`
-- `/tmp/stage19_refresh_watchlist_summary.md`
-- Wrapper run state: `/tmp/stage19_weekly_quote_quality_monitor_artifacts/run_state.json`
+- `artifacts/quote_quality_monitor/latest/stage19_weekly_quote_quality_monitor.json`
+- `artifacts/quote_quality_monitor/latest/stage19_weekly_quote_quality_monitor.md`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_zero_savings.csv`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_top_outliers.csv`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_summary.md`
+- `artifacts/quote_quality_monitor/latest/run_state.json`
+- `artifacts/quote_quality_monitor/latest/alert_payload.json`
+- `artifacts/quote_quality_monitor/latest/manifest.json`
+
+Optional transient mirror outputs:
+
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_weekly_quote_quality_monitor.json`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_weekly_quote_quality_monitor.md`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_zero_savings.csv`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_top_outliers.csv`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_summary.md`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/run_state.json`
+
+Alerting:
+
+- The wrapper writes `alert_payload.json` every run.
+- Alertable conditions are `quote_quality_monitor_job_failed`, `quote_quality_denominator_shift_alert`, `quote_quality_validation_denominator_shift_alert`, `quote_quality_excluded_class_leakage`, `validation_stale`, and `validation_missing`.
+- No Slack/email/webhook integration is currently present in the repo. Configure `DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL` or replace the no-op stub in `infra/scripts/run_weekly_quote_quality_monitor.py` when the team selects an alert provider.
+- Until a provider is wired, review `alert_payload.json` and `run_state.json` after each scheduled run.
 
 Interpretation:
 

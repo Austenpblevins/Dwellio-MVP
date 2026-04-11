@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from infra.scripts.report_quote_quality_monitor import (
@@ -12,6 +13,7 @@ from infra.scripts.report_quote_quality_monitor import (
     validation_freshness_status,
 )
 from infra.scripts.run_weekly_quote_quality_monitor import (
+    build_alert_payload,
     build_monitor_command,
     run_monitor,
 )
@@ -257,3 +259,99 @@ def test_weekly_runner_builds_artifact_command_and_soft_fails(tmp_path) -> None:
     assert state["exit_code"] == 2
     assert (tmp_path / "run_state.json").exists()
     assert (tmp_path / "monitor_stderr.log").read_text() == "db unavailable"
+    assert (tmp_path / "alert_payload.json").exists()
+    assert (tmp_path / "manifest.json").exists()
+
+
+def test_weekly_runner_resolves_durable_and_tmp_artifact_paths(tmp_path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    durable_output = "artifacts/quote_quality_monitor/latest"
+    tmp_output = tmp_path / "tmp-monitor"
+
+    def fake_run(command, **kwargs) -> SimpleNamespace:
+        json_path = command[command.index("--json-output") + 1]
+        Path(json_path).write_text(
+            """
+            {
+              "counties": [
+                {
+                  "county_id": "harris",
+                  "latest_refresh_run_id": "refresh-1",
+                  "latest_validated_at": "2026-04-11T02:00:00+00:00",
+                  "denominator_shift": {
+                    "all_sfr_flagged": {"triggered": false},
+                    "strict_sfr_eligible": {"triggered": false},
+                    "validation_alert": {"triggered": false}
+                  },
+                  "excluded_class_leakage": {"strong_signal_excluded": 0},
+                  "validation_freshness": {"warning_code": null}
+                }
+              ]
+            }
+            """
+        )
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    state, return_code = run_monitor(
+        output_dir=Path(durable_output),
+        tmp_output_dir=tmp_output,
+        county_ids="harris,fort_bend",
+        tax_year=2026,
+        repo_root=repo_root,
+        subprocess_run=fake_run,
+        now_fn=lambda: datetime(2026, 4, 11, 12, tzinfo=timezone.utc),
+    )
+
+    durable_dir = repo_root / durable_output
+    assert return_code == 0
+    assert state["status"] == "completed"
+    assert Path(state["manifest_path"]) == durable_dir / "manifest.json"
+    assert (durable_dir / "run_state.json").exists()
+    assert (tmp_output / "manifest.json").exists()
+    assert (tmp_output / "alert_payload.json").exists()
+
+
+def test_weekly_runner_alert_payload_covers_monitor_alert_conditions() -> None:
+    payload = {
+        "counties": [
+            {
+                "county_id": "harris",
+                "denominator_shift": {
+                    "all_sfr_flagged": {"triggered": True},
+                    "strict_sfr_eligible": {"triggered": False},
+                    "validation_alert": {"triggered": True},
+                },
+                "excluded_class_leakage": {"strong_signal_excluded": 3},
+                "validation_freshness": {"warning_code": "validation_stale"},
+            }
+        ]
+    }
+
+    alert_payload = build_alert_payload(
+        monitor_payload=payload,
+        run_state={
+            "exit_code": 0,
+            "finished_at": "2026-04-11T12:00:00+00:00",
+            "county_ids": "harris,fort_bend",
+            "tax_year": 2026,
+        },
+    )
+    job_failed = build_alert_payload(
+        monitor_payload=None,
+        run_state={
+            "exit_code": 2,
+            "finished_at": "2026-04-11T12:00:00+00:00",
+            "county_ids": "harris,fort_bend",
+            "tax_year": 2026,
+            "stderr_path": "/tmp/monitor_stderr.log",
+        },
+    )
+
+    codes = {alert["code"] for alert in alert_payload["alerts"]}
+    assert alert_payload["should_notify"] is True
+    assert "quote_quality_denominator_shift_alert" in codes
+    assert "quote_quality_validation_denominator_shift_alert" in codes
+    assert "quote_quality_excluded_class_leakage" in codes
+    assert "validation_stale" in codes
+    assert job_failed["alerts"][0]["code"] == "quote_quality_monitor_job_failed"
