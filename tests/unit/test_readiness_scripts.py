@@ -66,6 +66,12 @@ def _dashboard() -> AdminCountyYearReadinessDashboard:
                 derived=AdminCountyYearDerivedReadiness(
                     parcel_summary_ready=True,
                     instant_quote_supportable_row_rate=0.75,
+                    instant_quote_support_rate_all_sfr_flagged_denominator_count=100,
+                    instant_quote_support_rate_all_sfr_flagged_supportable_count=75,
+                    instant_quote_support_rate_all_sfr_flagged=0.75,
+                    instant_quote_support_rate_strict_sfr_eligible_denominator_count=80,
+                    instant_quote_support_rate_strict_sfr_eligible_supportable_count=70,
+                    instant_quote_support_rate_strict_sfr_eligible=0.875,
                     instant_quote_high_value_support_rate=0.6,
                     instant_quote_special_district_heavy_support_rate=0.8,
                     instant_quote_monitored_zero_savings_quote_share=0.4,
@@ -115,6 +121,18 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
     assert payload["kpi_summary"]["healthy_year_count"] == 1
     assert payload["readiness_rows"][0]["operational"]["quality_status"] == "healthy"
     assert payload["readiness_rows"][0]["derived_monitoring"]["instant_quote_supportable_row_rate"] == 0.75
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_rate_all_sfr_flagged"
+        ]
+        == 0.75
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_rate_strict_sfr_eligible"
+        ]
+        == 0.875
+    )
     assert (
         payload["readiness_rows"][0]["derived_monitoring"][
             "instant_quote_monitored_extreme_savings_flagged_count"

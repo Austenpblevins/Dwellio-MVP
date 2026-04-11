@@ -440,6 +440,24 @@ class AdminReadinessService:
                 instant_quote_supportable_row_rate=(
                     readiness.derived.instant_quote_supportable_row_rate
                 ),
+                instant_quote_support_rate_all_sfr_flagged_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible
+                ),
                 instant_quote_high_value_subject_row_count=(
                     readiness.derived.instant_quote_high_value_subject_row_count
                 ),

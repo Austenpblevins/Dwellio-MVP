@@ -251,6 +251,15 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
         for statement in cursor.statements
     )
     assert any(
+        "LEFT JOIN property_characteristics pc ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id"
+        in statement
+        and "WHEN pc.property_characteristic_id IS NOT NULL THEN pc.property_type_code"
+        in statement
+        and "ELSE p.property_type_code" in statement
+        and "END = 'sfr'" in statement
+        for statement in cursor.statements
+    )
+    assert any(
         "CREATE TEMP TABLE tmp_instant_quote_tax_rate_basis_selection" in statement
         for statement in cursor.statements
     )

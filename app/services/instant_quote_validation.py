@@ -5,6 +5,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.db.connection import get_connection
 from app.services.instant_quote import (
     EXTREME_SAVINGS_REVIEW_RATIO,
@@ -74,6 +75,12 @@ class InstantQuoteValidationReport:
     blocker_distribution: dict[str, int] = field(default_factory=dict)
     supported_public_quote_exists: bool = False
     supportable_row_rate: float = 0.0
+    support_rate_all_sfr_flagged_denominator_count: int = 0
+    support_rate_all_sfr_flagged_supportable_count: int = 0
+    support_rate_all_sfr_flagged: float = 0.0
+    support_rate_strict_sfr_eligible_denominator_count: int = 0
+    support_rate_strict_sfr_eligible_supportable_count: int = 0
+    support_rate_strict_sfr_eligible: float = 0.0
     high_value_subject_row_count: int = 0
     high_value_supportable_subject_row_count: int = 0
     high_value_support_rate: float = 0.0
@@ -189,6 +196,11 @@ class InstantQuoteValidationService:
                     tax_year=tax_year,
                 )
                 high_value_support_metrics = self._high_value_support_metrics(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                denominator_quality_metrics = self._denominator_quality_metrics(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
@@ -519,6 +531,24 @@ class InstantQuoteValidationService:
                 "blocker_distribution": blocker_distribution,
                 "supported_public_quote_exists": supported_public_quote_exists,
                 "supportable_row_rate": supportable_row_rate,
+                "support_rate_all_sfr_flagged_denominator_count": int(
+                    denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                ),
+                "support_rate_all_sfr_flagged_supportable_count": int(
+                    denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+                ),
+                "support_rate_all_sfr_flagged": float(
+                    denominator_quality_metrics["all_sfr_flagged_support_rate"]
+                ),
+                "support_rate_strict_sfr_eligible_denominator_count": int(
+                    denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+                ),
+                "support_rate_strict_sfr_eligible_supportable_count": int(
+                    denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+                ),
+                "support_rate_strict_sfr_eligible": float(
+                    denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+                ),
                 "high_value_subject_row_count": int(
                     high_value_support_metrics["subject_row_count"]
                 ),
@@ -700,6 +730,24 @@ class InstantQuoteValidationService:
             blocker_distribution=blocker_distribution,
             supported_public_quote_exists=supported_public_quote_exists,
             supportable_row_rate=supportable_row_rate,
+            support_rate_all_sfr_flagged_denominator_count=int(
+                denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+            ),
+            support_rate_all_sfr_flagged_supportable_count=int(
+                denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+            ),
+            support_rate_all_sfr_flagged=float(
+                denominator_quality_metrics["all_sfr_flagged_support_rate"]
+            ),
+            support_rate_strict_sfr_eligible_denominator_count=int(
+                denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+            ),
+            support_rate_strict_sfr_eligible_supportable_count=int(
+                denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+            ),
+            support_rate_strict_sfr_eligible=float(
+                denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+            ),
             high_value_subject_row_count=int(high_value_support_metrics["subject_row_count"]),
             high_value_supportable_subject_row_count=int(
                 high_value_support_metrics["supportable_row_count"]
@@ -1035,6 +1083,88 @@ class InstantQuoteValidationService:
                 else 0.0
             ),
         }
+
+    def _denominator_quality_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, float | int]:
+        strict_sfr_class_codes = list(self._strict_sfr_class_codes(county_id=county_id))
+        cursor.execute(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE property_type_code = 'sfr')
+                AS all_sfr_flagged_denominator_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND support_blocker_code IS NULL
+              ) AS all_sfr_flagged_supportable_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND UPPER(BTRIM(COALESCE(property_class_code, ''))) = ANY(%s::text[])
+              ) AS strict_sfr_eligible_denominator_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND UPPER(BTRIM(COALESCE(property_class_code, ''))) = ANY(%s::text[])
+                  AND support_blocker_code IS NULL
+              ) AS strict_sfr_eligible_supportable_count
+            FROM instant_quote_subject_cache
+            WHERE county_id = %s
+              AND tax_year = %s
+            """,
+            (strict_sfr_class_codes, strict_sfr_class_codes, county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        all_denominator = int(row.get("all_sfr_flagged_denominator_count") or 0)
+        all_supportable = int(row.get("all_sfr_flagged_supportable_count") or 0)
+        strict_denominator = int(row.get("strict_sfr_eligible_denominator_count") or 0)
+        strict_supportable = int(row.get("strict_sfr_eligible_supportable_count") or 0)
+        return {
+            "all_sfr_flagged_denominator_count": all_denominator,
+            "all_sfr_flagged_supportable_count": all_supportable,
+            "all_sfr_flagged_support_rate": (
+                float(all_supportable) / float(all_denominator)
+                if all_denominator > 0
+                else 0.0
+            ),
+            "strict_sfr_eligible_denominator_count": strict_denominator,
+            "strict_sfr_eligible_supportable_count": strict_supportable,
+            "strict_sfr_eligible_support_rate": (
+                float(strict_supportable) / float(strict_denominator)
+                if strict_denominator > 0
+                else 0.0
+            ),
+        }
+
+    def _strict_sfr_class_codes(self, *, county_id: str) -> tuple[str, ...]:
+        config = load_county_adapter_config(county_id)
+        dataset_mapping = config.field_mappings.get("property_roll")
+        if dataset_mapping is None:
+            return ()
+
+        for section_name in ("characteristics", "parcel"):
+            section = dataset_mapping.sections.get(section_name)
+            if section is None:
+                continue
+            for field_mapping in section.fields:
+                if (
+                    field_mapping.target_field == "property_type_code"
+                    and field_mapping.transform == "property_class_to_sfr"
+                ):
+                    return tuple(
+                        sorted(
+                            {
+                                str(code).strip().upper()
+                                for code in field_mapping.transform_options.get(
+                                    "sfr_class_codes", []
+                                )
+                                if str(code).strip()
+                            }
+                        )
+                    )
+        return ()
 
     def _special_district_heavy_support_metrics(
         self,

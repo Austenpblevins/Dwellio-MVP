@@ -31,6 +31,24 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
                 "operational": row.operational.model_dump(mode="json"),
                 "derived_monitoring": {
                     "instant_quote_supportable_row_rate": row.derived.instant_quote_supportable_row_rate,
+                    "instant_quote_support_rate_all_sfr_flagged_denominator_count": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count
+                    ),
+                    "instant_quote_support_rate_all_sfr_flagged_supportable_count": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count
+                    ),
+                    "instant_quote_support_rate_all_sfr_flagged": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible_denominator_count": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible_supportable_count": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible
+                    ),
                     "instant_quote_high_value_support_rate": row.derived.instant_quote_high_value_support_rate,
                     "instant_quote_special_district_heavy_support_rate": (
                         row.derived.instant_quote_special_district_heavy_support_rate

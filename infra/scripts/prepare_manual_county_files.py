@@ -7,7 +7,7 @@ import json
 import sqlite3
 import tempfile
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -1237,7 +1237,7 @@ def _index_harris_buildings(
         WHERE excluded.primary_area > harris_building_lookup.primary_area
     """
     with _open_raw_text(source_path) as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        reader = _iter_tab_split_dict_rows(handle)
         rows: list[tuple[Any, ...]] = []
         for row in reader:
             acct = _strip(row.get("acct"))
@@ -1272,6 +1272,18 @@ def _index_harris_buildings(
                 rows.clear()
         if rows:
             connection.executemany(update_sql, rows)
+
+
+def _iter_tab_split_dict_rows(handle: Any) -> Iterator[dict[str, str]]:
+    header_line = handle.readline()
+    if not header_line:
+        return
+    headers = header_line.rstrip("\r\n").split("\t")
+    for line in handle:
+        values = line.rstrip("\r\n").split("\t")
+        if len(values) < len(headers):
+            values.extend([""] * (len(headers) - len(values)))
+        yield dict(zip(headers, values))
 
 
 def _index_harris_land(connection: sqlite3.Connection, source_path: Path) -> None:

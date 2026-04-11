@@ -55,6 +55,15 @@ class StubCursor:
                 {"blocker_code": "missing_effective_tax_rate", "count": 8},
                 {"blocker_code": "supportable", "count": 4},
             ]
+        elif "all_sfr_flagged_denominator_count" in sql:
+            self._rows = [
+                {
+                    "all_sfr_flagged_denominator_count": 9,
+                    "all_sfr_flagged_supportable_count": 4,
+                    "strict_sfr_eligible_denominator_count": 5,
+                    "strict_sfr_eligible_supportable_count": 4,
+                }
+            ]
         elif "percentile_cont(0.95)" in sql:
             self._rows = [{"subject_row_count": 3, "supportable_row_count": 2}]
         elif "special_stack_count" in sql:
@@ -247,6 +256,12 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     }
     assert report.supported_public_quote_exists is True
     assert report.supportable_row_rate == 4 / 9
+    assert report.support_rate_all_sfr_flagged_denominator_count == 9
+    assert report.support_rate_all_sfr_flagged_supportable_count == 4
+    assert report.support_rate_all_sfr_flagged == 4 / 9
+    assert report.support_rate_strict_sfr_eligible_denominator_count == 5
+    assert report.support_rate_strict_sfr_eligible_supportable_count == 4
+    assert report.support_rate_strict_sfr_eligible == 4 / 5
     assert report.high_value_subject_row_count == 3
     assert report.high_value_supportable_subject_row_count == 2
     assert report.high_value_support_rate == 2 / 3

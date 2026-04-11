@@ -17,6 +17,14 @@ FIELD_MAPPING_NOTES = {
     "rule": "Use county config files and county adapters for county-specific mapping logic.",
 }
 
+PROPERTY_CLASS_TO_SFR_NOTES = {
+    "rule": (
+        "County class-code mappings may opt a row into the MVP SFR quote cohort. "
+        "Rows outside the configured SFR class set remain NULL instead of inventing "
+        "new property types."
+    ),
+}
+
 
 def build_normalized_record(
     *,
@@ -151,6 +159,14 @@ def _resolve_field_value(
         value = max((assessed_value or 0) - exemption_total, 0)
     elif transform == "constant":
         value = field_mapping.default_value
+    elif transform == "property_class_to_sfr":
+        source_value = source_row.get(field_mapping.source_field or "")
+        sfr_class_codes = {
+            str(code).strip().upper()
+            for code in field_mapping.transform_options.get("sfr_class_codes", [])
+            if str(code).strip()
+        }
+        value = "sfr" if str(source_value or "").strip().upper() in sfr_class_codes else None
     else:
         raise ValueError(f"Unsupported transform '{transform}' for {field_mapping.canonical_field_code}.")
 
