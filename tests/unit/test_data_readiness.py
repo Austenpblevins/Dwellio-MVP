@@ -116,9 +116,13 @@ class StubCursor:
                     "support_rate_all_sfr_flagged_denominator_count": 18,
                     "support_rate_all_sfr_flagged_supportable_count": 12,
                     "support_rate_all_sfr_flagged": 0.6667,
+                    "total_count_all_sfr_flagged": 18,
+                    "support_count_all_sfr_flagged": 12,
                     "support_rate_strict_sfr_eligible_denominator_count": 15,
                     "support_rate_strict_sfr_eligible_supportable_count": 12,
                     "support_rate_strict_sfr_eligible": 0.8,
+                    "total_count_strict_sfr_eligible": 15,
+                    "support_count_strict_sfr_eligible": 12,
                     "high_value_subject_row_count": 30,
                     "high_value_supportable_subject_row_count": 21,
                     "high_value_support_rate": 0.7,
@@ -237,9 +241,13 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count == 18
     assert readiness.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count == 12
     assert readiness.derived.instant_quote_support_rate_all_sfr_flagged == 0.6667
+    assert readiness.derived.instant_quote_total_count_all_sfr_flagged == 18
+    assert readiness.derived.instant_quote_support_count_all_sfr_flagged == 12
     assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count == 15
     assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count == 12
     assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible == 0.8
+    assert readiness.derived.instant_quote_total_count_strict_sfr_eligible == 15
+    assert readiness.derived.instant_quote_support_count_strict_sfr_eligible == 12
     assert readiness.derived.instant_quote_high_value_subject_row_count == 30
     assert readiness.derived.instant_quote_high_value_supportable_subject_row_count == 21
     assert readiness.derived.instant_quote_high_value_support_rate == 0.7

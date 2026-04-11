@@ -449,6 +449,12 @@ class AdminReadinessService:
                 instant_quote_support_rate_all_sfr_flagged=(
                     readiness.derived.instant_quote_support_rate_all_sfr_flagged
                 ),
+                instant_quote_total_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_total_count_all_sfr_flagged
+                ),
+                instant_quote_support_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_count_all_sfr_flagged
+                ),
                 instant_quote_support_rate_strict_sfr_eligible_denominator_count=(
                     readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
                 ),
@@ -457,6 +463,12 @@ class AdminReadinessService:
                 ),
                 instant_quote_support_rate_strict_sfr_eligible=(
                     readiness.derived.instant_quote_support_rate_strict_sfr_eligible
+                ),
+                instant_quote_total_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_total_count_strict_sfr_eligible
+                ),
+                instant_quote_support_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_count_strict_sfr_eligible
                 ),
                 instant_quote_high_value_subject_row_count=(
                     readiness.derived.instant_quote_high_value_subject_row_count
