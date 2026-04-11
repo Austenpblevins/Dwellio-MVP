@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from infra.scripts.report_quote_quality_monitor import (
     build_payload,
     denominator_shift_status,
     divergence_drill_result,
+    normalize_county_ids,
     select_watchlist_rows,
+    validation_freshness_status,
+)
+from infra.scripts.run_weekly_quote_quality_monitor import (
+    build_monitor_command,
+    run_monitor,
 )
 
 
@@ -124,12 +131,45 @@ def test_denominator_shift_status_threshold_behavior() -> None:
     ] == "no_prior_run"
 
 
+def test_normalize_county_ids_accepts_comma_or_space_separated_values() -> None:
+    assert normalize_county_ids(["harris,fort_bend"]) == ["harris", "fort_bend"]
+    assert normalize_county_ids(["harris", "fort_bend"]) == ["harris", "fort_bend"]
+
+
+def test_validation_freshness_status_reports_fresh_stale_and_missing() -> None:
+    now = datetime(2026, 4, 11, 12, tzinfo=timezone.utc)
+
+    fresh = validation_freshness_status(
+        latest_validated_at=datetime(2026, 4, 11, 1, tzinfo=timezone.utc),
+        now=now,
+        threshold_hours=24,
+    )
+    stale = validation_freshness_status(
+        latest_validated_at=datetime(2026, 4, 10, 1, tzinfo=timezone.utc),
+        now=now,
+        threshold_hours=24,
+    )
+    missing = validation_freshness_status(
+        latest_validated_at=None,
+        now=now,
+        threshold_hours=24,
+    )
+
+    assert fresh["status"] == "fresh"
+    assert fresh["warning_code"] is None
+    assert stale["status"] == "stale"
+    assert stale["warning_code"] == "validation_stale"
+    assert missing["status"] == "missing"
+    assert missing["warning_code"] == "validation_missing"
+
+
 def test_weekly_monitor_payload_contains_denominator_and_leakage_trends() -> None:
     payload = build_payload(
         county_ids=["harris"],
         tax_year=2026,
         recent_run_limit=2,
         threshold_pct=0.05,
+        now_fn=lambda: datetime(2026, 4, 11, 12, tzinfo=timezone.utc),
         connection_factory=lambda: StubConnection(),
     )
 
@@ -138,7 +178,9 @@ def test_weekly_monitor_payload_contains_denominator_and_leakage_trends() -> Non
     assert county["denominator_shift"]["prior_total_count_all_sfr_flagged"] == 100
     assert county["excluded_class_leakage"]["strong_signal_excluded"] == 0
     assert county["zero_savings"]["monitored_zero_savings_quote_share"] == 0.4
+    assert county["validation_freshness"]["status"] == "fresh"
     assert payload["combined"]["strong_signal_leakage_count"] == 0
+    assert payload["combined"]["validation_freshness_warning_count"] == 0
 
 
 def test_watchlist_selection_is_deterministic_by_kind() -> None:
@@ -185,3 +227,33 @@ def test_non_prod_divergence_drill_proves_kpi_paths_can_diverge() -> None:
     assert result["environment"] == "non_prod_only"
     assert result["diverged"] is True
     assert result["pass"] is True
+
+
+def test_weekly_runner_builds_artifact_command_and_soft_fails(tmp_path) -> None:
+    command = build_monitor_command(
+        output_dir=tmp_path,
+        county_ids="harris,fort_bend",
+        tax_year=2026,
+    )
+
+    assert "--county-ids" in command
+    assert "harris,fort_bend" in command
+    assert str(tmp_path / "stage19_weekly_quote_quality_monitor.json") in command
+
+    def fake_run(*args, **kwargs) -> SimpleNamespace:
+        return SimpleNamespace(returncode=2, stdout="", stderr="db unavailable")
+
+    state, return_code = run_monitor(
+        output_dir=tmp_path,
+        county_ids="harris,fort_bend",
+        tax_year=2026,
+        repo_root=tmp_path,
+        subprocess_run=fake_run,
+        now_fn=lambda: datetime(2026, 4, 11, 12, tzinfo=timezone.utc),
+    )
+
+    assert return_code == 2
+    assert state["status"] == "failed_soft"
+    assert state["exit_code"] == 2
+    assert (tmp_path / "run_state.json").exists()
+    assert (tmp_path / "monitor_stderr.log").read_text() == "db unavailable"
