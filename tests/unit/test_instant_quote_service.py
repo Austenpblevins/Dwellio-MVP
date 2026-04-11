@@ -258,6 +258,31 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
         "etr.tax_year = tax_basis.effective_tax_rate_basis_year" in statement
         for statement in cursor.statements
     )
+    assert any(
+        "COALESCE(NULLIF(pi.living_area_sf, 0), pi_prior.living_area_sf) AS living_area_sf"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "THEN COALESCE(pi_prior.year_built, pi.year_built)" in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "LEFT JOIN parcel_improvements pi_prior" in statement
+        and "pi_prior.tax_year = scope.tax_year - 1" in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "LEFT JOIN parcel_assessments pa_prior" in statement
+        and "pa_prior.tax_year = scope.tax_year - 1" in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "prior_year_living_area_fallback" in statement for statement in cursor.statements
+    )
+    assert any(
+        "prior_year_assessment_basis_fallback" in statement for statement in cursor.statements
+    )
     assert any("basis_assignment_requirements AS (" in statement for statement in cursor.statements)
     assert any(
         "NOT COALESCE(requirements.requires_school_assignment, false)" in statement
