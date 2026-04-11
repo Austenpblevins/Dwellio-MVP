@@ -422,6 +422,19 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
                     instant_quote_support_rate_strict_sfr_eligible=0.9,
                     instant_quote_total_count_strict_sfr_eligible=80,
                     instant_quote_support_count_strict_sfr_eligible=72,
+                    instant_quote_denominator_shift_alert={
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 100,
+                        "prior_total_count_all_sfr_flagged": 90,
+                        "pct_change": 0.1111111111111111,
+                        "abs_pct_change": 0.1111111111111111,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    instant_quote_denominator_shift_warning_codes=[
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
                     instant_quote_high_value_subject_row_count=40,
                     instant_quote_high_value_supportable_subject_row_count=28,
                     instant_quote_high_value_support_rate=0.7,
@@ -495,6 +508,12 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
     assert row.derived.instant_quote_support_rate_strict_sfr_eligible == 0.9
     assert row.derived.instant_quote_total_count_strict_sfr_eligible == 80
     assert row.derived.instant_quote_support_count_strict_sfr_eligible == 72
+    assert row.derived.instant_quote_denominator_shift_alert["status"] == (
+        "threshold_exceeded"
+    )
+    assert row.derived.instant_quote_denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
     assert row.derived.instant_quote_high_value_support_rate == 0.7
     assert row.derived.instant_quote_special_district_heavy_support_rate == 0.8
     assert row.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
@@ -504,6 +523,7 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
     assert "instant_quote_tax_completeness_risky_caution_monitored" in row.operational.alerts
     assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
     assert "instant_quote_extreme_savings_review_required" in row.operational.alerts
+    assert "instant_quote_denominator_shift_review_required" in row.operational.alerts
 
 
 def test_admin_readiness_surfaces_harris_caveated_special_family_monitoring() -> None:

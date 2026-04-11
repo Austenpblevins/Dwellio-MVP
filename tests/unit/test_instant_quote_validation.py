@@ -55,6 +55,13 @@ class StubCursor:
                 {"blocker_code": "missing_effective_tax_rate", "count": 8},
                 {"blocker_code": "supportable", "count": 4},
             ]
+        elif "prior_total_count_all_sfr_flagged" in sql:
+            self._rows = [
+                {
+                    "instant_quote_refresh_run_id": "00000000-0000-0000-0000-000000000001",
+                    "prior_total_count_all_sfr_flagged": 8,
+                }
+            ]
         elif "all_sfr_flagged_denominator_count" in sql:
             self._rows = [
                 {
@@ -103,6 +110,7 @@ class StubCursor:
         elif "FROM instant_quote_refresh_runs" in sql and "ORDER BY refresh_started_at DESC" in sql:
             self._rows = [
                 {
+                    "instant_quote_refresh_run_id": "00000000-0000-0000-0000-000000000002",
                     "refresh_status": "completed",
                     "refresh_finished_at": None,
                     "validated_at": None,
@@ -267,6 +275,12 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.total_count_strict_sfr_eligible == 5
     assert report.support_count_strict_sfr_eligible == 4
     assert report.support_rate_all_sfr_flagged != report.support_rate_strict_sfr_eligible
+    assert report.denominator_shift_alert["status"] == "threshold_exceeded"
+    assert report.denominator_shift_alert["current_total_count_all_sfr_flagged"] == 9
+    assert report.denominator_shift_alert["prior_total_count_all_sfr_flagged"] == 8
+    assert report.denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
     assert report.high_value_subject_row_count == 3
     assert report.high_value_supportable_subject_row_count == 2
     assert report.high_value_support_rate == 2 / 3
@@ -319,3 +333,71 @@ def test_instant_quote_validation_surfaces_tax_completeness_posture(monkeypatch)
         "risky_caution_rows_monitored",
         "continuity_gap_rows_monitored",
     ]
+
+
+class DenominatorShiftCursor:
+    def __init__(self, row: dict[str, object] | None) -> None:
+        self._row = row
+
+    def execute(self, sql: str, params: tuple[object, ...] | None = None) -> None:
+        assert "prior_total_count_all_sfr_flagged" in sql
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self._row
+
+
+def test_denominator_shift_alert_ignores_absent_prior_run() -> None:
+    alert = InstantQuoteValidationService()._denominator_shift_alert(
+        DenominatorShiftCursor(None),
+        county_id="harris",
+        tax_year=2026,
+        current_refresh_run_id="00000000-0000-0000-0000-000000000002",
+        current_total_count_all_sfr_flagged=100,
+        threshold_pct=0.05,
+    )
+
+    assert alert["status"] == "no_prior_run"
+    assert alert["triggered"] is False
+    assert alert["warning_codes"] == []
+
+
+def test_denominator_shift_alert_stays_quiet_at_threshold() -> None:
+    alert = InstantQuoteValidationService()._denominator_shift_alert(
+        DenominatorShiftCursor(
+            {
+                "instant_quote_refresh_run_id": "00000000-0000-0000-0000-000000000001",
+                "prior_total_count_all_sfr_flagged": 100,
+            }
+        ),
+        county_id="harris",
+        tax_year=2026,
+        current_refresh_run_id="00000000-0000-0000-0000-000000000002",
+        current_total_count_all_sfr_flagged=105,
+        threshold_pct=0.05,
+    )
+
+    assert alert["status"] == "within_threshold"
+    assert alert["triggered"] is False
+    assert alert["pct_change"] == 0.05
+    assert alert["warning_codes"] == []
+
+
+def test_denominator_shift_alert_triggers_above_threshold() -> None:
+    alert = InstantQuoteValidationService()._denominator_shift_alert(
+        DenominatorShiftCursor(
+            {
+                "instant_quote_refresh_run_id": "00000000-0000-0000-0000-000000000001",
+                "prior_total_count_all_sfr_flagged": 100,
+            }
+        ),
+        county_id="harris",
+        tax_year=2026,
+        current_refresh_run_id="00000000-0000-0000-0000-000000000002",
+        current_total_count_all_sfr_flagged=106,
+        threshold_pct=0.05,
+    )
+
+    assert alert["status"] == "threshold_exceeded"
+    assert alert["triggered"] is True
+    assert alert["pct_change"] == 0.06
+    assert alert["warning_codes"] == ["all_sfr_flagged_denominator_shift_exceeded"]
