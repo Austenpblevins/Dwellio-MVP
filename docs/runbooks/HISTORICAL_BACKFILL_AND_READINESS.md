@@ -322,13 +322,14 @@ python3 infra/scripts/run_weekly_quote_quality_monitor.py \
   --county-ids harris,fort_bend \
   --tax-year 2026 \
   --output-dir artifacts/quote_quality_monitor/latest \
-  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
+  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts \
+  --alert-webhook-env-var DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL
 ```
 
 Example weekly cron entry:
 
 ```cron
-0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir artifacts/quote_quality_monitor/latest --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts
+0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir artifacts/quote_quality_monitor/latest --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts --alert-webhook-env-var DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL
 ```
 
 Durable outputs:
@@ -355,8 +356,20 @@ Alerting:
 
 - The wrapper writes `alert_payload.json` every run.
 - Alertable conditions are `quote_quality_monitor_job_failed`, `quote_quality_denominator_shift_alert`, `quote_quality_validation_denominator_shift_alert`, `quote_quality_excluded_class_leakage`, `validation_stale`, and `validation_missing`.
-- No Slack/email/webhook integration is currently present in the repo. Configure `DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL` or replace the no-op stub in `infra/scripts/run_weekly_quote_quality_monitor.py` when the team selects an alert provider.
-- Until a provider is wired, review `alert_payload.json` and `run_state.json` after each scheduled run.
+- Webhook delivery is enabled when `DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL` is configured in the runtime environment.
+- Use `--force-alert` for an end-to-end notifier smoke test without waiting for organic alert conditions:
+
+```bash
+DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL=<configured_url> \
+python3 infra/scripts/run_weekly_quote_quality_monitor.py \
+  --county-ids harris,fort_bend \
+  --tax-year 2026 \
+  --output-dir artifacts/quote_quality_monitor/latest \
+  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts \
+  --force-alert
+```
+
+- Always review `alert_payload.json` and `run_state.json` after each scheduled run to confirm alert decisions and delivery status.
 
 Interpretation:
 

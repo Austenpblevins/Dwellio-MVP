@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from infra.scripts.report_quote_quality_monitor import (
     validation_freshness_status,
 )
 from infra.scripts.run_weekly_quote_quality_monitor import (
+    build_alert_delivery,
     build_alert_payload,
     build_monitor_command,
     run_monitor,
@@ -355,3 +357,108 @@ def test_weekly_runner_alert_payload_covers_monitor_alert_conditions() -> None:
     assert "quote_quality_excluded_class_leakage" in codes
     assert "validation_stale" in codes
     assert job_failed["alerts"][0]["code"] == "quote_quality_monitor_job_failed"
+
+
+def test_alert_delivery_posts_payload_when_webhook_configured() -> None:
+    captured: dict[str, object] = {}
+
+    class StubResponse:
+        status = 202
+
+        def __enter__(self) -> StubResponse:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def getcode(self) -> int:
+            return self.status
+
+        def read(self) -> bytes:
+            return b'{"ok":true}'
+
+    def fake_urlopen(request, timeout: float):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return StubResponse()
+
+    delivery = build_alert_delivery(
+        alert_payload={"should_notify": True, "alerts": [{"code": "x"}]},
+        webhook_env_var="DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL",
+        webhook_url="https://example.invalid/webhook",
+        timeout_seconds=9.0,
+        urlopen_fn=fake_urlopen,
+    )
+
+    assert captured["url"] == "https://example.invalid/webhook"
+    assert captured["timeout"] == 9.0
+    assert captured["payload"] == {"should_notify": True, "alerts": [{"code": "x"}]}
+    assert delivery["status"] == "delivered_webhook"
+    assert delivery["http_status"] == 202
+
+
+def test_weekly_runner_force_alert_injects_synthetic_alert(tmp_path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    class StubResponse:
+        status = 200
+
+        def __enter__(self) -> StubResponse:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def getcode(self) -> int:
+            return self.status
+
+        def read(self) -> bytes:
+            return b"ok"
+
+    def fake_urlopen(request, timeout: float):
+        return StubResponse()
+
+    def fake_run(command, **kwargs) -> SimpleNamespace:
+        json_path = command[command.index("--json-output") + 1]
+        Path(json_path).write_text(
+            """
+            {
+              "counties": [
+                {
+                  "county_id": "harris",
+                  "denominator_shift": {
+                    "all_sfr_flagged": {"triggered": false},
+                    "strict_sfr_eligible": {"triggered": false},
+                    "validation_alert": {"triggered": false}
+                  },
+                  "excluded_class_leakage": {"strong_signal_excluded": 0},
+                  "validation_freshness": {"warning_code": null}
+                }
+              ]
+            }
+            """
+        )
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    state, return_code = run_monitor(
+        output_dir=Path("artifacts/quote_quality_monitor/latest"),
+        county_ids="harris,fort_bend",
+        tax_year=2026,
+        repo_root=repo_root,
+        subprocess_run=fake_run,
+        urlopen_fn=fake_urlopen,
+        force_alert=True,
+        now_fn=lambda: datetime(2026, 4, 11, 12, tzinfo=timezone.utc),
+    )
+
+    alert_payload = json.loads(
+        (repo_root / "artifacts/quote_quality_monitor/latest/alert_payload.json").read_text()
+    )
+    codes = {alert["code"] for alert in alert_payload["alerts"]}
+    assert return_code == 0
+    assert state["force_alert"] is True
+    assert state["alert_delivery"]["status"] == "noop_notifier_not_configured"
+    assert alert_payload["should_notify"] is True
+    assert "quote_quality_forced_test_alert" in codes

@@ -8,6 +8,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 DEFAULT_OUTPUT_DIR = Path("artifacts/quote_quality_monitor/latest")
@@ -38,7 +40,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--alert-webhook-env-var",
         default=DEFAULT_ALERT_WEBHOOK_ENV_VAR,
-        help="Environment variable name reserved for future alert webhook integration.",
+        help="Environment variable name for alert webhook POST delivery.",
+    )
+    parser.add_argument(
+        "--alert-timeout-seconds",
+        type=float,
+        default=10.0,
+        help="HTTP timeout in seconds for webhook alert delivery.",
+    )
+    parser.add_argument(
+        "--force-alert",
+        action="store_true",
+        help="Inject a synthetic alert to force end-to-end alert delivery validation.",
     )
     parser.add_argument("--python-executable", default="python3")
     parser.add_argument(
@@ -164,6 +177,9 @@ def build_alert_delivery(
     *,
     alert_payload: dict[str, Any],
     webhook_env_var: str,
+    webhook_url: str | None = None,
+    timeout_seconds: float = 10.0,
+    urlopen_fn: Any = urlopen,
 ) -> dict[str, Any]:
     if not alert_payload.get("should_notify"):
         return {
@@ -171,20 +187,75 @@ def build_alert_delivery(
             "webhook_env_var": webhook_env_var,
             "message": "No alertable quote-quality monitor conditions were found.",
         }
-    if os.getenv(webhook_env_var):
+    resolved_webhook_url = webhook_url if webhook_url is not None else os.getenv(webhook_env_var)
+    if not resolved_webhook_url:
         return {
-            "status": "noop_webhook_configured_dry_run",
+            "status": "noop_notifier_not_configured",
             "webhook_env_var": webhook_env_var,
-            "message": (
-                "Alert payload assembled; webhook delivery is intentionally a stub until "
-                "the team wires this env var to its chosen alert provider."
-            ),
+            "message": "Alert payload assembled; configure this env var to connect webhook delivery.",
         }
-    return {
-        "status": "noop_notifier_not_configured",
-        "webhook_env_var": webhook_env_var,
-        "message": "Alert payload assembled; configure this env var to connect Slack/email/webhook delivery.",
-    }
+    request = Request(
+        url=resolved_webhook_url,
+        data=json.dumps(alert_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen_fn(request, timeout=timeout_seconds) as response:
+            status_code = int(getattr(response, "status", response.getcode()))
+            response_body = response.read().decode("utf-8", errors="replace")
+        if 200 <= status_code < 300:
+            return {
+                "status": "delivered_webhook",
+                "webhook_env_var": webhook_env_var,
+                "http_status": status_code,
+                "response_excerpt": response_body[:500],
+            }
+        return {
+            "status": "failed_http_status",
+            "webhook_env_var": webhook_env_var,
+            "http_status": status_code,
+            "response_excerpt": response_body[:500],
+        }
+    except HTTPError as exc:
+        response_body = exc.read().decode("utf-8", errors="replace")
+        return {
+            "status": "failed_http_error",
+            "webhook_env_var": webhook_env_var,
+            "http_status": int(exc.code),
+            "error": str(exc.reason),
+            "response_excerpt": response_body[:500],
+        }
+    except URLError as exc:
+        return {
+            "status": "failed_transport_error",
+            "webhook_env_var": webhook_env_var,
+            "error": str(exc.reason),
+        }
+    except Exception as exc:  # pragma: no cover - defensive wrapper around operator-facing alerting.
+        return {
+            "status": "failed_unexpected_error",
+            "webhook_env_var": webhook_env_var,
+            "error": str(exc),
+        }
+
+
+def apply_forced_alert(*, alert_payload: dict[str, Any], enabled: bool) -> dict[str, Any]:
+    if not enabled:
+        return alert_payload
+    forced_payload = dict(alert_payload)
+    forced_alerts = list(forced_payload.get("alerts") or [])
+    forced_alerts.append(
+        {
+            "code": "quote_quality_forced_test_alert",
+            "severity": "info",
+            "message": "Operator-requested forced alert for webhook delivery validation.",
+            "details": {"forced": True},
+        }
+    )
+    forced_payload["alerts"] = forced_alerts
+    forced_payload["should_notify"] = True
+    return forced_payload
 
 
 def build_manifest(
@@ -255,9 +326,12 @@ def run_monitor(
     tax_year: int,
     tmp_output_dir: Path | None = None,
     alert_webhook_env_var: str = DEFAULT_ALERT_WEBHOOK_ENV_VAR,
+    alert_timeout_seconds: float = 10.0,
+    force_alert: bool = False,
     python_executable: str = "python3",
     repo_root: Path | None = None,
     subprocess_run: Any = subprocess.run,
+    urlopen_fn: Any = urlopen,
     now_fn: Any = lambda: datetime.now(timezone.utc),
 ) -> tuple[dict[str, Any], int]:
     resolved_repo_root = repo_root or Path(__file__).resolve().parents[2]
@@ -305,12 +379,16 @@ def run_monitor(
     }
     monitor_payload = _load_monitor_payload(resolved_output_dir / ARTIFACT_FILENAMES["json"])
     alert_payload = build_alert_payload(monitor_payload=monitor_payload, run_state=state)
+    alert_payload = apply_forced_alert(alert_payload=alert_payload, enabled=force_alert)
     alert_delivery = build_alert_delivery(
         alert_payload=alert_payload,
         webhook_env_var=alert_webhook_env_var,
+        timeout_seconds=alert_timeout_seconds,
+        urlopen_fn=urlopen_fn,
     )
     state["alert_payload_path"] = str(resolved_output_dir / "alert_payload.json")
     state["alert_delivery"] = alert_delivery
+    state["force_alert"] = force_alert
     manifest = build_manifest(
         monitor_payload=monitor_payload,
         run_state=state,
@@ -344,6 +422,8 @@ def main() -> None:
         tax_year=args.tax_year,
         tmp_output_dir=args.tmp_output_dir,
         alert_webhook_env_var=args.alert_webhook_env_var,
+        alert_timeout_seconds=args.alert_timeout_seconds,
+        force_alert=args.force_alert,
         python_executable=args.python_executable,
     )
     print(json.dumps(state, indent=2, sort_keys=True))
