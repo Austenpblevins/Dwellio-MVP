@@ -194,6 +194,26 @@ def _normalize_tax_rate_row(raw_row: dict[str, str | None]) -> dict[str, Any]:
 
 def _build_exemptions(row: dict[str, Any]) -> list[dict[str, Any]]:
     exemptions: list[dict[str, Any]] = []
+    parsed_entries = _parse_exemptions_json(row.get("exemptions_json"))
+    for parsed in parsed_entries:
+        raw_exemption_code = str(parsed.get("raw_exemption_code") or "").strip()
+        exemption_type_code = str(parsed.get("exemption_type_code") or "").strip()
+        if not raw_exemption_code and not exemption_type_code:
+            continue
+        amount_value = parsed.get("exemption_amount")
+        exemption_amount = _coerce_int(
+            str(amount_value),
+            field_name="exemption_amount",
+        ) if amount_value not in (None, "") else None
+        exemptions.append(
+            {
+                "exemption_type_code": exemption_type_code or None,
+                "raw_exemption_code": raw_exemption_code or None,
+                "exemption_amount": exemption_amount,
+                "granted_flag": bool(parsed.get("granted_flag", True)),
+            }
+        )
+
     for source_field, exemption_type_code in EXEMPTION_COLUMNS.items():
         exemption_amount = row.get(source_field) or 0
         if exemption_amount > 0:
@@ -204,7 +224,35 @@ def _build_exemptions(row: dict[str, Any]) -> list[dict[str, Any]]:
                     "exemption_amount": exemption_amount,
                 }
             )
-    return exemptions
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int | None]] = set()
+    for exemption in exemptions:
+        key = (
+            str(exemption.get("exemption_type_code") or ""),
+            str(exemption.get("raw_exemption_code") or ""),
+            exemption.get("exemption_amount"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(exemption)
+    return deduped
+
+
+def _parse_exemptions_json(value: Any) -> list[dict[str, Any]]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, str):
+        return []
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [item for item in loaded if isinstance(item, dict)]
 
 
 def _normalize_deed_row(raw_row: dict[str, str | None]) -> dict[str, Any]:

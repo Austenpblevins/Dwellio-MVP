@@ -1,0 +1,79 @@
+county_id,raw_exemption_code,canonical_exemption_type_code,description,mapping_status,notes
+harris,ABT,unknown,Abatement,unknown,No current canonical exemption type.
+harris,APD,disabled_person,Apportioned Partial Disability,exact,Description-aligned mapping.
+harris,APO,over65,Apportioned Partial Over-65,exact,Description-aligned mapping.
+harris,APR,homestead,Apportioned Partial Residential,exact,Residential homestead variant.
+harris,APS,unknown,,unknown,Raw code observed without stable canonical mapping.
+harris,CCF,unknown,,unknown,Raw code observed without stable canonical mapping.
+harris,DIS,disabled_person,Disability,exact,Description-aligned mapping.
+harris,HIS,unknown,Historical,unknown,No current canonical exemption type.
+harris,LIH,unknown,Low Income Housing,unknown,No current canonical exemption type.
+harris,MCL,unknown,Methane Capture at Landfill,unknown,No current canonical exemption type.
+harris,NONE,unknown,,unknown,Source placeholder/no exemption code.
+harris,OVR,over65,Over-65,exact,Description-aligned mapping.
+harris,PAR,homestead,Partial Residential Homestead,exact,Residential homestead variant.
+harris,PDS,disabled_person,Partial Disability,exact,Description-aligned mapping.
+harris,PEX,unknown,Partial Total,unknown,No current canonical exemption type.
+harris,POL,unknown,Pollution Control,unknown,No current canonical exemption type.
+harris,POV,over65,Partial Over-65,exact,Description-aligned mapping.
+harris,PRO,unknown,Prorated,unknown,No current canonical exemption type.
+harris,RES,homestead,Residential Homestead,exact,Primary homestead code.
+harris,SFT,surviving_spouse,,alias,Observed spouse-related variant.
+harris,SOL,unknown,Solar,unknown,No current canonical exemption type.
+harris,SSA,surviving_spouse,Surviving Spouse Active Duty,exact,Description-aligned mapping.
+harris,SSD,surviving_spouse,Surviving Spouse Disability,exact,Description-aligned mapping.
+harris,SPE,unknown,Self Provided Emergency Services (TOTAL exemption),unknown,No current canonical exemption type.
+harris,SPX,unknown,Spaceport Exemption (TOTAL exemption),unknown,No current canonical exemption type.
+harris,SSF,surviving_spouse,,alias,Observed spouse-related variant.
+harris,STT,surviving_spouse,Surviving Spouse Total Transfer,exact,Description-aligned mapping.
+harris,STX,surviving_spouse,Surviving Spouse Vet Disability Total Exemption,exact,Description-aligned mapping.
+harris,SUR,surviving_spouse,Surviving Spouse Over-65,exact,Description-aligned mapping.
+harris,TOT,unknown,Total,unknown,Generic total code without stable canonical type.
+harris,UND,unknown,Under $Min Taxable Value,unknown,No current canonical exemption type.
+harris,V11,disabled_veteran,Vet Disability #1 10-29 pct,exact,Description-aligned mapping.
+harris,V12,disabled_veteran,Vet Disability #1 30-49 pct,exact,Description-aligned mapping.
+harris,V13,disabled_veteran,Vet Disability #1 50-69 pct,exact,Description-aligned mapping.
+harris,V14,disabled_veteran,Vet Disability #1 70-100 pct,exact,Description-aligned mapping.
+harris,V21,disabled_veteran,Vet Disability #2 10-29 pct,exact,Description-aligned mapping.
+harris,V22,disabled_veteran,Vet Disability #2 30-49 pct,exact,Description-aligned mapping.
+harris,V23,disabled_veteran,Vet Disability #2 50-69 pct,exact,Description-aligned mapping.
+harris,V24,disabled_veteran,Vet Disability #2 70-100 pct,exact,Description-aligned mapping.
+harris,VCH,disabled_veteran,Vet Charitable Disability,exact,Description-aligned mapping.
+harris,VS1,surviving_spouse,Vet Survivor 10-29 pct,alias,Veteran survivor code treated as spouse-related.
+harris,VS2,surviving_spouse,Vet Survivor 30-49 pct,alias,Veteran survivor code treated as spouse-related.
+harris,VS3,surviving_spouse,Vet Survivor 50-69 pct,alias,Veteran survivor code treated as spouse-related.
+harris,VS4,surviving_spouse,Vet Survivor 70-100 pct,alias,Veteran survivor code treated as spouse-related.
+harris,VTX,disabled_veteran,Vet Disability Total Exemption,exact,Description-aligned mapping.
+fort_bend,AB,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,AG,ag,,exact,Agricultural exemption code.
+fort_bend,AGW,ag,,alias,Agricultural variant code.
+fort_bend,AUTO,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,CBL,freeze_ceiling,,alias,Ceiling/freeze-related alias.
+fort_bend,CCF,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,CH313,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,CHD,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,DATD,freeze_ceiling,,alias,Deferred/freeze-related alias.
+fort_bend,DP,disabled_person,,exact,Disabled person exemption code.
+fort_bend,DP65,disabled_person,,alias,Disabled senior variant.
+fort_bend,DTD,freeze_ceiling,,alias,Deferred/freeze-related alias.
+fort_bend,DV,disabled_veteran,,exact,Disabled veteran exemption code.
+fort_bend,DVO65,disabled_veteran,,alias,Disabled veteran senior variant.
+fort_bend,DVTD,disabled_veteran,,alias,Disabled veteran transfer/deferred variant.
+fort_bend,EPS,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,EX,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXC,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXCHA,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXCM,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXPPI,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXPS,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,EXS,unknown,,unknown,Generic exemption code without stable subtype.
+fort_bend,FP,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,FR,freeze_ceiling,,alias,Freeze-related alias.
+fort_bend,HB366,freeze_ceiling,,alias,Legislative freeze/ceiling variant alias.
+fort_bend,HS,homestead,,exact,Primary homestead code.
+fort_bend,HT,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,OA65,over65,,alias,Senior over-65 alias.
+fort_bend,OV65,over65,,alias,Senior over-65 alias.
+fort_bend,PC,unknown,,unknown,Raw code observed without stable canonical mapping.
+fort_bend,PRO,unknown,,unknown,Prorated/partial code without stable subtype.
+fort_bend,SOL,unknown,,unknown,Solar code currently tracked as unknown canonical type.

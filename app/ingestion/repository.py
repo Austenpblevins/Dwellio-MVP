@@ -807,6 +807,14 @@ class IngestionRepository:
                 appraisal_district_id=appraisal_district_id,
                 normalized_records=normalized_records,
             )
+            # Bulk property-roll mode skips heavy per-snapshot detail tables, but exemption
+            # facts are still required for instant-quote and downstream rollups.
+            self._bulk_replace_property_roll_exemptions(
+                county_id=county_id,
+                tax_year=tax_year,
+                source_system_id=source_system_id,
+                normalized_records=normalized_records,
+            )
             return lineage_records
 
         account_numbers = [record["parcel"]["account_number"] for record in normalized_records]
@@ -1192,7 +1200,10 @@ class IngestionRepository:
                 )
 
                 if include_detail_tables:
-                    for exemption in normalize_parcel_exemptions(record.get("exemptions", [])):
+                    for exemption in normalize_parcel_exemptions(
+                        record.get("exemptions", []),
+                        county_id=county_id,
+                    ):
                         exemption_rows.append(
                             (
                                 parcel_id,
@@ -2058,6 +2069,118 @@ class IngestionRepository:
                 """,
                 (tax_year, source_system_id),
             )
+
+    def _bulk_replace_property_roll_exemptions(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        source_system_id: str,
+        normalized_records: list[dict[str, Any]],
+    ) -> None:
+        account_numbers = [record["parcel"]["account_number"] for record in normalized_records]
+        if not account_numbers:
+            return
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_property_roll_exemptions_upsert (
+                  account_number text NOT NULL,
+                  exemption_type_code text,
+                  exemption_amount numeric,
+                  raw_exemption_codes text[] NOT NULL,
+                  source_entry_count integer NOT NULL,
+                  amount_missing_flag boolean NOT NULL,
+                  granted_flag boolean NOT NULL,
+                  source_record_hash text
+                ) ON COMMIT DROP
+                """
+            )
+            cursor.execute("TRUNCATE tmp_property_roll_exemptions_upsert")
+
+            wrote_rows = False
+            with cursor.copy(
+                """
+                COPY tmp_property_roll_exemptions_upsert (
+                  account_number,
+                  exemption_type_code,
+                  exemption_amount,
+                  raw_exemption_codes,
+                  source_entry_count,
+                  amount_missing_flag,
+                  granted_flag,
+                  source_record_hash
+                ) FROM STDIN
+                """
+            ) as copy:
+                for record in normalized_records:
+                    parcel = record["parcel"]
+                    source_record_hash = parcel["source_record_hash"]
+                    account_number = parcel["account_number"]
+                    for exemption in normalize_parcel_exemptions(
+                        record.get("exemptions", []),
+                        county_id=county_id,
+                    ):
+                        copy.write_row(
+                            (
+                                account_number,
+                                exemption["exemption_type_code"],
+                                exemption["exemption_amount"],
+                                exemption.get("raw_exemption_codes", []),
+                                exemption.get("source_entry_count", 1),
+                                exemption.get("amount_missing_flag", False),
+                                exemption.get("granted_flag", True),
+                                source_record_hash,
+                            )
+                        )
+                        wrote_rows = True
+
+            cursor.execute(
+                """
+                DELETE FROM parcel_exemptions pe
+                USING parcels p
+                WHERE pe.parcel_id = p.parcel_id
+                  AND pe.tax_year = %s
+                  AND p.county_id = %s
+                  AND p.account_number = ANY(%s)
+                """,
+                (tax_year, county_id, account_numbers),
+            )
+
+            if wrote_rows:
+                cursor.execute(
+                    """
+                    INSERT INTO parcel_exemptions (
+                      parcel_id,
+                      tax_year,
+                      exemption_type_code,
+                      exemption_amount,
+                      raw_exemption_codes,
+                      source_entry_count,
+                      amount_missing_flag,
+                      granted_flag,
+                      source_system_id,
+                      source_record_hash
+                    )
+                    SELECT
+                      p.parcel_id,
+                      %s,
+                      src.exemption_type_code,
+                      src.exemption_amount,
+                      src.raw_exemption_codes,
+                      src.source_entry_count,
+                      src.amount_missing_flag,
+                      src.granted_flag,
+                      %s,
+                      src.source_record_hash
+                    FROM tmp_property_roll_exemptions_upsert src
+                    JOIN parcels p
+                      ON p.county_id = %s
+                     AND p.account_number = src.account_number
+                    """,
+                    (tax_year, source_system_id, county_id),
+                )
 
     def upsert_deed_records(
         self,

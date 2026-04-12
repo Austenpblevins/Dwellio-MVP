@@ -48,7 +48,7 @@ Fort Bend differs from Harris in a few source-facing ways, and those differences
 
 - acquisition uses CSV fixture payloads instead of JSON
 - source field names are Fort Bend-specific and live only in county config
-- `hs_amt` and `ov65_amt` are expanded by the parser into the canonical `exemptions` list before normalization
+- `exemptions_json` (when present) plus legacy `hs_amt`/`ov65_amt` fields are expanded by the parser into the canonical `exemptions` list before normalization
 - `pool_ind` is converted from `Y/N` into boolean values during parsing
 
 ## Local commands
