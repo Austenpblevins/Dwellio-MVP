@@ -18,6 +18,10 @@ Place raw files under a year-scoped root:
 ~/county-data/<tax_year>/raw/harris/building_res.txt
 ~/county-data/<tax_year>/raw/harris/land.txt
 ~/county-data/<tax_year>/raw/harris/jur_tax_dist_exempt_value_rate.txt
+~/county-data/<tax_year>/raw/harris/jur_exempt.txt
+~/county-data/<tax_year>/raw/harris/jur_exempt_cd.txt
+~/county-data/<tax_year>/raw/harris/jur_exemption_dscr.txt
+~/county-data/<tax_year>/raw/harris/desc_r_14_exemption_category.txt
 
 ~/county-data/<tax_year>/raw/fort_bend/PropertyExport.txt
 ~/county-data/<tax_year>/raw/fort_bend/OwnerExport.txt
@@ -29,6 +33,7 @@ Place raw files under a year-scoped root:
 Notes:
 
 - Harris `property_roll` prep still needs the Harris tax-rate raw file because the prep step uses it to recover school district names.
+- Harris exemption dictionary mapping uses `jur_exempt_cd.txt` as the account-level source and keeps `jur_exemption_dscr.txt` and `desc_r_14_exemption_category.txt` in the manifest lineage set.
 - Fort Bend `property_roll` prep still needs the Fort Bend tax-rate raw file because the prep step uses it to resolve school district entity names.
 - If the downloaded filename does not match the canonical local name, either rename it into the canonical contract or use `--raw-file-override`.
 

@@ -53,6 +53,8 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     assert harris_property_roll[0]["market_value"] == 484857
     assert harris_property_roll[0]["school_district_name"] == "HOUSTON ISD"
     assert harris_property_roll[0]["property_type_code"] == "sfr"
+    assert harris_property_roll[0]["exemptions"][0]["exemption_type_code"] == "homestead"
+    assert harris_property_roll[0]["exemptions"][0]["raw_exemption_code"] == "RES"
 
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
@@ -95,6 +97,7 @@ def test_prepare_manual_county_files_generates_2026_outputs_from_canonical_layou
     harris_property = json.loads((ready_root / "harris_property_roll_2026.json").read_text(encoding="utf-8"))
     assert harris_property[0]["account_number"] == "0021440000001"
     assert harris_property[0]["school_district_name"] == "HOUSTON ISD"
+    assert harris_property[0]["exemptions"][0]["exemption_type_code"] == "homestead"
 
     with (ready_root / "fort_bend_tax_rates_2026.csv").open("r", encoding="utf-8", newline="") as handle:
         fort_bend_tax_rows = list(csv.DictReader(handle))
@@ -110,6 +113,10 @@ def test_prepare_manual_county_files_generates_2026_outputs_from_canonical_layou
         "building_res",
         "land",
         "tax_rates",
+        "jur_exempt",
+        "jur_exempt_cd",
+        "jur_exemption_dscr",
+        "exemption_category_desc",
     }
     assert manifest["output_files"][0]["row_count"] == 1
     assert result_lookup[("harris", "property_roll")].verification is not None
@@ -317,9 +324,13 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
     acct_owner_dir = raw_root / "2025 Harris_Real_acct_owner"
     building_land_dir = raw_root / "2025 Harris_Real_building_land"
     tax_dir = raw_root / "2025 Harris Roll Source_Real_jur_exempt"
+    exempt_dir = raw_root / "2025 Harris_Real_jur_exempt"
+    desc_dir = raw_root / "2025 Harris_Code_description_real"
     acct_owner_dir.mkdir(parents=True)
     building_land_dir.mkdir(parents=True)
     tax_dir.mkdir(parents=True)
+    exempt_dir.mkdir(parents=True)
+    desc_dir.mkdir(parents=True)
 
     real_acct = acct_owner_dir / "real_acct.txt"
     real_acct.write_text(
@@ -437,12 +448,44 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
         encoding="utf-8",
     )
 
+    jur_exempt = exempt_dir / "jur_exempt.txt"
+    jur_exempt.write_text(
+        "acct\ttax_district\texempt_cat\texempt_val\n"
+        "0021440000001\t001\tRES\tPending\n",
+        encoding="utf-8",
+    )
+
+    jur_exempt_cd = exempt_dir / "jur_exempt_cd.txt"
+    jur_exempt_cd.write_text(
+        "acct\texempt_cat\n"
+        "0021440000001\tRES\n",
+        encoding="utf-8",
+    )
+
+    jur_exemption_dscr = exempt_dir / "jur_exemption_dscr.txt"
+    jur_exemption_dscr.write_text(
+        "exempt_cat\texemption_dscr\n"
+        "RES\tResidential Homestead\n",
+        encoding="utf-8",
+    )
+
+    exemption_category_desc = desc_dir / "desc_r_14_exemption_category.txt"
+    exemption_category_desc.write_text(
+        "Category\tDescription\n"
+        "RES\tResidential Homestead\n",
+        encoding="utf-8",
+    )
+
     return HarrisRawPaths(
         real_acct=real_acct,
         owners=owners,
         building_res=building_res,
         land=land,
         tax_rates=tax_rates,
+        jur_exempt=jur_exempt,
+        jur_exempt_cd=jur_exempt_cd,
+        jur_exemption_dscr=jur_exemption_dscr,
+        exemption_category_desc=exemption_category_desc,
     )
 
 
@@ -462,6 +505,10 @@ def _copy_to_canonical_layout(
     shutil.copyfile(harris_paths.building_res, harris_root / "building_res.txt")
     shutil.copyfile(harris_paths.land, harris_root / "land.txt")
     shutil.copyfile(harris_paths.tax_rates, harris_root / "jur_tax_dist_exempt_value_rate.txt")
+    shutil.copyfile(harris_paths.jur_exempt, harris_root / "jur_exempt.txt")
+    shutil.copyfile(harris_paths.jur_exempt_cd, harris_root / "jur_exempt_cd.txt")
+    shutil.copyfile(harris_paths.jur_exemption_dscr, harris_root / "jur_exemption_dscr.txt")
+    shutil.copyfile(harris_paths.exemption_category_desc, harris_root / "desc_r_14_exemption_category.txt")
 
     shutil.copyfile(fort_bend_paths.property_export, fort_bend_root / "PropertyExport.txt")
     shutil.copyfile(fort_bend_paths.owner_export, fort_bend_root / "OwnerExport.txt")

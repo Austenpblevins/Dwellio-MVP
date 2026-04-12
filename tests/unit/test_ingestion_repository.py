@@ -26,6 +26,53 @@ def test_capture_property_roll_rollback_manifest_includes_new_accounts_with_none
     }
 
 
+def test_upsert_property_roll_records_bulk_mode_still_replaces_exemptions(monkeypatch) -> None:
+    repository = IngestionRepository(connection=None)  # type: ignore[arg-type]
+    core_calls: dict[str, object] = {}
+    exemption_calls: dict[str, object] = {}
+
+    monkeypatch.setattr(repository, "fetch_appraisal_district_id", lambda county_id: "district-1")
+    monkeypatch.setattr(
+        repository,
+        "_bulk_upsert_property_roll_core_records",
+        lambda **kwargs: core_calls.update(kwargs),
+    )
+    monkeypatch.setattr(
+        repository,
+        "_bulk_replace_property_roll_exemptions",
+        lambda **kwargs: exemption_calls.update(kwargs),
+    )
+
+    normalized_records = [
+        {
+            "parcel": {
+                "account_number": "1001001001001",
+                "source_record_hash": "hash-1",
+            },
+            "exemptions": [{"exemption_type_code": "homestead", "exemption_amount": 100000}],
+        }
+    ]
+
+    lineage = repository.upsert_property_roll_records(
+        county_id="harris",
+        tax_year=2026,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        normalized_records=normalized_records,
+        include_detail_tables=False,
+    )
+
+    assert lineage == []
+    assert core_calls["county_id"] == "harris"
+    assert core_calls["tax_year"] == 2026
+    assert core_calls["normalized_records"] == normalized_records
+    assert exemption_calls["county_id"] == "harris"
+    assert exemption_calls["tax_year"] == 2026
+    assert exemption_calls["source_system_id"] == "source-1"
+    assert exemption_calls["normalized_records"] == normalized_records
+
+
 class RecordingCopy:
     def __init__(self, rows: list[tuple[object, ...]]) -> None:
         self.rows = rows

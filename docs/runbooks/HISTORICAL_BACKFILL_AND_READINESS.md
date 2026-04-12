@@ -83,7 +83,7 @@ Verification:
 
 - The prep command runs the existing Harris and Fort Bend adapter parsers and validators against generated ready files unless you pass `--skip-verify`.
 - It also writes one manifest per dataset containing raw-file paths, checksums, output paths, row counts, and validation status.
-- The Fort Bend property-roll prep preserves county export values and residential-segment enrichment, but leaves `hs_amt` and `ov65_amt` blank because the specified raw exports confirm exemption presence, not authoritative numeric exemption amounts.
+- The Fort Bend property-roll prep preserves county export values and residential-segment enrichment, emits `exemptions_json` from `ExemptionExport.txt`, and intentionally leaves `hs_amt` and `ov65_amt` blank when authoritative numeric exemption amounts are unavailable.
 - The Harris property-roll prep preserves assessed, appraised, market, and prior-year values from `real_acct.txt`, uses the first owner row from `owners.txt`, and leaves unsupported fixture-only fields like bath counts and story counts unset rather than guessing.
 - Both property-roll prep paths drop raw records that do not include the adapter-required situs/site address, city, zip, or market value fields instead of emitting known-invalid ready rows.
 

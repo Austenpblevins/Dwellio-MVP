@@ -20,6 +20,7 @@ from app.county_adapters.fort_bend.validation import validate_tax_rates as valid
 from app.county_adapters.harris.parse import parse_raw_to_staging as parse_harris
 from app.county_adapters.harris.validation import validate_property_roll as validate_harris_property_roll
 from app.county_adapters.harris.validation import validate_tax_rates as validate_harris_tax_rates
+from app.services.exemption_code_dictionary import map_raw_exemption_codes
 
 csv.field_size_limit(10_000_000)
 
@@ -37,6 +38,10 @@ HARRIS_RAW_OVERRIDE_KEYS = {
     "building_res",
     "land",
     "tax_rates",
+    "jur_exempt",
+    "jur_exempt_cd",
+    "jur_exemption_dscr",
+    "exemption_category_desc",
 }
 FORT_BEND_RAW_OVERRIDE_KEYS = {
     "property_export",
@@ -87,6 +92,7 @@ FORT_BEND_PROPERTY_HEADERS = [
     "prior_assessed_value",
     "hs_amt",
     "ov65_amt",
+    "exemptions_json",
 ]
 
 FORT_BEND_TAX_RATE_HEADERS = [
@@ -116,6 +122,10 @@ class HarrisRawPaths:
     building_res: Path
     land: Path
     tax_rates: Path
+    jur_exempt: Path
+    jur_exempt_cd: Path
+    jur_exemption_dscr: Path
+    exemption_category_desc: Path
 
 
 @dataclass(frozen=True)
@@ -396,6 +406,10 @@ def prepare_harris(
             ("building_res", raw_paths.building_res),
             ("land", raw_paths.land),
             ("tax_rates", raw_paths.tax_rates),
+            ("jur_exempt", raw_paths.jur_exempt),
+            ("jur_exempt_cd", raw_paths.jur_exempt_cd),
+            ("jur_exemption_dscr", raw_paths.jur_exemption_dscr),
+            ("exemption_category_desc", raw_paths.exemption_category_desc),
         ]
         _require_named_files("harris", "property_roll", property_inputs)
         _prepare_harris_lookup_tables(connection, raw_paths=raw_paths, tax_year=tax_year)
@@ -671,6 +685,57 @@ def resolve_harris_paths(
                 / "jur_tax_dist_exempt_value_rate.txt",
             ],
         ),
+        jur_exempt=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="jur_exempt",
+            canonical_filename="jur_exempt.txt",
+            tax_year=tax_year,
+            override=overrides.get("jur_exempt"),
+            legacy_relative_paths=[
+                Path("Harris_Real_jur_exempt") / "jur_exempt.txt",
+                Path(f"{tax_year} Harris_Real_jur_exempt") / "jur_exempt.txt",
+                Path(f"{tax_year} Harris Roll Source_Real_jur_exempt") / "jur_exempt.txt",
+            ],
+        ),
+        jur_exempt_cd=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="jur_exempt_cd",
+            canonical_filename="jur_exempt_cd.txt",
+            tax_year=tax_year,
+            override=overrides.get("jur_exempt_cd"),
+            legacy_relative_paths=[
+                Path("Harris_Real_jur_exempt") / "jur_exempt_cd.txt",
+                Path(f"{tax_year} Harris_Real_jur_exempt") / "jur_exempt_cd.txt",
+                Path(f"{tax_year} Harris Roll Source_Real_jur_exempt") / "jur_exempt_cd.txt",
+            ],
+        ),
+        jur_exemption_dscr=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="jur_exemption_dscr",
+            canonical_filename="jur_exemption_dscr.txt",
+            tax_year=tax_year,
+            override=overrides.get("jur_exemption_dscr"),
+            legacy_relative_paths=[
+                Path("Harris_Real_jur_exempt") / "jur_exemption_dscr.txt",
+                Path(f"{tax_year} Harris_Real_jur_exempt") / "jur_exemption_dscr.txt",
+                Path(f"{tax_year} Harris Roll Source_Real_jur_exempt") / "jur_exemption_dscr.txt",
+            ],
+        ),
+        exemption_category_desc=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="exemption_category_desc",
+            canonical_filename="desc_r_14_exemption_category.txt",
+            tax_year=tax_year,
+            override=overrides.get("exemption_category_desc"),
+            legacy_relative_paths=[
+                Path("Harris_Code_description_real (1)") / "desc_r_14_exemption_category.txt",
+                Path(f"{tax_year} Harris_Code_description_real") / "desc_r_14_exemption_category.txt",
+            ],
+        ),
     )
 
 
@@ -774,6 +839,7 @@ def _resolve_raw_file_path(
         county_root / canonical_filename,
         raw_root / canonical_filename,
     ]
+    candidates.extend(county_root / relative_path for relative_path in legacy_relative_paths)
     candidates.extend(raw_root / relative_path for relative_path in legacy_relative_paths)
     for candidate in candidates:
         if candidate.exists():
@@ -798,6 +864,7 @@ def _resolve_optional_raw_file_path(
         county_root / canonical_filename,
         raw_root / canonical_filename,
     ]
+    candidates.extend(county_root / relative_path for relative_path in legacy_relative_paths)
     candidates.extend(raw_root / relative_path for relative_path in legacy_relative_paths)
     for glob_pattern in county_glob_patterns:
         candidates.extend(sorted(county_root.glob(glob_pattern)))
@@ -835,6 +902,10 @@ def convert_harris(
         ("building_res", raw_paths.building_res),
         ("land", raw_paths.land),
         ("tax_rates", raw_paths.tax_rates),
+        ("jur_exempt", raw_paths.jur_exempt),
+        ("jur_exempt_cd", raw_paths.jur_exempt_cd),
+        ("jur_exemption_dscr", raw_paths.jur_exemption_dscr),
+        ("exemption_category_desc", raw_paths.exemption_category_desc),
     ]
     _require_named_files("harris", "property_roll", property_inputs)
     _prepare_harris_lookup_tables(connection, raw_paths=raw_paths, tax_year=tax_year)
@@ -1112,6 +1183,7 @@ def _prepare_harris_lookup_tables(
         DROP TABLE IF EXISTS harris_owner_lookup;
         DROP TABLE IF EXISTS harris_building_lookup;
         DROP TABLE IF EXISTS harris_land_lookup;
+        DROP TABLE IF EXISTS harris_exemption_lookup;
         CREATE TABLE harris_owner_lookup (
             acct TEXT PRIMARY KEY,
             owner_name TEXT
@@ -1133,11 +1205,16 @@ def _prepare_harris_lookup_tables(
             land_acres REAL NOT NULL DEFAULT 0,
             land_value INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE harris_exemption_lookup (
+            acct TEXT PRIMARY KEY,
+            raw_exemption_code TEXT
+        );
         """
     )
     _index_harris_owners(connection, raw_paths.owners)
     _index_harris_buildings(connection, source_path=raw_paths.building_res, tax_year=tax_year)
     _index_harris_land(connection, raw_paths.land)
+    _index_harris_exemptions(connection, source_path=raw_paths.jur_exempt_cd)
     connection.commit()
 
 
@@ -1150,6 +1227,7 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
         CREATE TABLE fort_bend_owner_lookup (
             property_quick_ref_id TEXT PRIMARY KEY,
             ownership_pct REAL NOT NULL DEFAULT 0,
+            owner_quick_ref_id TEXT,
             owner_name TEXT,
             land_market_value INTEGER,
             improvement_market_value INTEGER,
@@ -1171,7 +1249,8 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
         CREATE TABLE fort_bend_exemption_lookup (
             owner_quick_ref_id TEXT PRIMARY KEY,
             has_hs INTEGER NOT NULL DEFAULT 0,
-            has_ov65 INTEGER NOT NULL DEFAULT 0
+            has_ov65 INTEGER NOT NULL DEFAULT 0,
+            raw_exemption_codes_json TEXT NOT NULL DEFAULT '[]'
         );
         """
     )
@@ -1315,11 +1394,35 @@ def _index_harris_land(connection: sqlite3.Connection, source_path: Path) -> Non
             connection.executemany(update_sql, rows)
 
 
+def _index_harris_exemptions(connection: sqlite3.Connection, source_path: Path) -> None:
+    update_sql = """
+        INSERT INTO harris_exemption_lookup (acct, raw_exemption_code)
+        VALUES (?, ?)
+        ON CONFLICT(acct) DO UPDATE SET
+            raw_exemption_code = excluded.raw_exemption_code
+        """
+    with _open_raw_text(source_path) as handle:
+        reader = _open_sniffed_dict_reader(handle, fallback_delimiter="\t")
+        rows: list[tuple[str, str]] = []
+        for row in reader:
+            acct = _strip(row.get("acct"))
+            raw_code = _strip(row.get("exempt_cat"))
+            if not acct:
+                continue
+            rows.append((acct, raw_code))
+            if len(rows) >= 5000:
+                connection.executemany(update_sql, rows)
+                rows.clear()
+        if rows:
+            connection.executemany(update_sql, rows)
+
+
 def _index_fort_bend_owners(connection: sqlite3.Connection, source_path: Path) -> None:
     update_sql = """
         INSERT INTO fort_bend_owner_lookup (
             property_quick_ref_id,
             ownership_pct,
+            owner_quick_ref_id,
             owner_name,
             land_market_value,
             improvement_market_value,
@@ -1327,9 +1430,10 @@ def _index_fort_bend_owners(connection: sqlite3.Connection, source_path: Path) -
             assessed_value,
             hs_cap_adj,
             cbl_cap_adj
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(property_quick_ref_id) DO UPDATE SET
             ownership_pct = excluded.ownership_pct,
+            owner_quick_ref_id = excluded.owner_quick_ref_id,
             owner_name = excluded.owner_name,
             land_market_value = excluded.land_market_value,
             improvement_market_value = excluded.improvement_market_value,
@@ -1364,6 +1468,7 @@ def _index_fort_bend_owners(connection: sqlite3.Connection, source_path: Path) -
                 (
                     quick_ref,
                     _as_float(row.get("OwnershipPercentage")),
+                    _strip(row.get("OwnerQuickRefID")) or None,
                     owner_name,
                     land_market_value,
                     improvement_market_value,
@@ -1479,22 +1584,42 @@ def _upsert_fort_bend_property_square_footage(
 
 
 def _index_fort_bend_exemptions(connection: sqlite3.Connection, source_path: Path) -> None:
-    aggregate: dict[str, dict[str, int]] = {}
+    aggregate: dict[str, dict[str, Any]] = {}
     with _open_raw_text(source_path) as handle:
         reader = _open_sniffed_dict_reader(handle, fallback_delimiter="\t")
         for row in reader:
             quick_ref = _strip(row.get("OwnerQuickRefID"))
             if not quick_ref:
                 continue
-            bucket = aggregate.setdefault(quick_ref, {"has_hs": 0, "has_ov65": 0})
+            bucket = aggregate.setdefault(
+                quick_ref,
+                {"has_hs": 0, "has_ov65": 0, "codes": set()},
+            )
             code = (_strip(row.get("ExemptionCode")) or "").upper()
+            if code:
+                bucket["codes"].add(code)
             if code == "HS":
                 bucket["has_hs"] = 1
             if code in {"OV65", "DP65", "OA65"}:
                 bucket["has_ov65"] = 1
-    rows = [(quick_ref, bucket["has_hs"], bucket["has_ov65"]) for quick_ref, bucket in aggregate.items()]
+    rows = [
+        (
+            quick_ref,
+            bucket["has_hs"],
+            bucket["has_ov65"],
+            json.dumps(sorted(bucket["codes"])),
+        )
+        for quick_ref, bucket in aggregate.items()
+    ]
     connection.executemany(
-        "INSERT OR REPLACE INTO fort_bend_exemption_lookup (owner_quick_ref_id, has_hs, has_ov65) VALUES (?, ?, ?)",
+        """
+        INSERT OR REPLACE INTO fort_bend_exemption_lookup (
+            owner_quick_ref_id,
+            has_hs,
+            has_ov65,
+            raw_exemption_codes_json
+        ) VALUES (?, ?, ?, ?)
+        """,
         rows,
     )
 
@@ -1525,6 +1650,53 @@ def _build_fort_bend_tax_entity_lookup(source_path: Path) -> dict[str, dict[str,
     return lookup
 
 
+def _build_normalized_exemptions_for_county(
+    *,
+    county_id: str,
+    raw_code_field: Any,
+    raw_code_field_is_json: bool = False,
+) -> list[dict[str, Any]]:
+    raw_codes = _parse_raw_exemption_codes(
+        raw_code_field=raw_code_field,
+        raw_code_field_is_json=raw_code_field_is_json,
+    )
+    mapped_codes = map_raw_exemption_codes(county_id=county_id, raw_codes=raw_codes)
+    exemptions: list[dict[str, Any]] = []
+    for mapping in mapped_codes:
+        exemptions.append(
+            {
+                "exemption_type_code": mapping.canonical_exemption_type_code,
+                "raw_exemption_code": mapping.raw_exemption_code,
+                "exemption_amount": None,
+                "granted_flag": True,
+            }
+        )
+    return exemptions
+
+
+def _parse_raw_exemption_codes(
+    *,
+    raw_code_field: Any,
+    raw_code_field_is_json: bool,
+) -> list[str]:
+    if raw_code_field is None:
+        return []
+
+    if raw_code_field_is_json:
+        try:
+            loaded = json.loads(str(raw_code_field))
+        except json.JSONDecodeError:
+            loaded = []
+        if isinstance(loaded, list):
+            return [str(item).strip() for item in loaded if str(item).strip()]
+        return []
+
+    cleaned = str(raw_code_field).strip()
+    if not cleaned:
+        return []
+    return [cleaned]
+
+
 def _write_harris_property_roll(
     *,
     connection: sqlite3.Connection,
@@ -1536,6 +1708,7 @@ def _write_harris_property_roll(
     owner_cursor = connection.cursor()
     building_cursor = connection.cursor()
     land_cursor = connection.cursor()
+    exemption_cursor = connection.cursor()
     row_count = 0
     with _open_raw_text(raw_path) as handle, output_path.open("w", encoding="utf-8") as output:
         reader = csv.DictReader(handle, delimiter="\t")
@@ -1547,6 +1720,7 @@ def _write_harris_property_roll(
                 owner_cursor=owner_cursor,
                 building_cursor=building_cursor,
                 land_cursor=land_cursor,
+                exemption_cursor=exemption_cursor,
                 school_district_lookup=school_district_lookup,
             )
             if normalized is None:
@@ -1566,6 +1740,7 @@ def _build_harris_property_roll_row(
     owner_cursor: sqlite3.Cursor,
     building_cursor: sqlite3.Cursor,
     land_cursor: sqlite3.Cursor,
+    exemption_cursor: sqlite3.Cursor,
     school_district_lookup: dict[str, str],
 ) -> dict[str, Any] | None:
     account_number = _strip(row.get("acct"))
@@ -1588,6 +1763,11 @@ def _build_harris_property_roll_row(
         (account_number,),
     )
     land_row = land_cursor.fetchone()
+    exemption_cursor.execute(
+        "SELECT raw_exemption_code FROM harris_exemption_lookup WHERE acct = ?",
+        (account_number,),
+    )
+    exemption_row = exemption_cursor.fetchone()
 
     school_code = (_strip(row.get("school_dist")) or "").zfill(3)
     school_name = school_district_lookup.get(school_code) or _strip(row.get("school_dist")) or None
@@ -1640,7 +1820,10 @@ def _build_harris_property_roll_row(
         "certified_value": certified_value,
         "prior_year_market_value": _as_int(row.get("prior_tot_mkt_val")),
         "prior_year_assessed_value": _as_int(row.get("prior_tot_appr_val")),
-        "exemptions": [],
+        "exemptions": _build_normalized_exemptions_for_county(
+            county_id="harris",
+            raw_code_field=_row_value(exemption_row, "raw_exemption_code"),
+        ),
     }
     if not normalized["situs_address"] or not normalized["situs_city"] or not normalized["situs_zip"]:
         return None
@@ -1742,7 +1925,13 @@ def _build_fort_bend_property_roll_row(
 
     owner_cursor.execute(
         """
-        SELECT owner_name, land_market_value, improvement_market_value, market_value, assessed_value
+        SELECT
+          owner_quick_ref_id,
+          owner_name,
+          land_market_value,
+          improvement_market_value,
+          market_value,
+          assessed_value
         FROM fort_bend_owner_lookup
         WHERE property_quick_ref_id = ?
         """,
@@ -1758,9 +1947,14 @@ def _build_fort_bend_property_roll_row(
         (property_quick_ref_id,),
     )
     residential_row = residential_cursor.fetchone()
+    owner_quick_ref_id = _row_value(owner_row, "owner_quick_ref_id")
     exemption_cursor.execute(
-        "SELECT has_hs, has_ov65 FROM fort_bend_exemption_lookup WHERE owner_quick_ref_id = ?",
-        (property_quick_ref_id,),
+        """
+        SELECT has_hs, has_ov65, raw_exemption_codes_json
+        FROM fort_bend_exemption_lookup
+        WHERE owner_quick_ref_id = ?
+        """,
+        (owner_quick_ref_id or property_quick_ref_id,),
     )
     exemption_row = exemption_cursor.fetchone()
 
@@ -1813,6 +2007,14 @@ def _build_fort_bend_property_roll_row(
         "prior_assessed_value": "",
         "hs_amt": "",
         "ov65_amt": "",
+        "exemptions_json": json.dumps(
+            _build_normalized_exemptions_for_county(
+                county_id="fort_bend",
+                raw_code_field=_row_value(exemption_row, "raw_exemption_codes_json"),
+                raw_code_field_is_json=True,
+            ),
+            separators=(",", ":"),
+        ),
     }
     if exemption_row and not school_district:
         normalized["school_district"] = ""
