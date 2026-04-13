@@ -131,6 +131,17 @@ def test_instant_quote_schema_readiness_requires_hardening_columns() -> None:
         "tax_rate_basis_continuity_parcel_match_ratio",
     ) in spec.required_columns
     assert ("instant_quote_refresh_runs", "tax_rate_basis_warning_codes") in spec.required_columns
+def test_quote_job_specs_require_stage17_subject_cache_for_reasonableness_benchmark() -> None:
+    score_models_spec = JOB_READINESS_SPECS["job_score_models"]
+    score_savings_spec = JOB_READINESS_SPECS["job_score_savings"]
+    refresh_spec = JOB_READINESS_SPECS["job_refresh_quote_cache"]
+
+    assert "instant_quote_subject_cache" in score_models_spec.required_tables
+    assert "instant_quote_subject_cache" in score_savings_spec.required_tables
+    assert "instant_quote_subject_cache" in refresh_spec.required_tables
+    assert "parcel_summary_view" not in score_models_spec.required_views
+    assert "parcel_summary_view" not in score_savings_spec.required_views
+    assert "parcel_summary_view" not in refresh_spec.required_views
 
 
 def test_assert_job_schema_ready_raises_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:

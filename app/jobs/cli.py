@@ -52,6 +52,14 @@ JOB_REGISTRY: dict[str, JobCallable] = {
 }
 
 
+def _load_account_numbers(path: str) -> list[str]:
+    return [
+        line.strip()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a Dwellio job by name.")
     parser.add_argument("job_name", choices=sorted(JOB_REGISTRY.keys()))
@@ -73,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=sorted(TAX_RATE_ADOPTION_STATUS_SOURCES),
     )
+    parser.add_argument("--account-number", action="append", dest="account_numbers", default=None)
+    parser.add_argument("--account-numbers-file", default=None)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -110,6 +120,13 @@ def main() -> None:
         job_kwargs["tax_rate_basis_status_note"] = args.tax_rate_basis_status_note
     if args.tax_rate_basis_status_source is not None:
         job_kwargs["tax_rate_basis_status_source"] = args.tax_rate_basis_status_source
+    account_numbers: list[str] = []
+    if args.account_numbers:
+        account_numbers.extend(str(value).strip() for value in args.account_numbers if str(value).strip())
+    if args.account_numbers_file is not None:
+        account_numbers.extend(_load_account_numbers(args.account_numbers_file))
+    if account_numbers:
+        job_kwargs["account_numbers"] = tuple(dict.fromkeys(account_numbers))
     if args.dry_run:
         job_kwargs["dry_run"] = True
 

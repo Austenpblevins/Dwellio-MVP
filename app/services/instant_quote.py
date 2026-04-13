@@ -3019,7 +3019,7 @@ def score_confidence(
 ) -> float:
     score = 100.0
     if fallback_tier == "neighborhood_only":
-        score -= 15.0
+        score -= 20.0
     elif segment_stats is not None and segment_stats.parcel_count < STRONG_SEGMENT_COUNT:
         score -= 10.0
 
