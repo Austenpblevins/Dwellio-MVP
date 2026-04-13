@@ -66,6 +66,31 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     instant_quote_tax_rate_basis_continuity_account_number_match_row_count: int = 0
     instant_quote_tax_rate_basis_warning_codes: list[str] = Field(default_factory=list)
     instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_supportable_row_rate: float = 0.0
+    instant_quote_support_rate_all_sfr_flagged_denominator_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged_supportable_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged: float = 0.0
+    instant_quote_total_count_all_sfr_flagged: int = 0
+    instant_quote_support_count_all_sfr_flagged: int = 0
+    instant_quote_support_rate_strict_sfr_eligible_denominator_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible_supportable_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible: float = 0.0
+    instant_quote_total_count_strict_sfr_eligible: int = 0
+    instant_quote_support_count_strict_sfr_eligible: int = 0
+    instant_quote_denominator_shift_alert: JsonDict = Field(default_factory=dict)
+    instant_quote_denominator_shift_warning_codes: list[str] = Field(default_factory=list)
+    instant_quote_high_value_subject_row_count: int = 0
+    instant_quote_high_value_supportable_subject_row_count: int = 0
+    instant_quote_high_value_support_rate: float = 0.0
+    instant_quote_special_district_heavy_subject_row_count: int = 0
+    instant_quote_special_district_heavy_supportable_subject_row_count: int = 0
+    instant_quote_special_district_heavy_support_rate: float = 0.0
+    instant_quote_monitored_zero_savings_sample_row_count: int = 0
+    instant_quote_monitored_zero_savings_supported_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_share: float = 0.0
+    instant_quote_monitored_extreme_savings_watchlist_count: int = 0
+    instant_quote_monitored_extreme_savings_flagged_count: int = 0
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
     instant_quote_subject_rows_missing_segment_row: int = 0

@@ -52,6 +52,7 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     assert harris_property_roll[0]["account_number"] == "0021440000001"
     assert harris_property_roll[0]["market_value"] == 484857
     assert harris_property_roll[0]["school_district_name"] == "HOUSTON ISD"
+    assert harris_property_roll[0]["property_type_code"] == "sfr"
 
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
@@ -190,6 +191,91 @@ def test_prepare_manual_county_files_accepts_comma_delimited_fort_bend_owner_and
     assert rows[0]["account_id"] == "5910-04-022-0700-907"
     assert rows[0]["market_value"] == "213077"
 
+def test_fort_bend_property_summary_square_footage_recovers_missing_residential_segment_area(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "legacy_fort_bend_property_summary"
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(raw_root)
+    _rewrite_fort_bend_residential_segment_areas(fort_bend_paths.residential_segments, area_value="")
+    property_summary_export = raw_root / "PropertyDataExport4558080.txt"
+    property_summary_export.write_text(
+        "RecordType,PropertyID,QuickRefID,PropertyNumber,SquareFootage\n"
+        "1,50090,R100000,5910-04-022-0700-907,1216\n",
+        encoding="utf-8",
+    )
+
+    outputs = resolve_outputs(ready_dir)
+    connection = _open_sqlite(tmp_path / "conversion.sqlite3")
+    try:
+        counts = convert_fort_bend(
+            connection=connection,
+            tax_year=2025,
+            raw_paths=FortBendRawPaths(
+                property_export=fort_bend_paths.property_export,
+                owner_export=fort_bend_paths.owner_export,
+                exemption_export=fort_bend_paths.exemption_export,
+                residential_segments=fort_bend_paths.residential_segments,
+                tax_rates=fort_bend_paths.tax_rates,
+                property_summary_export=property_summary_export,
+            ),
+            property_roll_output=outputs.fort_bend_property_roll,
+            tax_rates_output=outputs.fort_bend_tax_rates,
+        )
+    finally:
+        connection.close()
+
+    assert counts["property_roll"] == 1
+    with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
+        fort_bend_rows = list(csv.DictReader(handle))
+    assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+
+
+def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path: Path) -> None:
+    connection = _open_sqlite(tmp_path / "harris_building.sqlite3")
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE harris_building_lookup (
+                acct TEXT PRIMARY KEY,
+                primary_area REAL NOT NULL DEFAULT 0,
+                living_area_sf INTEGER,
+                year_built INTEGER,
+                effective_year_built INTEGER,
+                effective_age INTEGER,
+                quality_code TEXT,
+                condition_code TEXT,
+                property_use_code TEXT
+            );
+            """
+        )
+        building_res = tmp_path / "building_res.txt"
+        building_res.write_text(
+            "acct\tproperty_use_cd\tbld_num\timpr_tp\timpr_mdl_cd\tstructure\tstructure_dscr\t"
+            "dpr_val\tcama_replacement_cost\taccrued_depr_pct\tqa_cd\tdscr\tdate_erected\t"
+            "eff\tyr_remodel\tyr_roll\tappr_by\tappr_dt\tnotes\tim_sq_ft\tact_ar\theat_ar\t"
+            "gross_ar\teff_ar\tbase_ar\tperimeter\tpct\tbld_adj\trcnld\tsize_index\tlump_sum_adj\n"
+            "1161530010003            \tA1\t1\t1001\t101 \tR  \tResidential\t2277763\t"
+            "3673811\t0.620000\tX \tSuperior\t1988\t1988\t2004\t1985\tHTS\t01/01/2004\t"
+            "note text\t7674\t9572\t7674\t9572\t8052\t7674\t980\t1.00\t1.2400\t"
+            "1836906.00\t0.70000\t145022\n",
+            encoding="utf-8",
+        )
+
+        from infra.scripts.prepare_manual_county_files import _index_harris_buildings
+
+        _index_harris_buildings(connection, source_path=building_res, tax_year=2026)
+        row = connection.execute(
+            "SELECT living_area_sf FROM harris_building_lookup WHERE acct = ?",
+            ("1161530010003",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row is not None
+    assert row["living_area_sf"] == 7674
 
 def test_fort_bend_property_summary_square_footage_recovers_missing_residential_segment_area(
     tmp_path: Path,

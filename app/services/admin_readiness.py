@@ -437,6 +437,81 @@ class AdminReadinessService:
                 instant_quote_supported_public_quote_exists=(
                     readiness.derived.instant_quote_supported_public_quote_exists
                 ),
+                instant_quote_supportable_row_rate=(
+                    readiness.derived.instant_quote_supportable_row_rate
+                ),
+                instant_quote_support_rate_all_sfr_flagged_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged
+                ),
+                instant_quote_total_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_total_count_all_sfr_flagged
+                ),
+                instant_quote_support_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_count_all_sfr_flagged
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible
+                ),
+                instant_quote_total_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_total_count_strict_sfr_eligible
+                ),
+                instant_quote_support_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_count_strict_sfr_eligible
+                ),
+                instant_quote_denominator_shift_alert=(
+                    readiness.derived.instant_quote_denominator_shift_alert
+                ),
+                instant_quote_denominator_shift_warning_codes=(
+                    readiness.derived.instant_quote_denominator_shift_warning_codes
+                ),
+                instant_quote_high_value_subject_row_count=(
+                    readiness.derived.instant_quote_high_value_subject_row_count
+                ),
+                instant_quote_high_value_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_high_value_supportable_subject_row_count
+                ),
+                instant_quote_high_value_support_rate=(
+                    readiness.derived.instant_quote_high_value_support_rate
+                ),
+                instant_quote_special_district_heavy_subject_row_count=(
+                    readiness.derived.instant_quote_special_district_heavy_subject_row_count
+                ),
+                instant_quote_special_district_heavy_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_special_district_heavy_supportable_subject_row_count
+                ),
+                instant_quote_special_district_heavy_support_rate=(
+                    readiness.derived.instant_quote_special_district_heavy_support_rate
+                ),
+                instant_quote_monitored_zero_savings_sample_row_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_sample_row_count
+                ),
+                instant_quote_monitored_zero_savings_supported_quote_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_supported_quote_count
+                ),
+                instant_quote_monitored_zero_savings_quote_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_quote_count
+                ),
+                instant_quote_monitored_zero_savings_quote_share=(
+                    readiness.derived.instant_quote_monitored_zero_savings_quote_share
+                ),
+                instant_quote_monitored_extreme_savings_watchlist_count=(
+                    readiness.derived.instant_quote_monitored_extreme_savings_watchlist_count
+                ),
+                instant_quote_monitored_extreme_savings_flagged_count=(
+                    readiness.derived.instant_quote_monitored_extreme_savings_flagged_count
+                ),
                 instant_quote_subject_rows_without_usable_neighborhood_stats=(
                     readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats
                 ),
@@ -747,6 +822,13 @@ class AdminReadinessService:
             in readiness.derived.instant_quote_tax_completeness_warning_codes
         ):
             alerts.append("instant_quote_tax_completeness_missing_school_assignment_monitored")
+        if readiness.derived.instant_quote_monitored_extreme_savings_flagged_count > 0:
+            alerts.append("instant_quote_extreme_savings_review_required")
+        if (
+            "all_sfr_flagged_denominator_shift_exceeded"
+            in readiness.derived.instant_quote_denominator_shift_warning_codes
+        ):
+            alerts.append("instant_quote_denominator_shift_review_required")
         if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
             alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
         if (

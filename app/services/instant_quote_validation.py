@@ -5,8 +5,13 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from app.core.config import get_settings
+from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.db.connection import get_connection
-from app.services.instant_quote import InstantQuoteService
+from app.services.instant_quote import (
+    EXTREME_SAVINGS_REVIEW_RATIO,
+    InstantQuoteService,
+)
 from app.services.instant_quote_tax_completeness import (
     classify_instant_quote_tax_completeness,
 )
@@ -70,6 +75,32 @@ class InstantQuoteValidationReport:
     cache_view_row_delta: int | None = None
     blocker_distribution: dict[str, int] = field(default_factory=dict)
     supported_public_quote_exists: bool = False
+    supportable_row_rate: float = 0.0
+    support_rate_all_sfr_flagged_denominator_count: int = 0
+    support_rate_all_sfr_flagged_supportable_count: int = 0
+    support_rate_all_sfr_flagged: float = 0.0
+    total_count_all_sfr_flagged: int = 0
+    support_count_all_sfr_flagged: int = 0
+    support_rate_strict_sfr_eligible_denominator_count: int = 0
+    support_rate_strict_sfr_eligible_supportable_count: int = 0
+    support_rate_strict_sfr_eligible: float = 0.0
+    total_count_strict_sfr_eligible: int = 0
+    support_count_strict_sfr_eligible: int = 0
+    denominator_shift_alert: dict[str, Any] = field(default_factory=dict)
+    denominator_shift_warning_codes: list[str] = field(default_factory=list)
+    high_value_subject_row_count: int = 0
+    high_value_supportable_subject_row_count: int = 0
+    high_value_support_rate: float = 0.0
+    special_district_heavy_subject_row_count: int = 0
+    special_district_heavy_supportable_subject_row_count: int = 0
+    special_district_heavy_support_rate: float = 0.0
+    monitored_zero_savings_sample_row_count: int = 0
+    monitored_zero_savings_supported_quote_count: int = 0
+    monitored_zero_savings_quote_count: int = 0
+    monitored_zero_savings_quote_share: float = 0.0
+    monitored_extreme_savings_watchlist_count: int = 0
+    monitored_extreme_savings_flagged_count: int = 0
+    monitored_extreme_savings_watchlist: list[dict[str, Any]] = field(default_factory=list)
     examples: list[InstantQuoteExampleResult] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -166,12 +197,60 @@ class InstantQuoteValidationService:
                     county_id=county_id,
                     tax_year=tax_year,
                 )
-                candidate_accounts = self._candidate_accounts(
+                latest_refresh_run = self._latest_refresh_run(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
                 )
-                latest_refresh_run = self._latest_refresh_run(
+                high_value_support_metrics = self._high_value_support_metrics(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                denominator_quality_metrics = self._denominator_quality_metrics(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                denominator_shift_alert = self._denominator_shift_alert(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    current_refresh_run_id=(
+                        None
+                        if latest_refresh_run is None
+                        else str(latest_refresh_run.get("instant_quote_refresh_run_id") or "")
+                    ),
+                    current_total_count_all_sfr_flagged=int(
+                        denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                    ),
+                    threshold_pct=get_settings().instant_quote_denominator_shift_alert_threshold,
+                )
+                special_district_heavy_support_metrics = (
+                    self._special_district_heavy_support_metrics(
+                        cursor,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        basis_tax_year=(
+                            tax_year
+                            if latest_refresh_run is None
+                            else int(latest_refresh_run.get("tax_rate_basis_year") or tax_year)
+                        ),
+                    )
+                )
+                zero_savings_sample_accounts = self._monitoring_sample_accounts(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    limit=50,
+                )
+                extreme_savings_candidate_rows = self._extreme_savings_candidate_rows(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    limit=40,
+                )
+                candidate_accounts = self._candidate_accounts(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
@@ -213,6 +292,96 @@ class InstantQuoteValidationService:
                 (latest_refresh_run or {}).get("tax_rate_basis_continuity_parcel_match_ratio")
                 or 0.0
             ),
+        )
+        supportable_row_rate = (
+            float(instant_quote_supportable_rows) / float(subject_cache_row_count)
+            if subject_cache_row_count > 0
+            else 0.0
+        )
+        zero_savings_sample_results = self._run_quote_monitoring_accounts(
+            county_id=county_id,
+            tax_year=tax_year,
+            account_numbers=zero_savings_sample_accounts,
+        )
+        monitored_zero_savings_supported_quote_count = sum(
+            1 for _, response in zero_savings_sample_results if response.supported
+        )
+        monitored_zero_savings_quote_count = sum(
+            1
+            for _, response in zero_savings_sample_results
+            if response.supported
+            and response.estimate is not None
+            and float(response.estimate.savings_midpoint_display or 0.0) <= 0.0
+        )
+        monitored_zero_savings_quote_share = (
+            float(monitored_zero_savings_quote_count)
+            / float(monitored_zero_savings_supported_quote_count)
+            if monitored_zero_savings_supported_quote_count > 0
+            else 0.0
+        )
+        extreme_savings_results = self._run_quote_monitoring_accounts(
+            county_id=county_id,
+            tax_year=tax_year,
+            account_numbers=[
+                str(row["account_number"])
+                for row in extreme_savings_candidate_rows
+            ],
+        )
+        responses_by_account = {
+            account_number: response
+            for account_number, response in extreme_savings_results
+        }
+        monitored_extreme_savings_watchlist = sorted(
+            [
+                {
+                    "account_number": str(row["account_number"]),
+                    "assessment_basis_value": float(row.get("assessment_basis_value") or 0.0),
+                    "effective_tax_rate": float(row.get("effective_tax_rate") or 0.0),
+                    "projected_savings": float(
+                        responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
+                        or 0.0
+                    ),
+                    "projected_savings_ratio": (
+                        0.0
+                        if float(row.get("assessment_basis_value") or 0.0) <= 0.0
+                        else float(
+                            responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
+                            or 0.0
+                        )
+                        / float(row.get("assessment_basis_value") or 0.0)
+                    ),
+                    "flagged_by_ratio_threshold": (
+                        float(row.get("assessment_basis_value") or 0.0) > 0.0
+                        and float(
+                            responses_by_account[str(row["account_number"])].estimate.savings_midpoint_display
+                            or 0.0
+                        )
+                        / float(row.get("assessment_basis_value") or 0.0)
+                        > EXTREME_SAVINGS_REVIEW_RATIO
+                    ),
+                    "basis_code": responses_by_account[str(row["account_number"])].basis_code,
+                    "estimate_bucket": (
+                        None
+                        if responses_by_account[str(row["account_number"])].estimate is None
+                        else responses_by_account[str(row["account_number"])].estimate.estimate_bucket
+                    ),
+                }
+                for row in extreme_savings_candidate_rows
+                if str(row["account_number"]) in responses_by_account
+                and responses_by_account[str(row["account_number"])].supported
+                and responses_by_account[str(row["account_number"])].estimate is not None
+            ],
+            key=lambda item: (
+                float(item["projected_savings"]),
+                float(item["assessment_basis_value"]),
+                str(item["account_number"]),
+            ),
+            reverse=True,
+        )[:10]
+        monitored_extreme_savings_flagged_count = sum(
+            1
+            for item in monitored_extreme_savings_watchlist
+            if bool(item.get("flagged_by_ratio_threshold"))
         )
 
         examples: list[InstantQuoteExampleResult] = []
@@ -382,6 +551,70 @@ class InstantQuoteValidationService:
                 ],
                 "blocker_distribution": blocker_distribution,
                 "supported_public_quote_exists": supported_public_quote_exists,
+                "supportable_row_rate": supportable_row_rate,
+                "support_rate_all_sfr_flagged_denominator_count": int(
+                    denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                ),
+                "support_rate_all_sfr_flagged_supportable_count": int(
+                    denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+                ),
+                "support_rate_all_sfr_flagged": float(
+                    denominator_quality_metrics["all_sfr_flagged_support_rate"]
+                ),
+                "total_count_all_sfr_flagged": int(
+                    denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+                ),
+                "support_count_all_sfr_flagged": int(
+                    denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+                ),
+                "support_rate_strict_sfr_eligible_denominator_count": int(
+                    denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+                ),
+                "support_rate_strict_sfr_eligible_supportable_count": int(
+                    denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+                ),
+                "support_rate_strict_sfr_eligible": float(
+                    denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+                ),
+                "total_count_strict_sfr_eligible": int(
+                    denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+                ),
+                "support_count_strict_sfr_eligible": int(
+                    denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+                ),
+                "denominator_shift_alert": denominator_shift_alert,
+                "denominator_shift_warning_codes": list(
+                    denominator_shift_alert.get("warning_codes") or []
+                ),
+                "high_value_subject_row_count": int(
+                    high_value_support_metrics["subject_row_count"]
+                ),
+                "high_value_supportable_subject_row_count": int(
+                    high_value_support_metrics["supportable_row_count"]
+                ),
+                "high_value_support_rate": float(high_value_support_metrics["support_rate"]),
+                "special_district_heavy_subject_row_count": int(
+                    special_district_heavy_support_metrics["subject_row_count"]
+                ),
+                "special_district_heavy_supportable_subject_row_count": int(
+                    special_district_heavy_support_metrics["supportable_row_count"]
+                ),
+                "special_district_heavy_support_rate": float(
+                    special_district_heavy_support_metrics["support_rate"]
+                ),
+                "monitored_zero_savings_sample_row_count": len(zero_savings_sample_accounts),
+                "monitored_zero_savings_supported_quote_count": (
+                    monitored_zero_savings_supported_quote_count
+                ),
+                "monitored_zero_savings_quote_count": monitored_zero_savings_quote_count,
+                "monitored_zero_savings_quote_share": monitored_zero_savings_quote_share,
+                "monitored_extreme_savings_watchlist_count": len(
+                    monitored_extreme_savings_watchlist
+                ),
+                "monitored_extreme_savings_flagged_count": (
+                    monitored_extreme_savings_flagged_count
+                ),
+                "monitored_extreme_savings_watchlist": monitored_extreme_savings_watchlist,
                 "examples": [asdict(example) for example in examples],
             },
         )
@@ -533,6 +766,66 @@ class InstantQuoteValidationService:
             ),
             blocker_distribution=blocker_distribution,
             supported_public_quote_exists=supported_public_quote_exists,
+            supportable_row_rate=supportable_row_rate,
+            support_rate_all_sfr_flagged_denominator_count=int(
+                denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+            ),
+            support_rate_all_sfr_flagged_supportable_count=int(
+                denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+            ),
+            support_rate_all_sfr_flagged=float(
+                denominator_quality_metrics["all_sfr_flagged_support_rate"]
+            ),
+            total_count_all_sfr_flagged=int(
+                denominator_quality_metrics["all_sfr_flagged_denominator_count"]
+            ),
+            support_count_all_sfr_flagged=int(
+                denominator_quality_metrics["all_sfr_flagged_supportable_count"]
+            ),
+            support_rate_strict_sfr_eligible_denominator_count=int(
+                denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+            ),
+            support_rate_strict_sfr_eligible_supportable_count=int(
+                denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+            ),
+            support_rate_strict_sfr_eligible=float(
+                denominator_quality_metrics["strict_sfr_eligible_support_rate"]
+            ),
+            total_count_strict_sfr_eligible=int(
+                denominator_quality_metrics["strict_sfr_eligible_denominator_count"]
+            ),
+            support_count_strict_sfr_eligible=int(
+                denominator_quality_metrics["strict_sfr_eligible_supportable_count"]
+            ),
+            denominator_shift_alert=denominator_shift_alert,
+            denominator_shift_warning_codes=list(
+                denominator_shift_alert.get("warning_codes") or []
+            ),
+            high_value_subject_row_count=int(high_value_support_metrics["subject_row_count"]),
+            high_value_supportable_subject_row_count=int(
+                high_value_support_metrics["supportable_row_count"]
+            ),
+            high_value_support_rate=float(high_value_support_metrics["support_rate"]),
+            special_district_heavy_subject_row_count=int(
+                special_district_heavy_support_metrics["subject_row_count"]
+            ),
+            special_district_heavy_supportable_subject_row_count=int(
+                special_district_heavy_support_metrics["supportable_row_count"]
+            ),
+            special_district_heavy_support_rate=float(
+                special_district_heavy_support_metrics["support_rate"]
+            ),
+            monitored_zero_savings_sample_row_count=len(zero_savings_sample_accounts),
+            monitored_zero_savings_supported_quote_count=(
+                monitored_zero_savings_supported_quote_count
+            ),
+            monitored_zero_savings_quote_count=monitored_zero_savings_quote_count,
+            monitored_zero_savings_quote_share=monitored_zero_savings_quote_share,
+            monitored_extreme_savings_watchlist_count=len(
+                monitored_extreme_savings_watchlist
+            ),
+            monitored_extreme_savings_flagged_count=monitored_extreme_savings_flagged_count,
+            monitored_extreme_savings_watchlist=monitored_extreme_savings_watchlist,
             examples=examples,
         )
 
@@ -704,6 +997,7 @@ class InstantQuoteValidationService:
             """
             SELECT
               refresh_status,
+              instant_quote_refresh_run_id,
               refresh_finished_at,
               validated_at,
               cache_view_row_delta,
@@ -795,6 +1089,330 @@ class InstantQuoteValidationService:
             if len(account_numbers) >= 12:
                 break
         return account_numbers
+
+    def _high_value_support_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, float | int]:
+        cursor.execute(
+            """
+            WITH scoped AS (
+              SELECT assessment_basis_value, support_blocker_code
+              FROM instant_quote_subject_cache
+              WHERE county_id = %s
+                AND tax_year = %s
+                AND assessment_basis_value IS NOT NULL
+            ),
+            threshold AS (
+              SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY assessment_basis_value) AS p95
+              FROM scoped
+            )
+            SELECT
+              COUNT(*) FILTER (
+                WHERE threshold.p95 IS NOT NULL
+                  AND scoped.assessment_basis_value >= threshold.p95
+              ) AS subject_row_count,
+              COUNT(*) FILTER (
+                WHERE threshold.p95 IS NOT NULL
+                  AND scoped.assessment_basis_value >= threshold.p95
+                  AND scoped.support_blocker_code IS NULL
+              ) AS supportable_row_count
+            FROM scoped
+            CROSS JOIN threshold
+            """,
+            (county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        subject_row_count = int(row.get("subject_row_count") or 0)
+        supportable_row_count = int(row.get("supportable_row_count") or 0)
+        return {
+            "subject_row_count": subject_row_count,
+            "supportable_row_count": supportable_row_count,
+            "support_rate": (
+                float(supportable_row_count) / float(subject_row_count)
+                if subject_row_count > 0
+                else 0.0
+            ),
+        }
+
+    def _denominator_quality_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, float | int]:
+        strict_sfr_class_codes = list(self._strict_sfr_class_codes(county_id=county_id))
+        cursor.execute(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE property_type_code = 'sfr')
+                AS all_sfr_flagged_denominator_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND support_blocker_code IS NULL
+              ) AS all_sfr_flagged_supportable_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND UPPER(BTRIM(COALESCE(property_class_code, ''))) = ANY(%s::text[])
+              ) AS strict_sfr_eligible_denominator_count,
+              COUNT(*) FILTER (
+                WHERE property_type_code = 'sfr'
+                  AND UPPER(BTRIM(COALESCE(property_class_code, ''))) = ANY(%s::text[])
+                  AND support_blocker_code IS NULL
+              ) AS strict_sfr_eligible_supportable_count
+            FROM instant_quote_subject_cache
+            WHERE county_id = %s
+              AND tax_year = %s
+            """,
+            (strict_sfr_class_codes, strict_sfr_class_codes, county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        all_denominator = int(row.get("all_sfr_flagged_denominator_count") or 0)
+        all_supportable = int(row.get("all_sfr_flagged_supportable_count") or 0)
+        strict_denominator = int(row.get("strict_sfr_eligible_denominator_count") or 0)
+        strict_supportable = int(row.get("strict_sfr_eligible_supportable_count") or 0)
+        return {
+            "all_sfr_flagged_denominator_count": all_denominator,
+            "all_sfr_flagged_supportable_count": all_supportable,
+            "all_sfr_flagged_support_rate": (
+                float(all_supportable) / float(all_denominator)
+                if all_denominator > 0
+                else 0.0
+            ),
+            "strict_sfr_eligible_denominator_count": strict_denominator,
+            "strict_sfr_eligible_supportable_count": strict_supportable,
+            "strict_sfr_eligible_support_rate": (
+                float(strict_supportable) / float(strict_denominator)
+                if strict_denominator > 0
+                else 0.0
+            ),
+        }
+
+    def _denominator_shift_alert(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+        current_refresh_run_id: str | None,
+        current_total_count_all_sfr_flagged: int,
+        threshold_pct: float,
+    ) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT
+              instant_quote_refresh_run_id,
+              COALESCE(
+                NULLIF(validation_report->>'total_count_all_sfr_flagged', '')::integer,
+                NULLIF(validation_report->>'support_rate_all_sfr_flagged_denominator_count', '')::integer
+              ) AS prior_total_count_all_sfr_flagged
+            FROM instant_quote_refresh_runs
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND refresh_status = 'completed'
+              AND validated_at IS NOT NULL
+              AND validation_report IS NOT NULL
+              AND (
+                %s::uuid IS NULL
+                OR instant_quote_refresh_run_id <> %s::uuid
+              )
+              AND COALESCE(
+                NULLIF(validation_report->>'total_count_all_sfr_flagged', '')::integer,
+                NULLIF(validation_report->>'support_rate_all_sfr_flagged_denominator_count', '')::integer
+              ) IS NOT NULL
+            ORDER BY validated_at DESC, refresh_started_at DESC
+            LIMIT 1
+            """,
+            (
+                county_id,
+                tax_year,
+                current_refresh_run_id or None,
+                current_refresh_run_id or None,
+            ),
+        )
+        prior_row = cursor.fetchone()
+        alert: dict[str, Any] = {
+            "status": "no_prior_run",
+            "triggered": False,
+            "threshold_pct": float(threshold_pct),
+            "current_total_count_all_sfr_flagged": int(current_total_count_all_sfr_flagged),
+            "prior_total_count_all_sfr_flagged": None,
+            "pct_change": None,
+            "abs_pct_change": None,
+            "prior_refresh_run_id": None,
+            "warning_codes": [],
+        }
+        if prior_row is None:
+            return alert
+
+        prior_total = int(prior_row.get("prior_total_count_all_sfr_flagged") or 0)
+        alert["prior_total_count_all_sfr_flagged"] = prior_total
+        alert["prior_refresh_run_id"] = str(prior_row.get("instant_quote_refresh_run_id") or "")
+        if prior_total <= 0:
+            alert["status"] = "prior_denominator_zero"
+            return alert
+
+        pct_change = (
+            float(current_total_count_all_sfr_flagged - prior_total) / float(prior_total)
+        )
+        abs_pct_change = abs(pct_change)
+        triggered = abs_pct_change > float(threshold_pct)
+        alert.update(
+            {
+                "status": "threshold_exceeded" if triggered else "within_threshold",
+                "triggered": triggered,
+                "pct_change": pct_change,
+                "abs_pct_change": abs_pct_change,
+                "warning_codes": (
+                    ["all_sfr_flagged_denominator_shift_exceeded"] if triggered else []
+                ),
+            }
+        )
+        return alert
+
+    def _strict_sfr_class_codes(self, *, county_id: str) -> tuple[str, ...]:
+        config = load_county_adapter_config(county_id)
+        dataset_mapping = config.field_mappings.get("property_roll")
+        if dataset_mapping is None:
+            return ()
+
+        for section_name in ("characteristics", "parcel"):
+            section = dataset_mapping.sections.get(section_name)
+            if section is None:
+                continue
+            for field_mapping in section.fields:
+                if (
+                    field_mapping.target_field == "property_type_code"
+                    and field_mapping.transform == "property_class_to_sfr"
+                ):
+                    return tuple(
+                        sorted(
+                            {
+                                str(code).strip().upper()
+                                for code in field_mapping.transform_options.get(
+                                    "sfr_class_codes", []
+                                )
+                                if str(code).strip()
+                            }
+                        )
+                    )
+        return ()
+
+    def _special_district_heavy_support_metrics(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+        basis_tax_year: int,
+    ) -> dict[str, float | int]:
+        cursor.execute(
+            """
+            WITH scoped AS (
+              SELECT
+                sc.support_blocker_code,
+                COALESCE(petr.mud_assignment_count, 0) + COALESCE(petr.special_assignment_count, 0)
+                  AS special_stack_count
+              FROM instant_quote_subject_cache sc
+              LEFT JOIN parcel_effective_tax_rate_view petr
+                ON petr.parcel_id = sc.parcel_id
+               AND petr.tax_year = %s
+              WHERE sc.county_id = %s
+                AND sc.tax_year = %s
+            )
+            SELECT
+              COUNT(*) FILTER (WHERE special_stack_count > 0) AS subject_row_count,
+              COUNT(*) FILTER (
+                WHERE special_stack_count > 0
+                  AND support_blocker_code IS NULL
+              ) AS supportable_row_count
+            FROM scoped
+            """,
+            (basis_tax_year, county_id, tax_year),
+        )
+        row = cursor.fetchone() or {}
+        subject_row_count = int(row.get("subject_row_count") or 0)
+        supportable_row_count = int(row.get("supportable_row_count") or 0)
+        return {
+            "subject_row_count": subject_row_count,
+            "supportable_row_count": supportable_row_count,
+            "support_rate": (
+                float(supportable_row_count) / float(subject_row_count)
+                if subject_row_count > 0
+                else 0.0
+            ),
+        }
+
+    def _monitoring_sample_accounts(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+        limit: int,
+    ) -> list[str]:
+        cursor.execute(
+            """
+            SELECT account_number
+            FROM instant_quote_subject_cache
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND support_blocker_code IS NULL
+            ORDER BY md5(account_number), account_number
+            LIMIT %s
+            """,
+            (county_id, tax_year, limit),
+        )
+        return [str(row["account_number"]) for row in cursor.fetchall()]
+
+    def _extreme_savings_candidate_rows(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        cursor.execute(
+            """
+            SELECT
+              account_number,
+              assessment_basis_value,
+              effective_tax_rate
+            FROM instant_quote_subject_cache
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND support_blocker_code IS NULL
+            ORDER BY assessment_basis_value DESC, effective_tax_rate DESC, account_number ASC
+            LIMIT %s
+            """,
+            (county_id, tax_year, limit),
+        )
+        return cursor.fetchall()
+
+    def _run_quote_monitoring_accounts(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_numbers: list[str],
+    ) -> list[tuple[str, Any]]:
+        results: list[tuple[str, Any]] = []
+        for account_number in account_numbers:
+            try:
+                response = self.quote_service.get_quote(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    account_number=account_number,
+                )
+            except LookupError:
+                continue
+            results.append((account_number, response))
+        return results
 
     def _persist_validation_report(
         self,

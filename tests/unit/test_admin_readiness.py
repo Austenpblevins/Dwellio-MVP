@@ -358,6 +358,8 @@ def test_admin_readiness_marks_publish_blocked_dataset() -> None:
         "Publish blocked because 2 validation error finding(s) exist for import batch batch-1."
     )
     assert dataset.freshness_status == "stale"
+    assert dataset.validation_regression is True
+    assert dataset.validation_regression is True
 
 
 def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
@@ -409,6 +411,42 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
                         "risky_caution_rows_monitored",
                         "continuity_gap_rows_monitored",
                     ],
+                    instant_quote_supportable_row_rate=0.72,
+                    instant_quote_support_rate_all_sfr_flagged_denominator_count=100,
+                    instant_quote_support_rate_all_sfr_flagged_supportable_count=72,
+                    instant_quote_support_rate_all_sfr_flagged=0.72,
+                    instant_quote_total_count_all_sfr_flagged=100,
+                    instant_quote_support_count_all_sfr_flagged=72,
+                    instant_quote_support_rate_strict_sfr_eligible_denominator_count=80,
+                    instant_quote_support_rate_strict_sfr_eligible_supportable_count=72,
+                    instant_quote_support_rate_strict_sfr_eligible=0.9,
+                    instant_quote_total_count_strict_sfr_eligible=80,
+                    instant_quote_support_count_strict_sfr_eligible=72,
+                    instant_quote_denominator_shift_alert={
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 100,
+                        "prior_total_count_all_sfr_flagged": 90,
+                        "pct_change": 0.1111111111111111,
+                        "abs_pct_change": 0.1111111111111111,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    instant_quote_denominator_shift_warning_codes=[
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
+                    instant_quote_high_value_subject_row_count=40,
+                    instant_quote_high_value_supportable_subject_row_count=28,
+                    instant_quote_high_value_support_rate=0.7,
+                    instant_quote_special_district_heavy_subject_row_count=30,
+                    instant_quote_special_district_heavy_supportable_subject_row_count=24,
+                    instant_quote_special_district_heavy_support_rate=0.8,
+                    instant_quote_monitored_zero_savings_sample_row_count=20,
+                    instant_quote_monitored_zero_savings_supported_quote_count=18,
+                    instant_quote_monitored_zero_savings_quote_count=9,
+                    instant_quote_monitored_zero_savings_quote_share=0.5,
+                    instant_quote_monitored_extreme_savings_watchlist_count=10,
+                    instant_quote_monitored_extreme_savings_flagged_count=2,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -459,9 +497,33 @@ def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
         "risky_caution_rows_monitored",
         "continuity_gap_rows_monitored",
     ]
+    assert row.derived.instant_quote_supportable_row_rate == 0.72
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count == 100
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count == 72
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged == 0.72
+    assert row.derived.instant_quote_total_count_all_sfr_flagged == 100
+    assert row.derived.instant_quote_support_count_all_sfr_flagged == 72
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count == 80
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count == 72
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible == 0.9
+    assert row.derived.instant_quote_total_count_strict_sfr_eligible == 80
+    assert row.derived.instant_quote_support_count_strict_sfr_eligible == 72
+    assert row.derived.instant_quote_denominator_shift_alert["status"] == (
+        "threshold_exceeded"
+    )
+    assert row.derived.instant_quote_denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
+    assert row.derived.instant_quote_high_value_support_rate == 0.7
+    assert row.derived.instant_quote_special_district_heavy_support_rate == 0.8
+    assert row.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
+    assert row.derived.instant_quote_monitored_extreme_savings_watchlist_count == 10
+    assert row.derived.instant_quote_monitored_extreme_savings_flagged_count == 2
     assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
     assert "instant_quote_tax_completeness_risky_caution_monitored" in row.operational.alerts
     assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
+    assert "instant_quote_extreme_savings_review_required" in row.operational.alerts
+    assert "instant_quote_denominator_shift_review_required" in row.operational.alerts
 
 
 def test_admin_readiness_surfaces_harris_caveated_special_family_monitoring() -> None:

@@ -29,6 +29,58 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
                 "readiness_score": row.readiness_score,
                 "blockers": row.blockers,
                 "operational": row.operational.model_dump(mode="json"),
+                "derived_monitoring": {
+                    "instant_quote_supportable_row_rate": row.derived.instant_quote_supportable_row_rate,
+                    "instant_quote_support_rate_all_sfr_flagged_denominator_count": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count
+                    ),
+                    "instant_quote_support_rate_all_sfr_flagged_supportable_count": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count
+                    ),
+                    "instant_quote_support_rate_all_sfr_flagged": (
+                        row.derived.instant_quote_support_rate_all_sfr_flagged
+                    ),
+                    "instant_quote_total_count_all_sfr_flagged": (
+                        row.derived.instant_quote_total_count_all_sfr_flagged
+                    ),
+                    "instant_quote_support_count_all_sfr_flagged": (
+                        row.derived.instant_quote_support_count_all_sfr_flagged
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible_denominator_count": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible_supportable_count": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count
+                    ),
+                    "instant_quote_support_rate_strict_sfr_eligible": (
+                        row.derived.instant_quote_support_rate_strict_sfr_eligible
+                    ),
+                    "instant_quote_total_count_strict_sfr_eligible": (
+                        row.derived.instant_quote_total_count_strict_sfr_eligible
+                    ),
+                    "instant_quote_support_count_strict_sfr_eligible": (
+                        row.derived.instant_quote_support_count_strict_sfr_eligible
+                    ),
+                    "instant_quote_denominator_shift_alert": (
+                        row.derived.instant_quote_denominator_shift_alert
+                    ),
+                    "instant_quote_denominator_shift_warning_codes": (
+                        row.derived.instant_quote_denominator_shift_warning_codes
+                    ),
+                    "instant_quote_high_value_support_rate": row.derived.instant_quote_high_value_support_rate,
+                    "instant_quote_special_district_heavy_support_rate": (
+                        row.derived.instant_quote_special_district_heavy_support_rate
+                    ),
+                    "instant_quote_monitored_zero_savings_quote_share": (
+                        row.derived.instant_quote_monitored_zero_savings_quote_share
+                    ),
+                    "instant_quote_monitored_extreme_savings_watchlist_count": (
+                        row.derived.instant_quote_monitored_extreme_savings_watchlist_count
+                    ),
+                    "instant_quote_monitored_extreme_savings_flagged_count": (
+                        row.derived.instant_quote_monitored_extreme_savings_flagged_count
+                    ),
+                },
                 "datasets": [
                     {
                         "dataset_type": dataset.dataset_type,
