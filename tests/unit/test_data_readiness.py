@@ -36,6 +36,10 @@ class StubCursor:
             self._row = {
                 "present": table_name
                 in {
+                    "instant_quote_subject_cache",
+                    "instant_quote_neighborhood_stats",
+                    "instant_quote_segment_stats",
+                    "instant_quote_refresh_runs",
                     "search_documents",
                     "parcel_features",
                     "comp_candidate_pools",
@@ -52,13 +56,14 @@ class StubCursor:
             self._row = {
                 "present": view_name
                 in {
+                    "instant_quote_subject_view",
                     "parcel_summary_view",
                     "parcel_year_trend_view",
                     "neighborhood_year_trend_view",
                     "v_quote_read_model",
                 }
             }
-        elif "FROM parcel_summary_view" in sql:
+        elif "FROM parcel_year_snapshots" in sql and "is_current = true" in sql:
             self._row = {"count": 2}
         elif "FROM parcel_year_trend_view" in sql:
             self._row = {"count": 2}
@@ -66,6 +71,36 @@ class StubCursor:
             self._row = {"count": 3}
         elif "FROM neighborhood_year_trend_view" in sql:
             self._row = {"count": 2}
+        elif "FROM instant_quote_subject_cache" in sql and "support_blocker_code IS NULL" in sql:
+            self._row = {"count": 12}
+        elif "FROM instant_quote_subject_cache" in sql:
+            self._row = {"count": 18}
+        elif "FROM instant_quote_neighborhood_stats" in sql and "support_threshold_met IS TRUE" in sql:
+            self._row = {"count": 0}
+        elif "FROM instant_quote_neighborhood_stats" in sql:
+            self._row = {"count": 3}
+        elif "FROM instant_quote_segment_stats" in sql and "support_threshold_met IS TRUE" in sql:
+            self._row = {"count": 0}
+        elif "FROM instant_quote_segment_stats" in sql:
+            self._row = {"count": 2}
+        elif "FROM instant_quote_refresh_runs" in sql:
+            self._row = {
+                "refresh_status": "completed",
+                "refresh_finished_at": None,
+                "validated_at": None,
+                "cache_view_row_delta": 0,
+                "validation_report": {
+                    "supported_public_quote_exists": True,
+                    "subject_rows_without_usable_neighborhood_stats": 1,
+                    "subject_rows_without_usable_segment_stats": 9,
+                    "subject_rows_missing_segment_row": 7,
+                    "subject_rows_thin_segment_support": 2,
+                    "subject_rows_unusable_segment_basis": 0,
+                    "served_neighborhood_only_quote_count": 5,
+                    "served_supported_neighborhood_only_quote_count": 3,
+                    "served_unsupported_neighborhood_only_quote_count": 2,
+                },
+            }
         elif "FROM search_documents" in sql:
             self._row = {"count": 2}
         elif "FROM parcel_features pf" in sql:
@@ -119,6 +154,25 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.parcel_year_trend_ready is True
     assert readiness.derived.neighborhood_stats_ready is True
     assert readiness.derived.neighborhood_year_trend_ready is True
+    assert readiness.derived.instant_quote_subject_ready is True
+    assert readiness.derived.instant_quote_neighborhood_stats_ready is True
+    assert readiness.derived.instant_quote_segment_stats_ready is True
+    assert readiness.derived.instant_quote_asset_ready is True
+    assert readiness.derived.instant_quote_supportable_row_count == 12
+    assert readiness.derived.instant_quote_supported_neighborhood_stats_row_count == 0
+    assert readiness.derived.instant_quote_supported_segment_stats_row_count == 0
+    assert readiness.derived.instant_quote_refresh_status == "completed"
+    assert readiness.derived.instant_quote_cache_view_row_delta == 0
+    assert readiness.derived.instant_quote_supported_public_quote_exists is True
+    assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
+    assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9
+    assert readiness.derived.instant_quote_subject_rows_missing_segment_row == 7
+    assert readiness.derived.instant_quote_subject_rows_thin_segment_support == 2
+    assert readiness.derived.instant_quote_subject_rows_unusable_segment_basis == 0
+    assert readiness.derived.instant_quote_served_neighborhood_only_quote_count == 5
+    assert readiness.derived.instant_quote_served_supported_neighborhood_only_quote_count == 3
+    assert readiness.derived.instant_quote_served_unsupported_neighborhood_only_quote_count == 2
+    assert readiness.derived.instant_quote_ready is False
     assert readiness.derived.search_support_ready is True
     assert readiness.derived.feature_ready is False
     assert readiness.derived.valuation_ready is True

@@ -90,12 +90,62 @@ def test_job_refresh_quote_cache_calls_schema_preflight(monkeypatch) -> None:
     assert observed == [("job_refresh_quote_cache", 2026)]
 
 
+def test_job_score_models_forwards_account_numbers(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    class _ForwardingService:
+        def score_models(
+            self,
+            *,
+            county_id: str | None = None,
+            tax_year: int | None = None,
+            account_numbers: tuple[str, ...] | None = None,
+        ) -> QuoteGenerationSummary:
+            observed["county_id"] = county_id
+            observed["tax_year"] = tax_year
+            observed["account_numbers"] = account_numbers
+            return QuoteGenerationSummary(processed_count=2, created_count=2, skipped_count=0)
+
+    monkeypatch.setattr(job_score_models, "assert_job_schema_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_score_models, "QuoteGenerationService", lambda: _ForwardingService())
+
+    job_score_models.run(
+        county_id="harris",
+        tax_year=2026,
+        account_numbers=("1001001001001", "1002002002002"),
+    )
+
+    assert observed == {
+        "county_id": "harris",
+        "tax_year": 2026,
+        "account_numbers": ("1001001001001", "1002002002002"),
+    }
+
+
 class _StubQuoteGenerationService:
-    def score_models(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+    def score_models(
+        self,
+        *,
+        county_id: str | None = None,
+        tax_year: int | None = None,
+        account_numbers: tuple[str, ...] | None = None,
+    ) -> QuoteGenerationSummary:
         return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)
 
-    def score_savings(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+    def score_savings(
+        self,
+        *,
+        county_id: str | None = None,
+        tax_year: int | None = None,
+        account_numbers: tuple[str, ...] | None = None,
+    ) -> QuoteGenerationSummary:
         return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)
 
-    def refresh_quote_cache(self, *, county_id: str | None = None, tax_year: int | None = None) -> QuoteGenerationSummary:
+    def refresh_quote_cache(
+        self,
+        *,
+        county_id: str | None = None,
+        tax_year: int | None = None,
+        account_numbers: tuple[str, ...] | None = None,
+    ) -> QuoteGenerationSummary:
         return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)

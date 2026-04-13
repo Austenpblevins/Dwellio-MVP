@@ -218,6 +218,7 @@ estimated_contingency_fee =
 
 ## Required Public APIs
 - GET /search?address={query}
+- GET /quote/instant/{county_id}/{tax_year}/{account_number}
 - GET /quote/{county_id}/{tax_year}/{account_number}
 - GET /quote/{county_id}/{tax_year}/{account_number}/explanation
 - POST /lead

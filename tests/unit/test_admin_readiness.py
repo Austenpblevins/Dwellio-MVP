@@ -47,6 +47,11 @@ class StubDataReadinessService:
                     parcel_year_trend_ready=False,
                     neighborhood_stats_ready=False,
                     neighborhood_year_trend_ready=False,
+                    instant_quote_subject_ready=False,
+                    instant_quote_neighborhood_stats_ready=False,
+                    instant_quote_segment_stats_ready=False,
+                    instant_quote_asset_ready=False,
+                    instant_quote_ready=False,
                     search_support_ready=False,
                     feature_ready=False,
                     comp_ready=False,
@@ -105,6 +110,11 @@ class StubDataReadinessService:
                     parcel_year_trend_ready=False,
                     neighborhood_stats_ready=False,
                     neighborhood_year_trend_ready=False,
+                    instant_quote_subject_ready=True,
+                    instant_quote_neighborhood_stats_ready=True,
+                    instant_quote_segment_stats_ready=True,
+                    instant_quote_asset_ready=True,
+                    instant_quote_ready=False,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -115,6 +125,12 @@ class StubDataReadinessService:
                     recommendation_ready=False,
                     quote_ready=False,
                     parcel_summary_row_count=18,
+                    instant_quote_subject_row_count=18,
+                    instant_quote_neighborhood_stats_row_count=3,
+                    instant_quote_segment_stats_row_count=2,
+                    instant_quote_supportable_row_count=12,
+                    instant_quote_supported_neighborhood_stats_row_count=0,
+                    instant_quote_supported_segment_stats_row_count=0,
                     search_document_row_count=18,
                     parcel_feature_row_count=0,
                     comp_pool_row_count=0,
@@ -131,6 +147,11 @@ class StubDataReadinessService:
                 parcel_year_trend_ready=False,
                 neighborhood_stats_ready=False,
                 neighborhood_year_trend_ready=False,
+                instant_quote_subject_ready=False,
+                instant_quote_neighborhood_stats_ready=False,
+                instant_quote_segment_stats_ready=False,
+                instant_quote_asset_ready=False,
+                instant_quote_ready=False,
                 search_support_ready=False,
                 feature_ready=False,
                 comp_ready=False,
@@ -171,6 +192,7 @@ class StubOperationalMetricsProvider:
                 freshness_sla_days=30,
                 freshness_age_days=65,
                 recent_failed_job_count=1,
+                stale_running_job_count=1,
                 validation_error_count=2,
                 validation_regression=True,
             )
@@ -205,10 +227,15 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert row.trend_label == "improving"
     assert row.trend_delta == 10
     assert "manual_backfill_required" in row.blockers
+    assert "instant_quote_public_support_thin" in row.blockers
+    assert row.derived.instant_quote_asset_ready is True
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"
+    assert row.operational.stale_running_job_count == 1
     assert row.operational.validation_regression_count == 1
     assert "deeds_validation_regression" in row.operational.alerts
+    assert "deeds_stale_jobs" in row.operational.alerts
+    assert "instant_quote_support_too_thin" in row.operational.alerts
     assert dashboard.kpi_summary.critical_year_count == 1
     assert dashboard.kpi_summary.validation_regression_count == 1
 

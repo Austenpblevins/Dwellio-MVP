@@ -529,6 +529,144 @@ def test_normalize_blocks_publish_when_publish_controls_fail(monkeypatch) -> Non
     assert inserted_findings[0]["validation_code"] == "ROLLBACK_MANIFEST_MISSING_ACCOUNT"
 
 
+def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_missing(
+    monkeypatch,
+) -> None:
+    service = IngestionLifecycleService()
+    upsert_calls: list[dict[str, object]] = []
+    tax_refresh_calls: list[dict[str, object]] = []
+    search_refresh_calls: list[dict[str, object]] = []
+    updates: list[dict[str, object]] = []
+    completed_runs: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2025/property_roll/example.json",
+                original_filename="harris-property_roll-2025.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def count_validation_errors(self, **kwargs) -> int:
+            return 0
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-normalize"
+
+        def count_staging_rows(self, **kwargs) -> int:
+            return 50_001
+
+        def count_property_roll_rows_for_import_batch(self, **kwargs) -> int:
+            return 1
+
+        def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
+        def iterate_staging_rows(self, **kwargs):
+            yield [
+                {
+                    "staging_table": "stg_county_property_raw",
+                    "staging_row_id": "stage-1",
+                    "raw_payload": {"account_number": "1001001001001"},
+                    "row_hash": "hash-1",
+                }
+            ]
+
+        def capture_property_roll_rollback_manifest(self, **kwargs) -> dict[str, object]:
+            return {
+                "dataset_type": "property_roll",
+                "entries": [{"account_number": "1001001001001", "prior_state": None}],
+            }
+
+        def upsert_property_roll_records(self, **kwargs):
+            upsert_calls.append(kwargs)
+            return [{"target_table": "parcel_year_snapshots", "target_id": "snap-1", "parcel_id": "parcel-1"}]
+
+        def insert_validation_results(self, **kwargs) -> None:
+            return None
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            updates.append(kwargs)
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            completed_runs.append(kwargs)
+
+    class StubAdapter:
+        def normalize_staging_to_canonical(self, dataset_type: str, staging_rows):
+            assert dataset_type == "property_roll"
+            assert staging_rows == [{"account_number": "1001001001001"}]
+            return {
+                "property_roll": [
+                    {
+                        "parcel": {
+                            "account_number": "1001001001001",
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "owner_name": "Jane Doe",
+                            "source_record_hash": "hash-1",
+                        },
+                        "address": {
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "normalized_address": "123 MAIN ST",
+                        },
+                        "characteristics": {"homestead_flag": False},
+                        "improvements": [{"living_area_sf": 2150, "year_built": 2004}],
+                        "land_segments": [{"land_sf": 5000}],
+                        "value_components": [],
+                        "assessment": {"market_value": 300000},
+                        "exemptions": [],
+                    }
+                ]
+            }
+
+        def publish_dataset(self, job_id: str, tax_year: int, dataset_type: str) -> PublishResult:
+            return PublishResult(
+                publish_version=f"harris-{tax_year}-{dataset_type}-{job_id[:8]}",
+                details_json={"dataset_type": dataset_type},
+            )
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(service, "_build_publish_control_findings", lambda **kwargs: [])
+    monkeypatch.setattr(
+        service,
+        "_refresh_tax_assignments",
+        lambda **kwargs: tax_refresh_calls.append(kwargs),
+    )
+    monkeypatch.setattr(service, "_refresh_owner_reconciliation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service, "_refresh_search_documents", lambda **kwargs: search_refresh_calls.append(kwargs)
+    )
+    service.adapter = StubAdapter()  # type: ignore[assignment]
+
+    result = service.normalize(
+        county_id="harris",
+        tax_year=2025,
+        dataset_type="property_roll",
+    )
+
+    assert result.row_count == 1
+    assert upsert_calls[0]["include_detail_tables"] is False
+    assert tax_refresh_calls
+    assert tax_refresh_calls[0]["import_batch_id"] == "batch-1"
+    assert search_refresh_calls
+    assert updates[-1]["status"] == "normalized"
+    assert completed_runs[-1]["status"] == "succeeded"
+    assert completed_runs[-1]["metadata_json"]["post_commit_tax_assignment_refresh"] is True
+    assert completed_runs[-1]["metadata_json"]["post_commit_search_refresh"] is True
+
+
 def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
     service = IngestionLifecycleService()
     search_refresh_calls: list[dict[str, object]] = []
@@ -591,3 +729,38 @@ def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
     assert len(search_refresh_calls) == 1
     assert search_refresh_calls[0]["county_id"] == "harris"
     assert search_refresh_calls[0]["tax_year"] == 2025
+
+
+def test_refresh_tax_assignments_prefers_set_based_repository_path() -> None:
+    service = IngestionLifecycleService()
+
+    class StubRepository:
+        def __init__(self) -> None:
+            self.called = False
+            self.refreshed = False
+
+        def has_current_tax_rate_records(self, **kwargs) -> bool:
+            return True
+
+        def refresh_parcel_tax_assignments_set_based(self, **kwargs) -> int:
+            self.called = True
+            return 5
+
+        def refresh_effective_tax_rates(self, **kwargs) -> int:
+            self.refreshed = True
+            return 5
+
+    repository = StubRepository()
+
+    service._refresh_tax_assignments(
+        repository=repository,  # type: ignore[arg-type]
+        county_id="harris",
+        tax_year=2025,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        force=False,
+    )
+
+    assert repository.called is True
+    assert repository.refreshed is True

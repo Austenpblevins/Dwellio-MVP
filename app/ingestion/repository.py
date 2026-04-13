@@ -15,7 +15,14 @@ from app.services.ownership_reconciliation import (
     build_owner_periods,
     normalize_owner_name,
 )
-from app.services.tax_assignment import ParcelTaxAssignment, ParcelTaxContext, TaxingUnitContext
+from app.services.tax_assignment import (
+    MATCH_CONFIDENCE,
+    MATCH_PRIORITY,
+    MATCH_REASON_CODES,
+    ParcelTaxAssignment,
+    ParcelTaxContext,
+    TaxingUnitContext,
+)
 
 
 @dataclass(frozen=True)
@@ -665,6 +672,28 @@ class IngestionRepository:
             return 0
         return int(row["count"] or 0)
 
+    def count_property_roll_improvement_rows_for_import_batch(
+        self,
+        *,
+        import_batch_id: str,
+        tax_year: int,
+    ) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_improvements pi
+            JOIN parcel_year_snapshots pys
+              ON pys.parcel_id = pi.parcel_id
+             AND pys.tax_year = pi.tax_year
+            WHERE pys.import_batch_id = %s
+              AND pys.tax_year = %s
+            """,
+            (import_batch_id, tax_year),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def insert_validation_results(
         self,
         *,
@@ -1041,8 +1070,10 @@ class IngestionRepository:
                 source_record_hash = parcel["source_record_hash"]
                 characteristics = record["characteristics"]
 
+                improvements = list(record.get("improvements") or [])
+
                 if include_detail_tables:
-                    for improvement in record["improvements"]:
+                    for improvement in improvements:
                         improvement_rows.append(
                             (
                                 snapshot_id,
@@ -1065,7 +1096,11 @@ class IngestionRepository:
                             )
                         )
 
-                    primary_improvement = record["improvements"][0]
+                # parcel_improvements is part of the canonical parcel-year summary path, so we
+                # keep this summary row populated even when bulk property-roll mode skips the
+                # heavier per-snapshot detail tables.
+                if improvements:
+                    primary_improvement = improvements[0]
                     parcel_improvement_rows.append(
                         (
                             parcel_id,
@@ -1087,6 +1122,7 @@ class IngestionRepository:
                         )
                     )
 
+                if include_detail_tables:
                     for segment in record["land_segments"]:
                         land_segment_rows.append(
                             (
@@ -1198,7 +1234,7 @@ class IngestionRepository:
                     """,
                     improvement_rows,
                 )
-            if include_detail_tables:
+            if parcel_improvement_rows:
                 cursor.executemany(
                 """
                 INSERT INTO parcel_improvements (
@@ -1424,6 +1460,18 @@ class IngestionRepository:
                   primary_use_code text,
                   neighborhood_group text,
                   effective_age integer,
+                  living_area_sf numeric,
+                  year_built integer,
+                  effective_year_built integer,
+                  improvement_effective_age integer,
+                  bedrooms integer,
+                  full_baths numeric,
+                  half_baths numeric,
+                  stories numeric,
+                  quality_code text,
+                  condition_code text,
+                  garage_spaces numeric,
+                  pool_flag boolean,
                   land_value numeric,
                   improvement_value numeric,
                   market_value numeric,
@@ -1467,6 +1515,18 @@ class IngestionRepository:
                   primary_use_code,
                   neighborhood_group,
                   effective_age,
+                  living_area_sf,
+                  year_built,
+                  effective_year_built,
+                  improvement_effective_age,
+                  bedrooms,
+                  full_baths,
+                  half_baths,
+                  stories,
+                  quality_code,
+                  condition_code,
+                  garage_spaces,
+                  pool_flag,
                   land_value,
                   improvement_value,
                   market_value,
@@ -1485,6 +1545,8 @@ class IngestionRepository:
                     parcel = record["parcel"]
                     address = record["address"]
                     characteristics = record["characteristics"]
+                    improvements = list(record.get("improvements") or [])
+                    primary_improvement = improvements[0] if improvements else {}
                     assessment = record["assessment"]
                     copy.write_row(
                         (
@@ -1513,6 +1575,18 @@ class IngestionRepository:
                             characteristics.get("primary_use_code"),
                             characteristics.get("neighborhood_group"),
                             characteristics.get("effective_age"),
+                            primary_improvement.get("living_area_sf"),
+                            primary_improvement.get("year_built"),
+                            primary_improvement.get("effective_year_built"),
+                            primary_improvement.get("effective_age"),
+                            primary_improvement.get("bedrooms"),
+                            primary_improvement.get("full_baths"),
+                            primary_improvement.get("half_baths"),
+                            primary_improvement.get("stories"),
+                            primary_improvement.get("quality_code"),
+                            primary_improvement.get("condition_code"),
+                            primary_improvement.get("garage_spaces"),
+                            primary_improvement.get("pool_flag"),
                             assessment.get("land_value"),
                             assessment.get("improvement_value"),
                             assessment.get("market_value"),
@@ -1733,6 +1807,67 @@ class IngestionRepository:
                   updated_at = now()
                 """,
                 (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_improvements (
+                  parcel_id,
+                  tax_year,
+                  living_area_sf,
+                  year_built,
+                  effective_year_built,
+                  effective_age,
+                  bedrooms,
+                  full_baths,
+                  half_baths,
+                  stories,
+                  quality_code,
+                  condition_code,
+                  garage_spaces,
+                  pool_flag,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  p.parcel_id,
+                  %s,
+                  t.living_area_sf,
+                  t.year_built,
+                  t.effective_year_built,
+                  t.improvement_effective_age,
+                  t.bedrooms,
+                  t.full_baths,
+                  t.half_baths,
+                  t.stories,
+                  t.quality_code,
+                  t.condition_code,
+                  t.garage_spaces,
+                  t.pool_flag,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN parcels p
+                  ON p.county_id = %s
+                 AND p.account_number = t.account_number
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  living_area_sf = EXCLUDED.living_area_sf,
+                  year_built = EXCLUDED.year_built,
+                  effective_year_built = EXCLUDED.effective_year_built,
+                  effective_age = EXCLUDED.effective_age,
+                  bedrooms = EXCLUDED.bedrooms,
+                  full_baths = EXCLUDED.full_baths,
+                  half_baths = EXCLUDED.half_baths,
+                  stories = EXCLUDED.stories,
+                  quality_code = EXCLUDED.quality_code,
+                  condition_code = EXCLUDED.condition_code,
+                  garage_spaces = EXCLUDED.garage_spaces,
+                  pool_flag = EXCLUDED.pool_flag,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                (tax_year, source_system_id, county_id),
             )
             cursor.execute(
                 """
@@ -2283,6 +2418,524 @@ class IngestionRepository:
                 )
         return len(assignments)
 
+    def refresh_parcel_tax_assignments_set_based(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        import_batch_id: str,
+        job_run_id: str,
+        source_system_id: str,
+    ) -> int:
+        with self.connection.cursor() as cursor:
+            cursor.execute("SET LOCAL max_parallel_workers_per_gather = 0")
+            cursor.execute(
+                """
+                CREATE TEMP TABLE tmp_parcel_tax_context ON COMMIT DROP AS
+                SELECT
+                  p.parcel_id,
+                  upper(btrim(p.county_id)) AS county_id,
+                  pys.tax_year,
+                  upper(btrim(p.account_number)) AS account_number,
+                  upper(btrim(COALESCE(pa.situs_city, p.situs_city))) AS situs_city,
+                  upper(btrim(COALESCE(pa.situs_zip, p.situs_zip))) AS situs_zip,
+                  upper(btrim(COALESCE(pc.school_district_name, p.school_district_name))) AS school_district_name,
+                  upper(btrim(COALESCE(pc.subdivision_name, p.subdivision_name))) AS subdivision_name,
+                  upper(btrim(COALESCE(pc.neighborhood_code, p.neighborhood_code))) AS neighborhood_code
+                FROM parcel_year_snapshots pys
+                JOIN parcels p
+                  ON p.parcel_id = pys.parcel_id
+                LEFT JOIN parcel_addresses pa
+                  ON pa.parcel_id = p.parcel_id
+                 AND pa.is_current = true
+                LEFT JOIN property_characteristics pc
+                  ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+                WHERE p.county_id = %s
+                  AND pys.tax_year = %s
+                  AND pys.is_current = true
+                """,
+                (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_lookup
+                  ON tmp_parcel_tax_context(county_id, tax_year)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_account
+                  ON tmp_parcel_tax_context(account_number)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_school
+                  ON tmp_parcel_tax_context(school_district_name)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_city
+                  ON tmp_parcel_tax_context(situs_city)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_subdivision
+                  ON tmp_parcel_tax_context(subdivision_name)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_neighborhood
+                  ON tmp_parcel_tax_context(neighborhood_code)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_parcel_tax_context_zip
+                  ON tmp_parcel_tax_context(situs_zip)
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TEMP TABLE tmp_tax_unit_match_hints ON COMMIT DROP AS
+                WITH current_units AS (
+                  SELECT DISTINCT
+                    tu.taxing_unit_id,
+                    tu.county_id,
+                    tu.tax_year,
+                    tu.unit_type_code,
+                    tu.unit_code,
+                    tu.unit_name,
+                    COALESCE(tu.metadata_json, '{}'::jsonb) AS metadata_json
+                  FROM taxing_units tu
+                  JOIN tax_rates tr
+                    ON tr.taxing_unit_id = tu.taxing_unit_id
+                   AND tr.tax_year = tu.tax_year
+                   AND tr.is_current = true
+                  WHERE tu.county_id = %s
+                    AND tu.tax_year = %s
+                    AND tu.active_flag = true
+                ),
+                explicit_hints AS (
+                  SELECT
+                    cu.taxing_unit_id,
+                    cu.tax_year,
+                    cu.unit_type_code,
+                    cu.unit_code,
+                    upper(btrim(hint_value.value)) AS candidate_value,
+                    hint_value.match_key,
+                    COALESCE(
+                      NULLIF(cu.metadata_json -> 'assignment_hints' ->> 'priority', '')::integer,
+                      hint_value.default_priority
+                    ) AS priority
+                  FROM current_units cu
+                  CROSS JOIN LATERAL (
+                    VALUES
+                      (
+                        'account_numbers',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'account_numbers', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'school_district_names',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'school_district_names', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'cities',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'cities', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'subdivisions',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'subdivisions', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'neighborhood_codes',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'neighborhood_codes', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'zip_codes',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'zip_codes', '[]'::jsonb),
+                        %s
+                      ),
+                      (
+                        'county_ids',
+                        COALESCE(cu.metadata_json -> 'assignment_hints' -> 'county_ids', '[]'::jsonb),
+                        %s
+                      )
+                  ) AS hint_value(match_key, values_json, default_priority)
+                  CROSS JOIN LATERAL jsonb_array_elements_text(hint_value.values_json) AS value(value)
+                  WHERE btrim(value.value) <> ''
+                ),
+                fallback_hints AS (
+                  SELECT
+                    cu.taxing_unit_id,
+                    cu.tax_year,
+                    cu.unit_type_code,
+                    cu.unit_code,
+                    upper(btrim(fallback_value.value)) AS candidate_value,
+                    fallback_value.match_key,
+                    fallback_value.default_priority AS priority
+                  FROM current_units cu
+                  CROSS JOIN LATERAL (
+                    VALUES
+                      (
+                        'cities',
+                        CASE
+                          WHEN cu.unit_type_code = 'city'
+                           AND jsonb_array_length(COALESCE(cu.metadata_json -> 'assignment_hints' -> 'cities', '[]'::jsonb)) = 0
+                            THEN ARRAY[cu.unit_name]
+                          ELSE ARRAY[]::text[]
+                        END
+                        ||
+                        CASE
+                          WHEN cu.unit_type_code = 'city'
+                           AND jsonb_array_length(COALESCE(cu.metadata_json -> 'assignment_hints' -> 'cities', '[]'::jsonb)) = 0
+                            THEN ARRAY(
+                              SELECT jsonb_array_elements_text(COALESCE(cu.metadata_json -> 'aliases', '[]'::jsonb))
+                            )
+                          ELSE ARRAY[]::text[]
+                        END,
+                        %s
+                      ),
+                      (
+                        'school_district_names',
+                        CASE
+                          WHEN cu.unit_type_code = 'school'
+                           AND jsonb_array_length(COALESCE(cu.metadata_json -> 'assignment_hints' -> 'school_district_names', '[]'::jsonb)) = 0
+                            THEN ARRAY[cu.unit_name]
+                          ELSE ARRAY[]::text[]
+                        END
+                        ||
+                        CASE
+                          WHEN cu.unit_type_code = 'school'
+                           AND jsonb_array_length(COALESCE(cu.metadata_json -> 'assignment_hints' -> 'school_district_names', '[]'::jsonb)) = 0
+                            THEN ARRAY(
+                              SELECT jsonb_array_elements_text(COALESCE(cu.metadata_json -> 'aliases', '[]'::jsonb))
+                            )
+                          ELSE ARRAY[]::text[]
+                        END,
+                        %s
+                      ),
+                      (
+                        'subdivisions',
+                        CASE
+                          WHEN cu.unit_type_code = 'mud'
+                           AND jsonb_array_length(COALESCE(cu.metadata_json -> 'assignment_hints' -> 'subdivisions', '[]'::jsonb)) = 0
+                            THEN ARRAY(
+                              SELECT jsonb_array_elements_text(COALESCE(cu.metadata_json -> 'aliases', '[]'::jsonb))
+                            )
+                          ELSE ARRAY[]::text[]
+                        END,
+                        %s
+                      )
+                  ) AS fallback_value(match_key, values_array, default_priority)
+                  CROSS JOIN LATERAL unnest(fallback_value.values_array) AS value(value)
+                  WHERE btrim(value.value) <> ''
+                )
+                SELECT DISTINCT
+                  taxing_unit_id,
+                  tax_year,
+                  unit_type_code,
+                  unit_code,
+                  candidate_value,
+                  match_key,
+                  priority
+                FROM (
+                  SELECT * FROM explicit_hints
+                  UNION ALL
+                  SELECT * FROM fallback_hints
+                ) hints
+                WHERE candidate_value IS NOT NULL
+                """,
+                (
+                    county_id,
+                    tax_year,
+                    MATCH_PRIORITY["account_numbers"],
+                    MATCH_PRIORITY["school_district_names"],
+                    MATCH_PRIORITY["cities"],
+                    MATCH_PRIORITY["subdivisions"],
+                    MATCH_PRIORITY["neighborhood_codes"],
+                    MATCH_PRIORITY["zip_codes"],
+                    MATCH_PRIORITY["county_ids"],
+                    MATCH_PRIORITY["cities"],
+                    MATCH_PRIORITY["school_district_names"],
+                    MATCH_PRIORITY["subdivisions"],
+                ),
+            )
+            cursor.execute(
+                """
+                CREATE INDEX idx_tmp_tax_unit_match_hints_lookup
+                  ON tmp_tax_unit_match_hints(match_key, candidate_value)
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TEMP TABLE tmp_ranked_tax_assignments ON COMMIT DROP AS
+                WITH county_candidates AS (
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    tu.taxing_unit_id,
+                    tu.unit_type_code,
+                    tu.unit_code,
+                    'source_direct'::assignment_method_enum AS assignment_method,
+                    %s::numeric(5,4) AS assignment_confidence,
+                    %s::integer AS priority,
+                    %s::text AS assignment_reason_code
+                  FROM tmp_parcel_tax_context ptc
+                  JOIN (
+                    SELECT DISTINCT
+                      taxing_unit_id,
+                      upper(btrim(county_id)) AS county_id,
+                      tax_year,
+                      unit_type_code,
+                      unit_code
+                    FROM taxing_units
+                    WHERE county_id = %s
+                      AND tax_year = %s
+                      AND active_flag = true
+                      AND unit_type_code = 'county'
+                  ) tu
+                    ON tu.county_id = ptc.county_id
+                   AND tu.tax_year = ptc.tax_year
+                ),
+                hint_candidates AS (
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_direct'::assignment_method_enum AS assignment_method,
+                    %s::numeric(5,4) AS assignment_confidence,
+                    hints.priority,
+                    %s::text AS assignment_reason_code
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'account_numbers'
+                   AND hints.candidate_value = ptc.account_number
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_inferred'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'school_district_names'
+                   AND hints.candidate_value = ptc.school_district_name
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_inferred'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'cities'
+                   AND hints.candidate_value = ptc.situs_city
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_inferred'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'subdivisions'
+                   AND hints.candidate_value = ptc.subdivision_name
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_inferred'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'neighborhood_codes'
+                   AND hints.candidate_value = ptc.neighborhood_code
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_inferred'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'zip_codes'
+                   AND hints.candidate_value = ptc.situs_zip
+
+                  UNION ALL
+
+                  SELECT
+                    ptc.parcel_id,
+                    ptc.tax_year,
+                    hints.taxing_unit_id,
+                    hints.unit_type_code,
+                    hints.unit_code,
+                    'source_direct'::assignment_method_enum,
+                    %s::numeric(5,4),
+                    hints.priority,
+                    %s::text
+                  FROM tmp_tax_unit_match_hints hints
+                  JOIN tmp_parcel_tax_context ptc
+                    ON hints.match_key = 'county_ids'
+                   AND hints.candidate_value = ptc.county_id
+                ),
+                all_candidates AS (
+                  SELECT * FROM county_candidates
+                  UNION ALL
+                  SELECT * FROM hint_candidates
+                )
+                SELECT
+                  candidate.*,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY candidate.parcel_id, candidate.tax_year, candidate.unit_type_code
+                    ORDER BY candidate.priority DESC, candidate.assignment_confidence DESC, candidate.unit_code DESC
+                  ) AS unit_rank
+                FROM all_candidates candidate
+                """
+                ,
+                (
+                    MATCH_CONFIDENCE["county_ids"],
+                    MATCH_PRIORITY["county_ids"],
+                    MATCH_REASON_CODES["county_ids"],
+                    county_id,
+                    tax_year,
+                    MATCH_CONFIDENCE["account_numbers"],
+                    MATCH_CONFIDENCE["school_district_names"],
+                    MATCH_CONFIDENCE["cities"],
+                    MATCH_CONFIDENCE["subdivisions"],
+                    MATCH_CONFIDENCE["neighborhood_codes"],
+                    MATCH_CONFIDENCE["zip_codes"],
+                    MATCH_CONFIDENCE["county_ids"],
+                    MATCH_REASON_CODES["account_numbers"],
+                    MATCH_REASON_CODES["school_district_names"],
+                    MATCH_REASON_CODES["cities"],
+                    MATCH_REASON_CODES["subdivisions"],
+                    MATCH_REASON_CODES["neighborhood_codes"],
+                    MATCH_REASON_CODES["zip_codes"],
+                    MATCH_REASON_CODES["county_ids"],
+                ),
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM parcel_taxing_units ptu
+                USING parcels p
+                WHERE ptu.parcel_id = p.parcel_id
+                  AND p.county_id = %s
+                  AND ptu.tax_year = %s
+                  AND ptu.assignment_method <> 'manual'
+                """,
+                (county_id, tax_year),
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_taxing_units (
+                  parcel_id,
+                  tax_year,
+                  taxing_unit_id,
+                  assignment_method,
+                  assignment_confidence,
+                  is_primary,
+                  source_system_id,
+                  import_batch_id,
+                  job_run_id,
+                  assignment_reason_code,
+                  match_basis_json
+                )
+                SELECT
+                  ranked.parcel_id,
+                  ranked.tax_year,
+                  ranked.taxing_unit_id,
+                  ranked.assignment_method,
+                  ranked.assignment_confidence,
+                  ranked.unit_rank = 1 AS is_primary,
+                  %s,
+                  %s,
+                  %s,
+                  ranked.assignment_reason_code,
+                  jsonb_build_object(
+                    'matched_field',
+                    CASE ranked.assignment_reason_code
+                      WHEN 'match_account_number' THEN 'account_number'
+                      WHEN 'match_school_district_name' THEN 'school_district_name'
+                      WHEN 'match_city' THEN 'situs_city'
+                      WHEN 'match_subdivision' THEN 'subdivision_name'
+                      WHEN 'match_neighborhood_code' THEN 'neighborhood_code'
+                      WHEN 'match_zip_code' THEN 'situs_zip'
+                      WHEN 'match_county_id' THEN 'county_id'
+                      ELSE NULL
+                    END,
+                    'assignment_reason_code',
+                    ranked.assignment_reason_code
+                  )
+                FROM tmp_ranked_tax_assignments ranked
+                WHERE ranked.unit_rank = 1
+                   OR ranked.unit_type_code NOT IN ('county', 'city', 'school', 'mud')
+                ON CONFLICT (parcel_id, tax_year, taxing_unit_id)
+                DO UPDATE SET
+                  assignment_method = EXCLUDED.assignment_method,
+                  assignment_confidence = EXCLUDED.assignment_confidence,
+                  is_primary = EXCLUDED.is_primary,
+                  source_system_id = EXCLUDED.source_system_id,
+                  import_batch_id = EXCLUDED.import_batch_id,
+                  job_run_id = EXCLUDED.job_run_id,
+                  assignment_reason_code = EXCLUDED.assignment_reason_code,
+                  match_basis_json = EXCLUDED.match_basis_json,
+                  updated_at = now()
+                """,
+                (source_system_id, import_batch_id, job_run_id),
+            )
+            assignment_count = cursor.rowcount
+
+        return int(assignment_count)
+
     def refresh_effective_tax_rates(self, *, county_id: str, tax_year: int) -> int:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -2297,25 +2950,37 @@ class IngestionRepository:
             )
             cursor.execute(
                 """
+                INSERT INTO effective_tax_rates (
+                  parcel_id,
+                  tax_year,
+                  effective_tax_rate,
+                  source_method,
+                  calculation_basis_json
+                )
                 SELECT
                   ptu.parcel_id,
                   ptu.tax_year,
                   SUM(COALESCE(tr.rate_value, tr.rate_per_100 / 100.0)) AS effective_tax_rate,
-                  jsonb_agg(
-                    jsonb_build_object(
-                      'taxing_unit_id', tu.taxing_unit_id,
-                      'unit_type_code', tu.unit_type_code,
-                      'unit_code', tu.unit_code,
-                      'unit_name', tu.unit_name,
-                      'rate_component', tr.rate_component,
-                      'rate_value', COALESCE(tr.rate_value, tr.rate_per_100 / 100.0),
-                      'rate_per_100', tr.rate_per_100,
-                      'assignment_method', ptu.assignment_method,
-                      'assignment_confidence', ptu.assignment_confidence,
-                      'assignment_reason_code', ptu.assignment_reason_code
+                  'parcel_taxing_units_rollup',
+                  jsonb_build_object(
+                    'refreshed_from', 'parcel_taxing_units_rollup',
+                    'components',
+                    jsonb_agg(
+                      jsonb_build_object(
+                        'taxing_unit_id', tu.taxing_unit_id,
+                        'unit_type_code', tu.unit_type_code,
+                        'unit_code', tu.unit_code,
+                        'unit_name', tu.unit_name,
+                        'rate_component', tr.rate_component,
+                        'rate_value', COALESCE(tr.rate_value, tr.rate_per_100 / 100.0),
+                        'rate_per_100', tr.rate_per_100,
+                        'assignment_method', ptu.assignment_method,
+                        'assignment_confidence', ptu.assignment_confidence,
+                        'assignment_reason_code', ptu.assignment_reason_code
+                      )
+                      ORDER BY tu.unit_type_code, tu.unit_name, tr.rate_component
                     )
-                    ORDER BY tu.unit_type_code, tu.unit_name, tr.rate_component
-                  ) AS component_breakdown_json
+                  ) AS calculation_basis_json
                 FROM parcel_taxing_units ptu
                 JOIN parcels p
                   ON p.parcel_id = ptu.parcel_id
@@ -2328,43 +2993,16 @@ class IngestionRepository:
                 WHERE p.county_id = %s
                   AND ptu.tax_year = %s
                 GROUP BY ptu.parcel_id, ptu.tax_year
-                ORDER BY ptu.parcel_id ASC
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  effective_tax_rate = EXCLUDED.effective_tax_rate,
+                  source_method = EXCLUDED.source_method,
+                  calculation_basis_json = EXCLUDED.calculation_basis_json,
+                  updated_at = now()
                 """,
                 (county_id, tax_year),
             )
-            rows = cursor.fetchall()
-            for row in rows:
-                cursor.execute(
-                    """
-                    INSERT INTO effective_tax_rates (
-                      parcel_id,
-                      tax_year,
-                      effective_tax_rate,
-                      source_method,
-                      calculation_basis_json
-                    )
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (parcel_id, tax_year)
-                    DO UPDATE SET
-                      effective_tax_rate = EXCLUDED.effective_tax_rate,
-                      source_method = EXCLUDED.source_method,
-                      calculation_basis_json = EXCLUDED.calculation_basis_json,
-                      updated_at = now()
-                    """,
-                    (
-                        row["parcel_id"],
-                        row["tax_year"],
-                        row["effective_tax_rate"],
-                        "parcel_taxing_units_rollup",
-                        Jsonb(
-                            {
-                                "refreshed_from": "parcel_taxing_units_rollup",
-                                "components": row["component_breakdown_json"] or [],
-                            }
-                        ),
-                    ),
-                )
-        return len(rows)
+        return int(cursor.rowcount)
 
     def inspect_tax_rates_import_batch(
         self, *, import_batch_id: str, tax_year: int

@@ -56,13 +56,19 @@ This rule governs quote output and recommendation behavior.
 Public flow:
 1. normalize address
 2. resolve parcel
-3. fetch latest quote-ready parcel-year row
-4. return quote, explanation, and recommendation
+3. optionally fetch instant quote support for top-of-funnel savings-range UX
+4. fetch latest quote-ready parcel-year row
+5. return quote, explanation, and recommendation
 
 Target:
 - sub-2-second quote response
 - no heavy live comp analysis in request path
 - request path should read precomputed or near-precomputed data
+- additive instant-quote request paths must remain read-model driven and separate from the refined quote contract
+
+Public route note:
+- `GET /quote/instant/{county_id}/{tax_year}/{account_number}` is an additive instant-quote endpoint for public savings-range UX
+- it must remain separate from the refined quote contract and must not replace the defensible-value quote response
 
 ---
 

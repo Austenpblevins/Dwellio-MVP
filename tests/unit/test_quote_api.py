@@ -6,7 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.quote import QuoteExplanationResponse, QuoteResponse
+from app.models.quote import (
+    InstantQuoteEstimate,
+    InstantQuoteExplanation,
+    InstantQuoteResponse,
+    InstantQuoteSubject,
+    QuoteExplanationResponse,
+    QuoteResponse,
+)
 
 
 class StubQuoteReadService:
@@ -62,6 +69,59 @@ class StubQuoteReadService:
         )
 
 
+class StubInstantQuoteService:
+    def get_quote(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        account_number: str,
+    ) -> InstantQuoteResponse:
+        assert county_id == "harris"
+        assert tax_year == 2026
+        assert account_number == "1001001001001"
+        return InstantQuoteResponse(
+            supported=True,
+            county_id=county_id,
+            tax_year=2025,
+            requested_tax_year=tax_year,
+            served_tax_year=2025,
+            tax_year_fallback_applied=True,
+            tax_year_fallback_reason="requested_year_unavailable",
+            data_freshness_label="prior_year_fallback",
+            account_number=account_number,
+            basis_code="assessment_basis_segment_blend",
+            subject=InstantQuoteSubject(
+                parcel_id=uuid4(),
+                address="101 Main St, Houston, TX 77002",
+                neighborhood_code="NBHD-1",
+                school_district_name="Houston ISD",
+                property_type_code="sfr",
+                property_class_code="A1",
+                living_area_sf=2200,
+                year_built=2001,
+                notice_value=350000,
+                homestead_flag=True,
+                freeze_flag=False,
+            ),
+            estimate=InstantQuoteEstimate(
+                savings_range_low=700,
+                savings_range_high=1500,
+                savings_midpoint_display=1100,
+                estimate_bucket="500_to_1499",
+                estimate_strength_label="medium",
+                tax_protection_limited=False,
+            ),
+            explanation=InstantQuoteExplanation(
+                methodology="segment_within_neighborhood",
+                estimate_strength_label="medium",
+                summary="This fast estimate blends neighborhood and segment assessment patterns for a public-safe savings range.",
+                bullets=["The estimate uses 25 nearby assessment peers from the same neighborhood."],
+            ),
+            disclaimers=["Instant quote is a fast estimate for protest opportunity, not a final valuation."],
+        )
+
+
 def test_get_quote_uses_quote_read_service(monkeypatch) -> None:
     monkeypatch.setattr("app.api.quote.QuoteReadService", StubQuoteReadService)
 
@@ -100,6 +160,23 @@ def test_quote_explanation_route_returns_explanation(monkeypatch) -> None:
     assert payload["explanation_json"]["basis"] == "market_and_equity"
     assert payload["explanation_bullets"] == ["Comparable evidence supports a lower value."]
     assert payload["served_tax_year"] == 2026
+
+
+def test_instant_quote_route_returns_public_safe_payload(monkeypatch) -> None:
+    monkeypatch.setattr("app.api.quote.InstantQuoteService", StubInstantQuoteService)
+
+    client = TestClient(app)
+    response = client.get("/quote/instant/harris/2026/1001001001001")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["supported"] is True
+    assert payload["basis_code"] == "assessment_basis_segment_blend"
+    assert payload["served_tax_year"] == 2025
+    assert payload["tax_year_fallback_applied"] is True
+    assert payload["estimate"]["savings_range_high"] == 1500
+    assert "confidence_score" not in payload
+    assert "target_psf" not in payload
 
 
 @pytest.mark.parametrize(

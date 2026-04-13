@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from app.county_adapters.common.config_loader import (
     load_county_adapter_config,
     resolve_dataset_year_support,
 )
 from app.db.connection import get_connection
+
+INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = 20
 
 
 @dataclass(frozen=True)
@@ -34,19 +37,43 @@ class TaxYearDerivedReadiness:
     parcel_year_trend_ready: bool
     neighborhood_stats_ready: bool
     neighborhood_year_trend_ready: bool
-    search_support_ready: bool
-    feature_ready: bool
-    comp_ready: bool
-    valuation_ready: bool
-    savings_ready: bool
-    decision_tree_ready: bool
-    explanation_ready: bool
-    recommendation_ready: bool
-    quote_ready: bool
+    instant_quote_subject_ready: bool = False
+    instant_quote_neighborhood_stats_ready: bool = False
+    instant_quote_segment_stats_ready: bool = False
+    instant_quote_asset_ready: bool = False
+    instant_quote_ready: bool = False
+    instant_quote_refresh_status: str | None = None
+    instant_quote_last_refresh_at: datetime | None = None
+    instant_quote_last_validated_at: datetime | None = None
+    instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
+    instant_quote_subject_rows_without_usable_segment_stats: int = 0
+    instant_quote_subject_rows_missing_segment_row: int = 0
+    instant_quote_subject_rows_thin_segment_support: int = 0
+    instant_quote_subject_rows_unusable_segment_basis: int = 0
+    instant_quote_served_neighborhood_only_quote_count: int = 0
+    instant_quote_served_supported_neighborhood_only_quote_count: int = 0
+    instant_quote_served_unsupported_neighborhood_only_quote_count: int = 0
+    search_support_ready: bool = False
+    feature_ready: bool = False
+    comp_ready: bool = False
+    valuation_ready: bool = False
+    savings_ready: bool = False
+    decision_tree_ready: bool = False
+    explanation_ready: bool = False
+    recommendation_ready: bool = False
+    quote_ready: bool = False
     parcel_summary_row_count: int = 0
     parcel_year_trend_row_count: int = 0
     neighborhood_stats_row_count: int = 0
     neighborhood_year_trend_row_count: int = 0
+    instant_quote_subject_row_count: int = 0
+    instant_quote_neighborhood_stats_row_count: int = 0
+    instant_quote_segment_stats_row_count: int = 0
+    instant_quote_supportable_row_count: int = 0
+    instant_quote_supported_neighborhood_stats_row_count: int = 0
+    instant_quote_supported_segment_stats_row_count: int = 0
     search_document_row_count: int = 0
     parcel_feature_row_count: int = 0
     comp_pool_row_count: int = 0
@@ -165,6 +192,16 @@ class DataReadinessService:
         parcel_year_trend_exists = self._view_exists(connection, "parcel_year_trend_view")
         neighborhood_stats_exists = self._table_exists(connection, "neighborhood_stats")
         neighborhood_year_trend_exists = self._view_exists(connection, "neighborhood_year_trend_view")
+        instant_quote_subject_exists = self._table_exists(connection, "instant_quote_subject_cache")
+        instant_quote_neighborhood_stats_exists = self._table_exists(
+            connection, "instant_quote_neighborhood_stats"
+        )
+        instant_quote_segment_stats_exists = self._table_exists(
+            connection, "instant_quote_segment_stats"
+        )
+        instant_quote_refresh_runs_exists = self._table_exists(
+            connection, "instant_quote_refresh_runs"
+        )
         search_documents_exists = self._table_exists(connection, "search_documents")
         parcel_features_exists = self._table_exists(connection, "parcel_features")
         comp_pools_exists = self._table_exists(connection, "comp_candidate_pools")
@@ -178,19 +215,24 @@ class DataReadinessService:
         parcel_summary_row_count = (
             self._count_rows(
                 connection,
-                "SELECT COUNT(*) AS count FROM parcel_summary_view WHERE county_id = %s AND tax_year = %s",
+                """
+                SELECT COUNT(*) AS count
+                FROM parcel_year_snapshots
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND is_current = true
+                """,
                 (county_id, tax_year),
             )
             if parcel_summary_exists
             else 0
         )
+        # parcel_year_trend_view preserves one row per current parcel-year summary row,
+        # so we can safely reuse the scoped current-snapshot count instead of paying
+        # for another wide derived-view scan on every readiness request.
         parcel_year_trend_row_count = (
-            self._count_rows(
-                connection,
-                "SELECT COUNT(*) AS count FROM parcel_year_trend_view WHERE county_id = %s AND tax_year = %s",
-                (county_id, tax_year),
-            )
-            if parcel_year_trend_exists
+            parcel_summary_row_count
+            if parcel_year_trend_exists and parcel_summary_row_count > 0
             else 0
         )
         neighborhood_stats_row_count = (
@@ -210,6 +252,97 @@ class DataReadinessService:
             )
             if neighborhood_year_trend_exists
             else 0
+        )
+        instant_quote_subject_row_count = (
+            self._count_rows(
+                connection,
+                "SELECT COUNT(*) AS count FROM instant_quote_subject_cache WHERE county_id = %s AND tax_year = %s",
+                (county_id, tax_year),
+            )
+            if instant_quote_subject_exists
+            else 0
+        )
+        instant_quote_neighborhood_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_neighborhood_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_neighborhood_stats_exists
+            else 0
+        )
+        instant_quote_segment_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_segment_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_segment_stats_exists
+            else 0
+        )
+        instant_quote_supportable_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_subject_cache
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_blocker_code IS NULL
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_subject_exists
+            else 0
+        )
+        instant_quote_supported_neighborhood_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_neighborhood_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_threshold_met IS TRUE
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_neighborhood_stats_exists
+            else 0
+        )
+        instant_quote_supported_segment_stats_row_count = (
+            self._count_rows(
+                connection,
+                """
+                SELECT COUNT(*) AS count
+                FROM instant_quote_segment_stats
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND support_threshold_met IS TRUE
+                """,
+                (county_id, tax_year),
+            )
+            if instant_quote_segment_stats_exists
+            else 0
+        )
+        latest_instant_quote_refresh = (
+            self._latest_instant_quote_refresh_run(
+                connection,
+                county_id=county_id,
+                tax_year=tax_year,
+            )
+            if instant_quote_refresh_runs_exists
+            else None
         )
         search_document_row_count = (
             self._count_rows(
@@ -321,11 +454,105 @@ class DataReadinessService:
             else 0
         )
 
+        instant_quote_asset_ready = (
+            latest_instant_quote_refresh is not None
+            and str(latest_instant_quote_refresh.get("refresh_status")) == "completed"
+            and
+            instant_quote_subject_row_count > 0
+            and instant_quote_neighborhood_stats_row_count > 0
+            and instant_quote_segment_stats_row_count > 0
+            and int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0) == 0
+        )
+
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
             parcel_year_trend_ready=parcel_year_trend_row_count > 0,
             neighborhood_stats_ready=neighborhood_stats_row_count > 0,
             neighborhood_year_trend_ready=neighborhood_year_trend_row_count > 0,
+            instant_quote_subject_ready=instant_quote_subject_row_count > 0,
+            instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
+            instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
+            instant_quote_asset_ready=instant_quote_asset_ready,
+            instant_quote_ready=(
+                instant_quote_asset_ready
+                and
+                instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
+                and instant_quote_supported_neighborhood_stats_row_count > 0
+            ),
+            instant_quote_refresh_status=(
+                None
+                if latest_instant_quote_refresh is None
+                else str(latest_instant_quote_refresh.get("refresh_status"))
+            ),
+            instant_quote_last_refresh_at=(
+                None
+                if latest_instant_quote_refresh is None
+                else latest_instant_quote_refresh.get("refresh_finished_at")
+            ),
+            instant_quote_last_validated_at=(
+                None
+                if latest_instant_quote_refresh is None
+                else latest_instant_quote_refresh.get("validated_at")
+            ),
+            instant_quote_cache_view_row_delta=(
+                None
+                if latest_instant_quote_refresh is None
+                else int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0)
+            ),
+            instant_quote_supported_public_quote_exists=bool(
+                latest_instant_quote_refresh
+                and (latest_instant_quote_refresh.get("validation_report") or {}).get(
+                    "supported_public_quote_exists"
+                )
+            ),
+            instant_quote_subject_rows_without_usable_neighborhood_stats=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_without_usable_neighborhood_stats")
+                or 0
+            ),
+            instant_quote_subject_rows_without_usable_segment_stats=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_without_usable_segment_stats")
+                or 0
+            ),
+            instant_quote_subject_rows_missing_segment_row=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_missing_segment_row")
+                or 0
+            ),
+            instant_quote_subject_rows_thin_segment_support=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_thin_segment_support")
+                or 0
+            ),
+            instant_quote_subject_rows_unusable_segment_basis=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("subject_rows_unusable_segment_basis")
+                or 0
+            ),
+            instant_quote_served_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_neighborhood_only_quote_count")
+                or 0
+            ),
+            instant_quote_served_supported_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_supported_neighborhood_only_quote_count")
+                or 0
+            ),
+            instant_quote_served_unsupported_neighborhood_only_quote_count=int(
+                (
+                    (latest_instant_quote_refresh or {}).get("validation_report") or {}
+                ).get("served_unsupported_neighborhood_only_quote_count")
+                or 0
+            ),
             search_support_ready=search_document_row_count > 0,
             feature_ready=parcel_feature_row_count > 0,
             comp_ready=comp_pool_row_count > 0,
@@ -339,6 +566,16 @@ class DataReadinessService:
             parcel_year_trend_row_count=parcel_year_trend_row_count,
             neighborhood_stats_row_count=neighborhood_stats_row_count,
             neighborhood_year_trend_row_count=neighborhood_year_trend_row_count,
+            instant_quote_subject_row_count=instant_quote_subject_row_count,
+            instant_quote_neighborhood_stats_row_count=instant_quote_neighborhood_stats_row_count,
+            instant_quote_segment_stats_row_count=instant_quote_segment_stats_row_count,
+            instant_quote_supportable_row_count=instant_quote_supportable_row_count,
+            instant_quote_supported_neighborhood_stats_row_count=(
+                instant_quote_supported_neighborhood_stats_row_count
+            ),
+            instant_quote_supported_segment_stats_row_count=(
+                instant_quote_supported_segment_stats_row_count
+            ),
             search_document_row_count=search_document_row_count,
             parcel_feature_row_count=parcel_feature_row_count,
             comp_pool_row_count=comp_pool_row_count,
@@ -394,6 +631,32 @@ class DataReadinessService:
                 LIMIT 1
                 """,
                 (county_id, tax_year, dataset_type),
+            )
+            return cursor.fetchone()
+
+    def _latest_instant_quote_refresh_run(
+        self,
+        connection: object,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, object] | None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  refresh_status,
+                  refresh_finished_at,
+                  validated_at,
+                  cache_view_row_delta,
+                  validation_report
+                FROM instant_quote_refresh_runs
+                WHERE county_id = %s
+                  AND tax_year = %s
+                ORDER BY refresh_started_at DESC
+                LIMIT 1
+                """,
+                (county_id, tax_year),
             )
             return cursor.fetchone()
 

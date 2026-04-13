@@ -563,13 +563,28 @@ class IngestionLifecycleService:
                 if bulk_property_roll_mode
                 else 0
             )
+            existing_bulk_property_roll_improvement_rows = (
+                repository.count_property_roll_improvement_rows_for_import_batch(
+                    import_batch_id=batch.import_batch_id,
+                    tax_year=tax_year,
+                )
+                if bulk_property_roll_mode
+                else 0
+            )
             canonical_targets: list[dict[str, str]] = []
             property_roll_row_count = 0
             rollback_manifest: dict[str, Any]
 
             if dataset_type == "property_roll":
                 rollback_manifest = {"dataset_type": "property_roll", "entries": []}
-                if existing_bulk_property_roll_rows > 0:
+                # Bulk-mode recovery should only short-circuit once the canonical parcel-year
+                # summaries are materially complete; snapshot rows alone are not enough for
+                # parcel_summary_view / instant-quote support.
+                if (
+                    existing_bulk_property_roll_rows > 0
+                    and existing_bulk_property_roll_improvement_rows
+                    >= existing_bulk_property_roll_rows
+                ):
                     property_roll_row_count = existing_bulk_property_roll_rows
                     logger.info(
                         "property_roll bulk normalize recovery mode detected committed canonical rows",
@@ -578,9 +593,27 @@ class IngestionLifecycleService:
                             "tax_year": tax_year,
                             "import_batch_id": batch.import_batch_id,
                             "existing_bulk_property_roll_rows": existing_bulk_property_roll_rows,
+                            "existing_bulk_property_roll_improvement_rows": (
+                                existing_bulk_property_roll_improvement_rows
+                            ),
                         },
                     )
                 else:
+                    if bulk_property_roll_mode and existing_bulk_property_roll_rows > 0:
+                        logger.info(
+                            "property_roll bulk normalize rerun detected missing canonical improvement summaries",
+                            extra={
+                                "county_id": county_id,
+                                "tax_year": tax_year,
+                                "import_batch_id": batch.import_batch_id,
+                                "existing_bulk_property_roll_rows": (
+                                    existing_bulk_property_roll_rows
+                                ),
+                                "existing_bulk_property_roll_improvement_rows": (
+                                    existing_bulk_property_roll_improvement_rows
+                                ),
+                            },
+                        )
                     processed_property_roll_rows = 0
                     for staged_rows in repository.iterate_staging_rows(
                         import_batch_id=batch.import_batch_id,
@@ -931,6 +964,15 @@ class IngestionLifecycleService:
             try:
                 with get_connection() as post_commit_connection:
                     post_commit_repository = IngestionRepository(post_commit_connection)
+                    self._refresh_tax_assignments(
+                        repository=post_commit_repository,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        import_batch_id=batch.import_batch_id,
+                        job_run_id=job_run_id,
+                        source_system_id=batch.source_system_id,
+                        force=False,
+                    )
                     self._refresh_search_documents(
                         repository=post_commit_repository,
                         county_id=county_id,
@@ -945,12 +987,16 @@ class IngestionLifecycleService:
                         findings=[
                             {
                                 "validation_code": "SEARCH_REFRESH_OK",
-                                "message": "Search documents refreshed after bulk property_roll publish.",
+                                "message": (
+                                    "Tax assignments and search documents refreshed after "
+                                    "bulk property_roll publish."
+                                ),
                                 "severity": "info",
                                 "validation_scope": "publish",
                                 "entity_table": "search_documents",
                                 "details_json": {
                                     "dataset_type": dataset_type,
+                                    "post_commit_tax_assignment_refresh": True,
                                     "post_commit_refresh": True,
                                 },
                             }
@@ -976,6 +1022,7 @@ class IngestionLifecycleService:
                             "publish_result": publish_result.details_json,
                             "rollback_manifest": rollback_manifest,
                             "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
                         },
                     )
@@ -990,7 +1037,7 @@ class IngestionLifecycleService:
                         error_count=1,
                         publish_state=publish_result.publish_state,
                         publish_version=publish_result.publish_version,
-                        status_reason=f"post_commit_search_refresh_failed: {exc}",
+                        status_reason=f"post_commit_refresh_failed: {exc}",
                     )
                     error_repository.complete_job_run(
                         job_run_id,
@@ -1004,8 +1051,9 @@ class IngestionLifecycleService:
                             "publish_result": publish_result.details_json,
                             "rollback_manifest": rollback_manifest,
                             "deferred_post_publish_steps": deferred_steps,
+                            "post_commit_tax_assignment_refresh": True,
                             "post_commit_search_refresh": True,
-                            "post_commit_search_refresh_failed": True,
+                            "post_commit_refresh_failed": True,
                         },
                     )
                     self._finalize_connection(error_connection, dry_run=False)
@@ -1642,23 +1690,32 @@ class IngestionLifecycleService:
         ):
             return
 
-        parcel_contexts = repository.fetch_parcel_tax_contexts(
-            county_id=county_id, tax_year=tax_year
-        )
-        taxing_unit_contexts = repository.fetch_taxing_unit_contexts(
-            county_id=county_id, tax_year=tax_year
-        )
-        assignments = build_tax_assignments(
-            parcels=parcel_contexts, taxing_units=taxing_unit_contexts
-        )
-        repository.replace_parcel_tax_assignments(
-            county_id=county_id,
-            tax_year=tax_year,
-            import_batch_id=import_batch_id,
-            job_run_id=job_run_id,
-            source_system_id=source_system_id,
-            assignments=assignments,
-        )
+        if hasattr(repository, "refresh_parcel_tax_assignments_set_based"):
+            repository.refresh_parcel_tax_assignments_set_based(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+            )
+        else:
+            parcel_contexts = repository.fetch_parcel_tax_contexts(
+                county_id=county_id, tax_year=tax_year
+            )
+            taxing_unit_contexts = repository.fetch_taxing_unit_contexts(
+                county_id=county_id, tax_year=tax_year
+            )
+            assignments = build_tax_assignments(
+                parcels=parcel_contexts, taxing_units=taxing_unit_contexts
+            )
+            repository.replace_parcel_tax_assignments(
+                county_id=county_id,
+                tax_year=tax_year,
+                import_batch_id=import_batch_id,
+                job_run_id=job_run_id,
+                source_system_id=source_system_id,
+                assignments=assignments,
+            )
         repository.refresh_effective_tax_rates(county_id=county_id, tax_year=tax_year)
 
     def _refresh_owner_reconciliation(

@@ -24,6 +24,7 @@ class AdminCountyYearDatasetReadiness(DwellioBaseModel):
     freshness_sla_days: int | None = None
     freshness_age_days: int | None = None
     recent_failed_job_count: int = 0
+    stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression: bool = False
 
@@ -33,6 +34,24 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     parcel_year_trend_ready: bool = False
     neighborhood_stats_ready: bool = False
     neighborhood_year_trend_ready: bool = False
+    instant_quote_subject_ready: bool = False
+    instant_quote_neighborhood_stats_ready: bool = False
+    instant_quote_segment_stats_ready: bool = False
+    instant_quote_asset_ready: bool = False
+    instant_quote_ready: bool = False
+    instant_quote_refresh_status: str | None = None
+    instant_quote_last_refresh_at: datetime | None = None
+    instant_quote_last_validated_at: datetime | None = None
+    instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
+    instant_quote_subject_rows_without_usable_segment_stats: int = 0
+    instant_quote_subject_rows_missing_segment_row: int = 0
+    instant_quote_subject_rows_thin_segment_support: int = 0
+    instant_quote_subject_rows_unusable_segment_basis: int = 0
+    instant_quote_served_neighborhood_only_quote_count: int = 0
+    instant_quote_served_supported_neighborhood_only_quote_count: int = 0
+    instant_quote_served_unsupported_neighborhood_only_quote_count: int = 0
     search_support_ready: bool
     feature_ready: bool
     comp_ready: bool
@@ -46,6 +65,12 @@ class AdminCountyYearDerivedReadiness(DwellioBaseModel):
     parcel_year_trend_row_count: int = 0
     neighborhood_stats_row_count: int = 0
     neighborhood_year_trend_row_count: int = 0
+    instant_quote_subject_row_count: int = 0
+    instant_quote_neighborhood_stats_row_count: int = 0
+    instant_quote_segment_stats_row_count: int = 0
+    instant_quote_supportable_row_count: int = 0
+    instant_quote_supported_neighborhood_stats_row_count: int = 0
+    instant_quote_supported_segment_stats_row_count: int = 0
     search_document_row_count: int
     parcel_feature_row_count: int
     comp_pool_row_count: int
@@ -65,6 +90,7 @@ class AdminCountyYearOperationalReadiness(DwellioBaseModel):
     freshness_age_days: int | None = None
     latest_activity_at: datetime | None = None
     recent_failed_job_count: int = 0
+    stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression_count: int = 0
     searchable_ready: bool = False
@@ -343,3 +369,42 @@ class AdminMutationResult(DwellioBaseModel):
     job_run_id: str | None = None
     publish_version: str | None = None
     message: str
+
+
+class AdminCountyYearWorkflowStep(DwellioBaseModel):
+    step_code: str
+    phase: str
+    title: str
+    status: str
+    summary: str
+    blockers: list[str] = Field(default_factory=list)
+    recommended_action: str | None = None
+    commands: list[str] = Field(default_factory=list)
+    related_dataset_type: str | None = None
+    related_import_batch_id: str | None = None
+
+
+class AdminCountyYearWorkflowValidationCandidate(DwellioBaseModel):
+    tax_year: int
+    readiness_score: int
+    recommended_for_qa: bool
+    parcel_summary_ready: bool
+    quote_ready: bool
+    instant_quote_ready: bool
+    caveats: list[str] = Field(default_factory=list)
+
+
+class AdminCountyYearWorkflow(DwellioBaseModel):
+    access_scope: str = "internal"
+    county_id: str
+    tax_year: int
+    overall_status: str
+    readiness_score: int
+    searchable_ready: bool
+    preferred_validation_year: int | None = None
+    summary: str
+    alerts: list[str] = Field(default_factory=list)
+    steps: list[AdminCountyYearWorkflowStep] = Field(default_factory=list)
+    validation_candidates: list[AdminCountyYearWorkflowValidationCandidate] = Field(
+        default_factory=list
+    )
