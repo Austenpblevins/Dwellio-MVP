@@ -46,6 +46,7 @@ class RecordingCursor:
         self.params: list[object | None] = []
         self.copy_rows: list[tuple[object, ...]] = []
         self.rowcount = 0
+        self._row: dict[str, str] | None = None
 
     def __enter__(self) -> RecordingCursor:
         return self
@@ -56,10 +57,22 @@ class RecordingCursor:
     def execute(self, query: str, params=None) -> None:
         self.queries.append(query)
         self.params.append(params)
+        normalized = " ".join(query.split())
+        if normalized.startswith("SELECT appraisal_district_id"):
+            self._row = {"appraisal_district_id": "district-1"}
+        elif normalized.startswith("INSERT INTO taxing_units"):
+            self._row = {"taxing_unit_id": "taxing-unit-1"}
+        elif normalized.startswith("INSERT INTO tax_rates"):
+            self._row = {"tax_rate_id": "tax-rate-1"}
+        else:
+            self._row = None
 
     def copy(self, query: str) -> RecordingCopy:
         self.queries.append(query)
         return RecordingCopy(self.copy_rows)
+
+    def fetchone(self) -> dict[str, str] | None:
+        return self._row
 
 
 class RecordingConnection:
@@ -292,3 +305,49 @@ def test_set_based_tax_assignment_refresh_builds_temp_context_and_bulk_effective
         MATCH_CONFIDENCE["county_ids"],
         MATCH_REASON_CODES["county_ids"],
     )
+
+
+def test_upsert_tax_rate_records_deletes_stale_rates_for_unit_only_rows() -> None:
+    connection = RecordingConnection()
+    repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]
+
+    lineage_records = repository.upsert_tax_rate_records(
+        county_id="harris",
+        tax_year=2026,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        normalized_records=[
+            {
+                "taxing_unit": {
+                    "unit_type_code": "school",
+                    "unit_code": "A76",
+                    "unit_name": "Deferred Unit",
+                    "metadata_json": {
+                        "rate_bearing_status": "caveated_rate_row_deferred",
+                    },
+                },
+                "tax_rate": None,
+                "source_record_hash": "hash-1",
+            }
+        ],
+    )
+
+    delete_params = next(
+        params
+        for query, params in zip(
+            connection.cursor_instance.queries,
+            connection.cursor_instance.params,
+            strict=False,
+        )
+        if "DELETE FROM tax_rates" in query
+    )
+
+    assert delete_params == ("taxing-unit-1", 2026)
+    assert lineage_records == [
+        {
+            "target_table": "taxing_units",
+            "target_id": "taxing-unit-1",
+            "taxing_unit_id": "taxing-unit-1",
+        }
+    ]

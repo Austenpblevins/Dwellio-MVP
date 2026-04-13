@@ -23,6 +23,10 @@ class Settings(BaseSettings):
 
     default_tax_year: int = Field(default=2026, alias="DWELLIO_DEFAULT_TAX_YEAR")
     admin_api_token: str = Field(default="dev-admin-token", alias="DWELLIO_ADMIN_API_TOKEN")
+    instant_quote_denominator_shift_alert_threshold: float = Field(
+        default=0.05,
+        alias="DWELLIO_INSTANT_QUOTE_DENOMINATOR_SHIFT_ALERT_THRESHOLD",
+    )
 
 
 @lru_cache(maxsize=1)

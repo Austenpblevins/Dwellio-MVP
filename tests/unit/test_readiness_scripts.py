@@ -65,6 +65,35 @@ def _dashboard() -> AdminCountyYearReadinessDashboard:
                 ],
                 derived=AdminCountyYearDerivedReadiness(
                     parcel_summary_ready=True,
+                    instant_quote_supportable_row_rate=0.75,
+                    instant_quote_support_rate_all_sfr_flagged_denominator_count=100,
+                    instant_quote_support_rate_all_sfr_flagged_supportable_count=75,
+                    instant_quote_support_rate_all_sfr_flagged=0.75,
+                    instant_quote_total_count_all_sfr_flagged=100,
+                    instant_quote_support_count_all_sfr_flagged=75,
+                    instant_quote_support_rate_strict_sfr_eligible_denominator_count=80,
+                    instant_quote_support_rate_strict_sfr_eligible_supportable_count=70,
+                    instant_quote_support_rate_strict_sfr_eligible=0.875,
+                    instant_quote_total_count_strict_sfr_eligible=80,
+                    instant_quote_support_count_strict_sfr_eligible=70,
+                    instant_quote_denominator_shift_alert={
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 100,
+                        "prior_total_count_all_sfr_flagged": 90,
+                        "pct_change": 0.1111111111111111,
+                        "abs_pct_change": 0.1111111111111111,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    instant_quote_denominator_shift_warning_codes=[
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
+                    instant_quote_high_value_support_rate=0.6,
+                    instant_quote_special_district_heavy_support_rate=0.8,
+                    instant_quote_monitored_zero_savings_quote_share=0.4,
+                    instant_quote_monitored_extreme_savings_watchlist_count=10,
+                    instant_quote_monitored_extreme_savings_flagged_count=2,
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -108,6 +137,58 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
     assert payload["county_id"] == "harris"
     assert payload["kpi_summary"]["healthy_year_count"] == 1
     assert payload["readiness_rows"][0]["operational"]["quality_status"] == "healthy"
+    assert payload["readiness_rows"][0]["derived_monitoring"]["instant_quote_supportable_row_rate"] == 0.75
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_rate_all_sfr_flagged"
+        ]
+        == 0.75
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_total_count_all_sfr_flagged"
+        ]
+        == 100
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_count_all_sfr_flagged"
+        ]
+        == 75
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_rate_strict_sfr_eligible"
+        ]
+        == 0.875
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_total_count_strict_sfr_eligible"
+        ]
+        == 80
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_support_count_strict_sfr_eligible"
+        ]
+        == 70
+    )
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_denominator_shift_alert"
+        ]["status"]
+        == "threshold_exceeded"
+    )
+    assert payload["readiness_rows"][0]["derived_monitoring"][
+        "instant_quote_denominator_shift_warning_codes"
+    ] == ["all_sfr_flagged_denominator_shift_exceeded"]
+    assert (
+        payload["readiness_rows"][0]["derived_monitoring"][
+            "instant_quote_monitored_extreme_savings_flagged_count"
+        ]
+        == 2
+    )
     assert payload["readiness_rows"][0]["datasets"][0]["latest_import_batch_id"] == "batch-property"
 
 

@@ -35,8 +35,12 @@ datasets:
             source_field: owner_name
           - target_field: property_type_code
             canonical_field_code: property_roll.parcel.property_type_code
-            transform: constant
-            default_value: sfr
+            source_field: class_cd
+            transform: property_class_to_sfr
+            transform_options:
+              sfr_class_codes:
+                - A1
+                - A5
           - target_field: property_class_code
             canonical_field_code: property_roll.parcel.property_class_code
             source_field: class_cd
@@ -80,8 +84,12 @@ datasets:
         fields:
           - target_field: property_type_code
             canonical_field_code: property_roll.characteristics.property_type_code
-            transform: constant
-            default_value: sfr
+            source_field: class_cd
+            transform: property_class_to_sfr
+            transform_options:
+              sfr_class_codes:
+                - A1
+                - A5
           - target_field: property_class_code
             canonical_field_code: property_roll.characteristics.property_class_code
             source_field: class_cd

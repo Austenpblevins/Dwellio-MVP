@@ -8,6 +8,13 @@ from app.county_adapters.common.config_loader import CountyAdapterConfig
 from app.county_adapters.common.field_mapping import required_source_fields
 
 
+RATE_BEARING = "rate_bearing"
+NON_RATE = "non_rate"
+LINKED = "linked_to_other_taxing_unit"
+CAVEATED_DEFERRED = "caveated_rate_row_deferred"
+OPTIONAL_RATE_STATUSES = {NON_RATE, LINKED, CAVEATED_DEFERRED}
+
+
 def validate_property_roll(
     *,
     config: CountyAdapterConfig,
@@ -179,7 +186,19 @@ def validate_tax_rates(
 
     seen_keys: set[tuple[str, str]] = set()
     for index, row in enumerate(staging_rows, start=1):
-        missing_fields = [field_name for field_name in required_fields if row.get(field_name) in (None, "", [])]
+        rate_bearing_status = str(
+            row.get("rate_bearing_status")
+            or (row.get("metadata_json") or {}).get("rate_bearing_status")
+            or RATE_BEARING
+        )
+        missing_fields = [
+            field_name
+            for field_name in required_fields
+            if field_name != "rate_value" or rate_bearing_status not in OPTIONAL_RATE_STATUSES
+        ]
+        missing_fields = [
+            field_name for field_name in missing_fields if row.get(field_name) in (None, "", [])
+        ]
         for field_name in missing_fields:
             findings.append(
                 ValidationFinding(
@@ -192,7 +211,14 @@ def validate_tax_rates(
                 )
             )
 
-        row_key = (str(row.get("unit_code") or ""), str(row.get("rate_component") or "ad_valorem"))
+        row_key = (
+            str(row.get("unit_code") or ""),
+            (
+                "__unit_only__"
+                if rate_bearing_status in OPTIONAL_RATE_STATUSES
+                else str(row.get("rate_component") or "ad_valorem")
+            ),
+        )
         if row_key in seen_keys:
             findings.append(
                 ValidationFinding(
@@ -218,7 +244,27 @@ def validate_tax_rates(
                 )
             )
 
-        if (row.get("rate_value") or 0) <= 0:
+        if rate_bearing_status not in {
+            RATE_BEARING,
+            NON_RATE,
+            LINKED,
+            CAVEATED_DEFERRED,
+        }:
+            findings.append(
+                ValidationFinding(
+                    validation_code="INVALID_RATE_BEARING_STATUS",
+                    message=(
+                        "rate_bearing_status must be rate_bearing, non_rate, "
+                        "linked_to_other_taxing_unit, or caveated_rate_row_deferred."
+                    ),
+                    severity="error",
+                    validation_scope="staging_row",
+                    entity_table=dataset_config.staging_table,
+                    details_json={"row_number": index, "failed_record": row},
+                )
+            )
+
+        if rate_bearing_status == RATE_BEARING and (row.get("rate_value") or 0) <= 0:
             findings.append(
                 ValidationFinding(
                     validation_code="INVALID_RATE_VALUE",

@@ -49,6 +49,7 @@ MIN_TRIM_GROUP_SIZE = 3
 TRIM_METHOD_P05_P95 = "trim_p05_p95"
 TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3 = "trim_p05_p95_preserve_all_lt3"
 MATERIAL_CAP_GAP_RATIO = 0.03
+EXTREME_SAVINGS_REVIEW_RATIO = 0.25
 CONSTRAINED_SAVINGS_NOTE = (
     "Your current tax protections may limit this year's savings even if your value is reduced."
 )
@@ -499,7 +500,15 @@ class InstantQuoteRefreshService:
                       pys.cad_owner_name,
                       pys.cad_owner_name_normalized
                     FROM parcel_year_snapshots pys
-                    WHERE pys.is_current = true
+                    JOIN parcels p
+                      ON p.parcel_id = pys.parcel_id
+	                    LEFT JOIN property_characteristics pc
+	                      ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+	                    WHERE pys.is_current = true
+	                      AND CASE
+	                        WHEN pc.property_characteristic_id IS NOT NULL THEN pc.property_type_code
+	                        ELSE p.property_type_code
+	                      END = 'sfr'
                       AND (%s::text IS NULL OR pys.county_id = %s)
                       AND (%s::integer IS NULL OR pys.tax_year = %s)
                     """,
@@ -757,24 +766,32 @@ class InstantQuoteRefreshService:
                         COALESCE(cor.override_flag, false) AS owner_override_flag,
                         scope.cad_owner_name,
                         scope.cad_owner_name_normalized,
-                        COALESCE(pc.property_type_code, p.property_type_code) AS property_type_code,
+	                        CASE
+	                          WHEN pc.property_characteristic_id IS NOT NULL THEN pc.property_type_code
+	                          ELSE p.property_type_code
+	                        END AS property_type_code,
                         COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
                         COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
                         COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
-                        pi.living_area_sf,
-                        pi.year_built,
+                        COALESCE(NULLIF(pi.living_area_sf, 0), pi_prior.living_area_sf) AS living_area_sf,
+                        CASE
+                          WHEN COALESCE(pi.living_area_sf, 0) <= 0
+                            AND COALESCE(pi_prior.living_area_sf, 0) > 0
+                            THEN COALESCE(pi_prior.year_built, pi.year_built)
+                          ELSE COALESCE(pi.year_built, pi_prior.year_built)
+                        END AS year_built,
                         pl.parcel_land_id,
-                        pa.parcel_assessment_id,
-                        pa.market_value,
-                        pa.assessed_value,
-                        pa.capped_value,
-                        pa.appraised_value,
-                        pa.certified_value,
-                        pa.notice_value,
-                        pa.land_value,
-                        pa.improvement_value,
-                        pa.exemption_value_total,
-                        pa.homestead_flag AS assessment_homestead_flag,
+                        COALESCE(pa.parcel_assessment_id, pa_prior.parcel_assessment_id) AS parcel_assessment_id,
+                        COALESCE(NULLIF(pa.market_value, 0), NULLIF(pa_prior.market_value, 0)) AS market_value,
+                        COALESCE(NULLIF(pa.assessed_value, 0), NULLIF(pa_prior.assessed_value, 0)) AS assessed_value,
+                        COALESCE(NULLIF(pa.capped_value, 0), NULLIF(pa_prior.capped_value, 0)) AS capped_value,
+                        COALESCE(NULLIF(pa.appraised_value, 0), NULLIF(pa_prior.appraised_value, 0)) AS appraised_value,
+                        COALESCE(NULLIF(pa.certified_value, 0), NULLIF(pa_prior.certified_value, 0)) AS certified_value,
+                        COALESCE(NULLIF(pa.notice_value, 0), NULLIF(pa_prior.notice_value, 0)) AS notice_value,
+                        COALESCE(pa.land_value, pa_prior.land_value) AS land_value,
+                        COALESCE(pa.improvement_value, pa_prior.improvement_value) AS improvement_value,
+                        COALESCE(pa.exemption_value_total, pa_prior.exemption_value_total) AS exemption_value_total,
+                        COALESCE(pa.homestead_flag, pa_prior.homestead_flag) AS assessment_homestead_flag,
                         COALESCE(er.exemption_record_count, 0) AS exemption_record_count,
                         COALESCE(er.granted_exemption_amount_total, 0::numeric) AS granted_exemption_amount_total,
                         COALESCE(er.exemption_type_codes, ARRAY[]::text[]) AS exemption_type_codes,
@@ -799,9 +816,37 @@ class InstantQuoteRefreshService:
                         COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
                         COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
                         pc.property_characteristic_id IS NOT NULL AS has_characteristics,
-                        pi.parcel_improvement_id IS NOT NULL AS has_improvement,
+                        (
+                          pi.parcel_improvement_id IS NOT NULL
+                          OR pi_prior.parcel_improvement_id IS NOT NULL
+                        ) AS has_improvement,
+                        (
+                          COALESCE(pi.living_area_sf, 0) <= 0
+                          AND COALESCE(pi_prior.living_area_sf, 0) > 0
+                        ) AS used_prior_year_living_area_fallback,
+                        (
+                          COALESCE(
+                            NULLIF(pa.certified_value, 0),
+                            NULLIF(pa.appraised_value, 0),
+                            NULLIF(pa.assessed_value, 0),
+                            NULLIF(pa.market_value, 0),
+                            NULLIF(pa.notice_value, 0),
+                            0
+                          ) <= 0
+                          AND COALESCE(
+                            NULLIF(pa_prior.certified_value, 0),
+                            NULLIF(pa_prior.appraised_value, 0),
+                            NULLIF(pa_prior.assessed_value, 0),
+                            NULLIF(pa_prior.market_value, 0),
+                            NULLIF(pa_prior.notice_value, 0),
+                            0
+                          ) > 0
+                        ) AS used_prior_year_assessment_basis_fallback,
                         pl.parcel_land_id IS NOT NULL AS has_land,
-                        pa.parcel_assessment_id IS NOT NULL AS has_assessment,
+                        (
+                          pa.parcel_assessment_id IS NOT NULL
+                          OR pa_prior.parcel_assessment_id IS NOT NULL
+                        ) AS has_assessment,
                         cor.current_owner_rollup_id IS NOT NULL AS has_owner_rollup,
                         etr.effective_tax_rate IS NOT NULL AS has_effective_tax_rate
                       FROM tmp_instant_quote_subject_scope scope
@@ -814,12 +859,18 @@ class InstantQuoteRefreshService:
                       LEFT JOIN parcel_improvements pi
                         ON pi.parcel_id = scope.parcel_id
                        AND pi.tax_year = scope.tax_year
+                      LEFT JOIN parcel_improvements pi_prior
+                        ON pi_prior.parcel_id = scope.parcel_id
+                       AND pi_prior.tax_year = scope.tax_year - 1
                       LEFT JOIN parcel_lands pl
                         ON pl.parcel_id = scope.parcel_id
                        AND pl.tax_year = scope.tax_year
                       LEFT JOIN parcel_assessments pa
                         ON pa.parcel_id = scope.parcel_id
                        AND pa.tax_year = scope.tax_year
+                      LEFT JOIN parcel_assessments pa_prior
+                        ON pa_prior.parcel_id = scope.parcel_id
+                       AND pa_prior.tax_year = scope.tax_year - 1
                       LEFT JOIN exemption_rollup er
                         ON er.parcel_id = scope.parcel_id
                        AND er.tax_year = scope.tax_year
@@ -971,6 +1022,19 @@ class InstantQuoteRefreshService:
                           CASE
                             WHEN NOT (sb.has_parcel_polygon OR sb.has_parcel_centroid)
                             THEN 'missing_geometry'
+                          END,
+                          CASE
+                            WHEN sb.used_prior_year_living_area_fallback
+                            THEN 'prior_year_living_area_fallback'
+                          END,
+                          CASE
+                            WHEN sb.used_prior_year_assessment_basis_fallback
+                            THEN 'prior_year_assessment_basis_fallback'
+                          END
+                          ,
+                          CASE
+                            WHEN sb.used_prior_year_assessment_basis_fallback
+                            THEN 'prior_year_assessment_basis_fallback'
                           END
                         ],
                         NULL
@@ -2551,6 +2615,52 @@ class InstantQuoteService:
             )
             return response, telemetry
 
+        if is_implausible_savings_outlier(
+            savings_estimate=savings_estimate,
+            assessment_basis_value=subject_basis_value,
+        ):
+            response = self._build_unsupported_response(
+                subject_row=subject_row,
+                requested_tax_year=requested_tax_year,
+                basis_code=basis_code,
+                unsupported_reason="implausible_savings_outlier",
+                summary="We found the parcel, but the projected savings is too large for a safe public quote.",
+                bullets=[
+                    "The estimate exceeded the public-safe savings threshold relative to the parcel's assessed basis.",
+                    REFINED_REVIEW_CTA,
+                ],
+                next_step_cta=REFINED_REVIEW_CTA,
+            )
+            telemetry.update(
+                {
+                    "basis_code": response.basis_code,
+                    "supported": False,
+                    "unsupported_reason": "implausible_savings_outlier",
+                    "fallback_tier": fallback_tier,
+                    "confidence_score": confidence_score,
+                    "confidence_label": confidence_label,
+                    "neighborhood_sample_count": neighborhood_stats.parcel_count,
+                    "segment_sample_count": segment_stats.parcel_count if segment_stats else 0,
+                    "tax_rate_source_method": subject_row.get("effective_tax_rate_source_method"),
+                    "tax_rate_basis_year": subject_row.get("effective_tax_rate_basis_year"),
+                    "tax_rate_basis_reason": subject_row.get("effective_tax_rate_basis_reason"),
+                    "tax_rate_basis_status": subject_row.get("effective_tax_rate_basis_status"),
+                    "tax_rate_basis_status_reason": subject_row.get(
+                        "effective_tax_rate_basis_status_reason"
+                    ),
+                    "subject_percentile": subject_percentile,
+                    "target_psf": target_psf,
+                    "subject_assessed_psf": subject_assessed_psf,
+                    "target_psf_segment_component": segment_component,
+                    "target_psf_neighborhood_component": neighborhood_component,
+                    "equity_value_estimate": equity_value_estimate,
+                    "reduction_estimate_raw": reduction_estimate,
+                    "savings_estimate_raw": savings_estimate,
+                    "explanation_payload": response.explanation.model_dump(),
+                }
+            )
+            return response, telemetry
+
         estimate = build_public_estimate(
             savings_estimate=savings_estimate,
             confidence_label=confidence_label,
@@ -2611,6 +2721,14 @@ class InstantQuoteService:
             disclaimers=[
                 "Instant quote is a fast estimate for protest opportunity, not a final valuation.",
                 "Savings ranges are rounded for public display and can change after a refined review.",
+                *(
+                    [
+                        "Current-year assessed basis was unavailable, so this estimate uses the prior year's assessed basis as a fallback."
+                    ]
+                    if "prior_year_assessment_basis_fallback"
+                    in {str(code) for code in subject_row.get("warning_codes") or []}
+                    else []
+                ),
             ],
         )
 
@@ -2924,6 +3042,9 @@ def score_confidence(
         score -= 20.0
     if str(subject_row.get("effective_tax_rate_source_method") or "") == "component_rollup":
         score -= 4.0
+    warning_codes = {str(code) for code in subject_row.get("warning_codes") or []}
+    if "prior_year_assessment_basis_fallback" in warning_codes:
+        score -= 8.0
 
     if bool(subject_row.get("freeze_flag")):
         score -= 15.0
@@ -3156,6 +3277,16 @@ def is_material_homestead_cap_limited(subject_row: dict[str, Any]) -> bool:
         return False
     gap_ratio = (assessment_basis_value - capped_value) / assessment_basis_value
     return gap_ratio >= MATERIAL_CAP_GAP_RATIO
+
+
+def is_implausible_savings_outlier(
+    *,
+    savings_estimate: float,
+    assessment_basis_value: float,
+) -> bool:
+    if savings_estimate <= 0 or assessment_basis_value <= 0:
+        return False
+    return (savings_estimate / assessment_basis_value) > EXTREME_SAVINGS_REVIEW_RATIO
 
 
 def _build_stats_row(row: dict[str, Any] | None) -> InstantQuoteStatsRow | None:

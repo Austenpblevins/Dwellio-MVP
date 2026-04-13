@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.instant_quote_tax_completeness import InstantQuoteTaxCompletenessPosture
 from app.services.data_readiness import DataReadinessService
 
 
@@ -111,6 +112,42 @@ class StubCursor:
                 ],
                 "validation_report": {
                     "supported_public_quote_exists": True,
+                    "supportable_row_rate": 0.6667,
+                    "support_rate_all_sfr_flagged_denominator_count": 18,
+                    "support_rate_all_sfr_flagged_supportable_count": 12,
+                    "support_rate_all_sfr_flagged": 0.6667,
+                    "total_count_all_sfr_flagged": 18,
+                    "support_count_all_sfr_flagged": 12,
+                    "support_rate_strict_sfr_eligible_denominator_count": 15,
+                    "support_rate_strict_sfr_eligible_supportable_count": 12,
+                    "support_rate_strict_sfr_eligible": 0.8,
+                    "total_count_strict_sfr_eligible": 15,
+                    "support_count_strict_sfr_eligible": 12,
+                    "denominator_shift_alert": {
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 18,
+                        "prior_total_count_all_sfr_flagged": 15,
+                        "pct_change": 0.2,
+                        "abs_pct_change": 0.2,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    "denominator_shift_warning_codes": [
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
+                    "high_value_subject_row_count": 30,
+                    "high_value_supportable_subject_row_count": 21,
+                    "high_value_support_rate": 0.7,
+                    "special_district_heavy_subject_row_count": 40,
+                    "special_district_heavy_supportable_subject_row_count": 28,
+                    "special_district_heavy_support_rate": 0.7,
+                    "monitored_zero_savings_sample_row_count": 20,
+                    "monitored_zero_savings_supported_quote_count": 18,
+                    "monitored_zero_savings_quote_count": 9,
+                    "monitored_zero_savings_quote_share": 0.5,
+                    "monitored_extreme_savings_watchlist_count": 10,
+                    "monitored_extreme_savings_flagged_count": 1,
                     "subject_rows_without_usable_neighborhood_stats": 1,
                     "subject_rows_without_usable_segment_stats": 9,
                     "subject_rows_missing_segment_row": 7,
@@ -213,6 +250,35 @@ def test_data_readiness_summary(monkeypatch) -> None:
         "account_number_continuity_diagnostic",
     ]
     assert readiness.derived.instant_quote_supported_public_quote_exists is True
+    assert readiness.derived.instant_quote_supportable_row_rate == 0.6667
+    assert readiness.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count == 18
+    assert readiness.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count == 12
+    assert readiness.derived.instant_quote_support_rate_all_sfr_flagged == 0.6667
+    assert readiness.derived.instant_quote_total_count_all_sfr_flagged == 18
+    assert readiness.derived.instant_quote_support_count_all_sfr_flagged == 12
+    assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count == 15
+    assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count == 12
+    assert readiness.derived.instant_quote_support_rate_strict_sfr_eligible == 0.8
+    assert readiness.derived.instant_quote_total_count_strict_sfr_eligible == 15
+    assert readiness.derived.instant_quote_support_count_strict_sfr_eligible == 12
+    assert readiness.derived.instant_quote_denominator_shift_alert["status"] == (
+        "threshold_exceeded"
+    )
+    assert readiness.derived.instant_quote_denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
+    assert readiness.derived.instant_quote_high_value_subject_row_count == 30
+    assert readiness.derived.instant_quote_high_value_supportable_subject_row_count == 21
+    assert readiness.derived.instant_quote_high_value_support_rate == 0.7
+    assert readiness.derived.instant_quote_special_district_heavy_subject_row_count == 40
+    assert readiness.derived.instant_quote_special_district_heavy_supportable_subject_row_count == 28
+    assert readiness.derived.instant_quote_special_district_heavy_support_rate == 0.7
+    assert readiness.derived.instant_quote_monitored_zero_savings_sample_row_count == 20
+    assert readiness.derived.instant_quote_monitored_zero_savings_supported_quote_count == 18
+    assert readiness.derived.instant_quote_monitored_zero_savings_quote_count == 9
+    assert readiness.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
+    assert readiness.derived.instant_quote_monitored_extreme_savings_watchlist_count == 10
+    assert readiness.derived.instant_quote_monitored_extreme_savings_flagged_count == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats == 1
     assert readiness.derived.instant_quote_subject_rows_without_usable_segment_stats == 9
     assert readiness.derived.instant_quote_subject_rows_missing_segment_row == 7
@@ -230,3 +296,39 @@ def test_data_readiness_summary(monkeypatch) -> None:
     assert readiness.derived.explanation_ready is True
     assert readiness.derived.recommendation_ready is True
     assert readiness.derived.quote_ready is True
+
+
+def test_data_readiness_surfaces_tax_completeness_posture(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.data_readiness.get_connection", lambda: StubConnection())
+    monkeypatch.setattr(
+        "app.services.data_readiness.classify_instant_quote_tax_completeness",
+        lambda **kwargs: InstantQuoteTaxCompletenessPosture(
+            status="operational_with_caveats",
+            reason="fort_bend_revalidation_residual_risk",
+            internal_note="Fort Bend 2026 parcel tax completeness is operational with caveats.",
+            warning_codes=(
+                "acceptable_caution_rows_operational",
+                "risky_caution_rows_monitored",
+                "continuity_gap_rows_monitored",
+            ),
+        ),
+    )
+
+    readiness = DataReadinessService().build_tax_year_readiness(
+        county_id="fort_bend",
+        tax_year=2026,
+    )
+
+    assert readiness.derived.instant_quote_ready is False
+    assert readiness.derived.instant_quote_tax_completeness_status == "operational_with_caveats"
+    assert readiness.derived.instant_quote_tax_completeness_reason == (
+        "fort_bend_revalidation_residual_risk"
+    )
+    assert readiness.derived.instant_quote_tax_completeness_internal_note == (
+        "Fort Bend 2026 parcel tax completeness is operational with caveats."
+    )
+    assert readiness.derived.instant_quote_tax_completeness_warning_codes == [
+        "acceptable_caution_rows_operational",
+        "risky_caution_rows_monitored",
+        "continuity_gap_rows_monitored",
+    ]

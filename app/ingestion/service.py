@@ -1489,7 +1489,11 @@ class IngestionLifecycleService:
             unit_keys = [
                 (
                     str(record.get("taxing_unit", {}).get("unit_code") or ""),
-                    str(record.get("tax_rate", {}).get("rate_component") or "ad_valorem"),
+                    (
+                        "__unit_only__"
+                        if record.get("tax_rate") is None
+                        else str(record.get("tax_rate", {}).get("rate_component") or "ad_valorem")
+                    ),
                 )
                 for record in normalized_records
             ]

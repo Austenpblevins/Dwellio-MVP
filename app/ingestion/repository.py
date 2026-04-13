@@ -2216,7 +2216,7 @@ class IngestionRepository:
 
         for record in normalized_records:
             taxing_unit = record["taxing_unit"]
-            tax_rate = record["tax_rate"]
+            tax_rate = record.get("tax_rate")
             source_record_hash = record["source_record_hash"]
             with self.connection.cursor() as cursor:
                 parent_taxing_unit_id = None
@@ -2287,57 +2287,68 @@ class IngestionRepository:
                 )
                 taxing_unit_id = str(cursor.fetchone()["taxing_unit_id"])
 
-                cursor.execute(
-                    """
-                    INSERT INTO tax_rates (
-                      taxing_unit_id,
-                      county_id,
-                      tax_year,
-                      rate_component,
-                      rate_value,
-                      rate_per_100,
-                      effective_from,
-                      effective_to,
-                      is_current,
-                      source_system_id,
-                      import_batch_id,
-                      source_record_hash
+                if tax_rate is None:
+                    cursor.execute(
+                        """
+                        DELETE FROM tax_rates
+                        WHERE taxing_unit_id = %s
+                          AND tax_year = %s
+                        """,
+                        (taxing_unit_id, tax_year),
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (taxing_unit_id, tax_year, rate_component)
-                    DO UPDATE SET
-                      county_id = EXCLUDED.county_id,
-                      rate_value = EXCLUDED.rate_value,
-                      rate_per_100 = EXCLUDED.rate_per_100,
-                      effective_from = EXCLUDED.effective_from,
-                      effective_to = EXCLUDED.effective_to,
-                      is_current = EXCLUDED.is_current,
-                      source_system_id = EXCLUDED.source_system_id,
-                      import_batch_id = EXCLUDED.import_batch_id,
-                      source_record_hash = EXCLUDED.source_record_hash,
-                      updated_at = now()
-                    RETURNING tax_rate_id
-                    """,
-                    (
-                        taxing_unit_id,
-                        county_id,
-                        tax_year,
-                        tax_rate.get("rate_component", "ad_valorem"),
-                        tax_rate["rate_value"],
-                        tax_rate.get("rate_per_100"),
-                        tax_rate.get("effective_from"),
-                        tax_rate.get("effective_to"),
-                        tax_rate.get("is_current", True),
-                        source_system_id,
-                        import_batch_id,
-                        source_record_hash,
-                    ),
-                )
-                tax_rate_id = str(cursor.fetchone()["tax_rate_id"])
+                    tax_rate_id = None
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO tax_rates (
+                          taxing_unit_id,
+                          county_id,
+                          tax_year,
+                          rate_component,
+                          rate_value,
+                          rate_per_100,
+                          effective_from,
+                          effective_to,
+                          is_current,
+                          source_system_id,
+                          import_batch_id,
+                          source_record_hash
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (taxing_unit_id, tax_year, rate_component)
+                        DO UPDATE SET
+                          county_id = EXCLUDED.county_id,
+                          rate_value = EXCLUDED.rate_value,
+                          rate_per_100 = EXCLUDED.rate_per_100,
+                          effective_from = EXCLUDED.effective_from,
+                          effective_to = EXCLUDED.effective_to,
+                          is_current = EXCLUDED.is_current,
+                          source_system_id = EXCLUDED.source_system_id,
+                          import_batch_id = EXCLUDED.import_batch_id,
+                          source_record_hash = EXCLUDED.source_record_hash,
+                          updated_at = now()
+                        RETURNING tax_rate_id
+                        """,
+                        (
+                            taxing_unit_id,
+                            county_id,
+                            tax_year,
+                            tax_rate.get("rate_component", "ad_valorem"),
+                            tax_rate["rate_value"],
+                            tax_rate.get("rate_per_100"),
+                            tax_rate.get("effective_from"),
+                            tax_rate.get("effective_to"),
+                            tax_rate.get("is_current", True),
+                            source_system_id,
+                            import_batch_id,
+                            source_record_hash,
+                        ),
+                    )
+                    tax_rate_id = str(cursor.fetchone()["tax_rate_id"])
             lineage_records.append(
                 {
-                    "target_table": "tax_rates",
-                    "target_id": tax_rate_id,
+                    "target_table": "tax_rates" if tax_rate_id is not None else "taxing_units",
+                    "target_id": tax_rate_id or taxing_unit_id,
                     "taxing_unit_id": taxing_unit_id,
                 }
             )
@@ -2440,13 +2451,19 @@ class IngestionRepository:
               tu.unit_name,
               tu.metadata_json
             FROM taxing_units tu
-            JOIN tax_rates tr
+            LEFT JOIN tax_rates tr
               ON tr.taxing_unit_id = tu.taxing_unit_id
              AND tr.tax_year = tu.tax_year
              AND tr.is_current = true
             WHERE tu.county_id = %s
               AND tu.tax_year = %s
               AND tu.active_flag = true
+              AND COALESCE(tu.metadata_json ->> 'rate_bearing_status', 'rate_bearing')
+                  NOT IN ('non_rate', 'linked_to_other_taxing_unit')
+              AND (
+                tr.taxing_unit_id IS NOT NULL
+                OR COALESCE(tu.metadata_json ->> 'assignment_eligible_without_rate', 'false') = 'true'
+              )
             ORDER BY tu.unit_type_code ASC, tu.unit_code ASC
             """,
             (county_id, tax_year),
@@ -2640,13 +2657,19 @@ class IngestionRepository:
                     tu.unit_name,
                     COALESCE(tu.metadata_json, '{}'::jsonb) AS metadata_json
                   FROM taxing_units tu
-                  JOIN tax_rates tr
+                  LEFT JOIN tax_rates tr
                     ON tr.taxing_unit_id = tu.taxing_unit_id
                    AND tr.tax_year = tu.tax_year
                    AND tr.is_current = true
                   WHERE tu.county_id = %s
                     AND tu.tax_year = %s
                     AND tu.active_flag = true
+                    AND COALESCE(tu.metadata_json ->> 'rate_bearing_status', 'rate_bearing')
+                        NOT IN ('non_rate', 'linked_to_other_taxing_unit')
+                    AND (
+                      tr.taxing_unit_id IS NOT NULL
+                      OR COALESCE(tu.metadata_json ->> 'assignment_eligible_without_rate', 'false') = 'true'
+                    )
                 ),
                 explicit_hints AS (
                   SELECT
@@ -2656,6 +2679,7 @@ class IngestionRepository:
                     cu.unit_code,
                     upper(btrim(value.value)) AS candidate_value,
                     hint_value.match_key,
+                    NULLIF(cu.metadata_json -> 'assignment_hints' ->> 'source', '') AS hint_source,
                     COALESCE(
                       NULLIF(cu.metadata_json -> 'assignment_hints' ->> 'priority', '')::integer,
                       hint_value.default_priority
@@ -2710,6 +2734,7 @@ class IngestionRepository:
                     cu.unit_code,
                     upper(btrim(value.value)) AS candidate_value,
                     fallback_value.match_key,
+                    NULLIF(cu.metadata_json -> 'assignment_hints' ->> 'source', '') AS hint_source,
                     fallback_value.default_priority AS priority
                   FROM current_units cu
                   CROSS JOIN LATERAL (
@@ -2775,6 +2800,7 @@ class IngestionRepository:
                   unit_code,
                   candidate_value,
                   match_key,
+                  hint_source,
                   priority
                 FROM (
                   SELECT * FROM explicit_hints
@@ -2815,6 +2841,7 @@ class IngestionRepository:
                     tu.taxing_unit_id,
                     tu.unit_type_code,
                     tu.unit_code,
+                    NULL::text AS hint_source,
                     'source_direct'::assignment_method_enum AS assignment_method,
                     %s::numeric(5,4) AS assignment_confidence,
                     %s::integer AS priority,
@@ -2843,6 +2870,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_direct'::assignment_method_enum AS assignment_method,
                     %s::numeric(5,4) AS assignment_confidence,
                     hints.priority,
@@ -2860,6 +2888,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_inferred'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -2877,6 +2906,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_inferred'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -2894,6 +2924,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_inferred'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -2911,6 +2942,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_inferred'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -2928,6 +2960,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_inferred'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -2945,6 +2978,7 @@ class IngestionRepository:
                     hints.taxing_unit_id,
                     hints.unit_type_code,
                     hints.unit_code,
+                    hints.hint_source,
                     'source_direct'::assignment_method_enum,
                     %s::numeric(5,4),
                     hints.priority,
@@ -3041,7 +3075,11 @@ class IngestionRepository:
                       ELSE NULL
                     END,
                     'assignment_reason_code',
-                    ranked.assignment_reason_code
+                    ranked.assignment_reason_code,
+                    'hint_source',
+                    ranked.hint_source,
+                    'unit_code',
+                    ranked.unit_code
                   )
                 FROM tmp_ranked_tax_assignments ranked
                 WHERE ranked.unit_rank = 1

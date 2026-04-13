@@ -248,3 +248,155 @@ Then inspect:
 - `instant_quote_refresh_runs.tax_rate_basis_warning_codes`
 - readiness/admin output fields derived from the latest refresh run
 - `instant_quote_tax_rate_adoption_statuses` for the stored reason, source, and note
+
+## 8. Stage 19 SFR denominator QA
+
+Use this check after changing county class-code mapping or quote-subject scope:
+
+```sql
+SELECT
+  pys.account_number,
+  COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
+  pc.property_type_code,
+  p.situs_address,
+  p.situs_city,
+  pa.improvement_value,
+  pi.living_area_sf
+FROM parcel_year_snapshots pys
+JOIN parcels p ON p.parcel_id = pys.parcel_id
+LEFT JOIN property_characteristics pc
+  ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+LEFT JOIN parcel_assessments pa
+  ON pa.parcel_id = pys.parcel_id
+ AND pa.tax_year = pys.tax_year
+LEFT JOIN parcel_improvements pi
+  ON pi.parcel_id = pys.parcel_id
+ AND pi.tax_year = pys.tax_year
+WHERE pys.county_id = '<county_id>'
+  AND pys.tax_year = 2026
+  AND pys.is_current IS TRUE
+  AND pc.property_characteristic_id IS NOT NULL
+  AND pc.property_type_code IS NULL
+ORDER BY md5(pys.account_number), pys.account_number
+LIMIT 200;
+```
+
+Classify the deterministic sample against county class-description evidence before expanding the SFR cohort:
+
+- `correctly_excluded_non_sfr`: class-description evidence is mobile home, auxiliary building, multifamily, condo/apartment style, vacant, ag/rural, commercial/industrial, mineral/utility/BPP/inventory, exempt, or special/nonstandard.
+- `likely_true_sfr_false_negative`: class-description evidence is single-family quoteable but the row is excluded.
+- `ambiguous_needs_manual_review`: source descriptions are mixed or insufficient. Do not include the class until local raw evidence or official CAD spot checks resolve it.
+
+Readiness and admin reporting must keep both denominator-quality KPIs visible:
+
+- `support_rate_all_sfr_flagged`, `support_count_all_sfr_flagged`, `total_count_all_sfr_flagged`
+- `support_rate_strict_sfr_eligible`, `support_count_strict_sfr_eligible`, `total_count_strict_sfr_eligible`
+
+When an interrupted manual import leaves a staged draft residue:
+
+1. Confirm the batch is not published: `status = 'staged'`, `publish_state = 'draft'`, and `publish_version IS NULL`.
+2. Confirm it has no canonical current snapshots: `SELECT COUNT(*) FROM parcel_year_snapshots WHERE import_batch_id = '<id>'`.
+3. Confirm a prior published batch exists for the same county, tax year, and dataset before changing status.
+4. Close the draft by marking only that batch `status = 'rolled_back'`, `publish_state = 'rolled_back'`, and a `status_reason` that states no canonical publish occurred.
+5. Do not delete raw files or staging rows; keep them as audit evidence.
+6. Re-run instant-quote refresh, validation, and readiness reporting for the affected county-year.
+
+## 9. Stage 19 Weekly Quote Quality Monitoring
+
+Run this after the weekly Harris/Fort Bend quote refresh and validation jobs:
+
+Freshness gate: skip refresh if the latest completed validation is less than `24` hours old; otherwise run refresh and validation for Harris and Fort Bend before running the monitor.
+
+```bash
+python3 infra/scripts/report_quote_quality_monitor.py \
+  --county-ids harris,fort_bend \
+  --tax-year 2026
+```
+
+Scheduler path:
+
+No CI scheduler file is currently committed in this repository, so use the cron/systemd-compatible wrapper as the scheduler entrypoint until a team CI scheduler is added.
+
+```bash
+python3 infra/scripts/run_weekly_quote_quality_monitor.py \
+  --county-ids harris,fort_bend \
+  --tax-year 2026 \
+  --output-dir artifacts/quote_quality_monitor/latest \
+  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts \
+  --alert-webhook-env-var DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL
+```
+
+Example weekly cron entry:
+
+```cron
+0 13 * * 1 cd /Users/nblevins/Desktop/Dwellio && python3 infra/scripts/run_weekly_quote_quality_monitor.py --county-ids harris,fort_bend --tax-year 2026 --output-dir artifacts/quote_quality_monitor/latest --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts --alert-webhook-env-var DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL
+```
+
+Durable outputs:
+
+- `artifacts/quote_quality_monitor/latest/stage19_weekly_quote_quality_monitor.json`
+- `artifacts/quote_quality_monitor/latest/stage19_weekly_quote_quality_monitor.md`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_zero_savings.csv`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_top_outliers.csv`
+- `artifacts/quote_quality_monitor/latest/stage19_refresh_watchlist_summary.md`
+- `artifacts/quote_quality_monitor/latest/run_state.json`
+- `artifacts/quote_quality_monitor/latest/alert_payload.json`
+- `artifacts/quote_quality_monitor/latest/manifest.json`
+
+Optional transient mirror outputs:
+
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_weekly_quote_quality_monitor.json`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_weekly_quote_quality_monitor.md`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_zero_savings.csv`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_top_outliers.csv`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/stage19_refresh_watchlist_summary.md`
+- `/tmp/stage19_weekly_quote_quality_monitor_artifacts/run_state.json`
+
+Alerting:
+
+- The wrapper writes `alert_payload.json` every run.
+- Alertable conditions are `quote_quality_monitor_job_failed`, `quote_quality_denominator_shift_alert`, `quote_quality_validation_denominator_shift_alert`, `quote_quality_excluded_class_leakage`, `validation_stale`, and `validation_missing`.
+- Webhook delivery is enabled when `DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL` is configured in the runtime environment.
+- Use `--force-alert` for an end-to-end notifier smoke test without waiting for organic alert conditions:
+
+```bash
+DWELLIO_QUOTE_QUALITY_MONITOR_WEBHOOK_URL=<configured_url> \
+python3 infra/scripts/run_weekly_quote_quality_monitor.py \
+  --county-ids harris,fort_bend \
+  --tax-year 2026 \
+  --output-dir artifacts/quote_quality_monitor/latest \
+  --tmp-output-dir /tmp/stage19_weekly_quote_quality_monitor_artifacts \
+  --force-alert
+```
+
+- Always review `alert_payload.json` and `run_state.json` after each scheduled run to confirm alert decisions and delivery status.
+
+Interpretation:
+
+- Denominator shift: review any `threshold_exceeded` status for `total_count_all_sfr_flagged` or `total_count_strict_sfr_eligible`. The default threshold is `5%`, configurable with `DWELLIO_INSTANT_QUOTE_DENOMINATOR_SHIFT_ALERT_THRESHOLD`.
+- Validation freshness: review any `validation_stale` or `validation_missing` warning before using the weekly metrics. The default monitor threshold is `24` hours and can be adjusted with `--freshness-threshold-hours`.
+- Excluded-class leakage: `strong_signal_excluded` should stay near zero. Any material leakage means a non-SFR class may be suppressing true SFR quote subjects or a source-class mapping changed.
+- `$0` share: compare the current monitored zero-savings share against prior weekly reports. A sudden rise is a product/valuation-review signal first, not a tax-rate change by default.
+- Extreme-savings watchlist: review the top-outlier CSV and escalate any row that breaches the public-safe savings threshold, has implausible effective-tax-rate metadata, or appears to be a non-SFR class in the quoteable SFR cohort.
+
+Manual review rubric:
+
+- `likely_legitimate_no_reduction`: supported quote, plausible tax rate, no material reduction signal, no completeness blocker.
+- `likely_data_quality_issue`: unexpected blocker, stale source metadata, implausible class/type, or denominator/leakage alert nearby.
+- `likely_valuation_model_outlier`: high savings driven by valuation assumptions rather than tax-rate or source metadata.
+- `escalate`: public-safe savings threshold breach, implausible tax component metadata, or non-SFR leakage into the strict SFR cohort.
+
+Optional monthly non-prod divergence drill:
+
+Purpose: verify the all-SFR and strict-SFR denominator paths remain independently monitored when cohorts are intentionally mixed.
+
+Frequency: monthly, non-prod only.
+
+Procedure:
+
+1. Run only outside production; do not mutate canonical production parcel or quote rows.
+2. Use a fixture or temporary query-layer simulation with mixed cohorts, for example all-SFR `75/100` and strict-SFR `75/80`.
+3. Confirm `support_rate_all_sfr_flagged != support_rate_strict_sfr_eligible`.
+4. Pass when the drill reports `diverged = true`; fail if both KPI variants use the same denominator or rate.
+5. Cleanup is no-op for fixture-driven runs. If a temporary non-prod table/view is used, drop only that temporary object after the drill.
+6. Record the drill date, environment, and pass/fail result in the weekly monitor notes; do not persist fixture rows into production datasets.
