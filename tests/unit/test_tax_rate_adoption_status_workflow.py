@@ -173,6 +173,61 @@ def test_cli_passes_tax_rate_adoption_status_arguments(monkeypatch) -> None:
     }
 
 
+def test_cli_preserves_tax_rate_status_and_account_number_filters(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    account_numbers_file = tmp_path / "accounts.txt"
+    account_numbers_file.write_text("1001001001002\n1001001001003\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli,
+        "execute_job",
+        lambda job_name, job_callable, **job_kwargs: captured.update(
+            {"job_name": job_name, "job_callable": job_callable, "job_kwargs": job_kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cli.py",
+            "job_set_tax_rate_adoption_status",
+            "--county-id",
+            "harris",
+            "--tax-year",
+            "2026",
+            "--account-number",
+            "1001001001001",
+            "--account-numbers-file",
+            str(account_numbers_file),
+            "--tax-rate-basis-status",
+            "current_year_unofficial_or_proposed_rates",
+            "--tax-rate-basis-status-reason",
+            "pre-adoption estimate season",
+            "--tax-rate-basis-status-note",
+            "operator review note",
+            "--tax-rate-basis-status-source",
+            "operator_asserted",
+        ],
+    )
+
+    cli.main()
+
+    assert captured["job_name"] == "job_set_tax_rate_adoption_status"
+    assert captured["job_kwargs"] == {
+        "county_id": "harris",
+        "tax_year": 2026,
+        "account_numbers": [
+            "1001001001001",
+            "1001001001002",
+            "1001001001003",
+        ],
+        "tax_rate_basis_status": "current_year_unofficial_or_proposed_rates",
+        "tax_rate_basis_status_reason": "pre-adoption estimate season",
+        "tax_rate_basis_status_note": "operator review note",
+        "tax_rate_basis_status_source": "operator_asserted",
+    }
+
+
 def test_tax_rate_adoption_status_service_rejects_final_status_without_audit_metadata(
     monkeypatch,
 ) -> None:

@@ -826,7 +826,10 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     assert search_refresh_calls
     assert updates[-1]["status"] == "normalized"
     assert completed_runs[-1]["status"] == "succeeded"
-    assert "rollback_manifest" not in completed_runs[-1]["metadata_json"]
+    assert completed_runs[-1]["metadata_json"]["rollback_manifest"] == {
+        "dataset_type": "property_roll",
+        "entries": [{"account_number": "1001001001001", "prior_state": None}],
+    }
     assert completed_runs[-1]["metadata_json"]["rollback_manifest_summary"] == {
         "dataset_type": "property_roll",
         "storage_mode": "summary_only_bulk_property_roll",
@@ -865,6 +868,7 @@ def test_build_bulk_property_roll_manifest_metadata_returns_small_summary() -> N
 def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
     service = IngestionLifecycleService()
     search_refresh_calls: list[dict[str, object]] = []
+    rollback_calls: list[dict[str, object]] = []
 
     class StubRepository:
         def __init__(self, connection: object) -> None:
@@ -883,12 +887,24 @@ def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
             )
 
         def fetch_job_run_metadata(self, **kwargs) -> dict[str, object]:
-            return {"rollback_manifest": {"entries": []}}
+            return {
+                "rollback_manifest": {
+                    "dataset_type": "property_roll",
+                    "entries": [{"account_number": "1001001001001", "prior_state": None}],
+                },
+                "rollback_manifest_summary": {
+                    "dataset_type": "property_roll",
+                    "storage_mode": "summary_only_bulk_property_roll",
+                    "entry_count": 1,
+                    "sample_account_numbers": ["1001001001001"],
+                },
+            }
 
         def create_job_run(self, **kwargs) -> str:
             return "job-rollback"
 
         def rollback_property_roll_records(self, **kwargs) -> int:
+            rollback_calls.append(kwargs)
             return 2
 
         def insert_validation_results(self, **kwargs) -> None:
@@ -924,6 +940,16 @@ def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
     assert len(search_refresh_calls) == 1
     assert search_refresh_calls[0]["county_id"] == "harris"
     assert search_refresh_calls[0]["tax_year"] == 2025
+    assert rollback_calls == [
+        {
+            "import_batch_id": "batch-1",
+            "tax_year": 2025,
+            "rollback_manifest": {
+                "dataset_type": "property_roll",
+                "entries": [{"account_number": "1001001001001", "prior_state": None}],
+            },
+        }
+    ]
 
 
 def test_refresh_tax_assignments_prefers_set_based_repository_path() -> None:
