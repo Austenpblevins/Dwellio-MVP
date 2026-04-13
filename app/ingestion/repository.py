@@ -2288,6 +2288,14 @@ class IngestionRepository:
                 taxing_unit_id = str(cursor.fetchone()["taxing_unit_id"])
 
                 if tax_rate is None:
+                    cursor.execute(
+                        """
+                        DELETE FROM tax_rates
+                        WHERE taxing_unit_id = %s
+                          AND tax_year = %s
+                        """,
+                        (taxing_unit_id, tax_year),
+                    )
                     tax_rate_id = None
                 else:
                     cursor.execute(

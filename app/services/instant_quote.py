@@ -782,12 +782,12 @@ class InstantQuoteRefreshService:
                         END AS year_built,
                         pl.parcel_land_id,
                         COALESCE(pa.parcel_assessment_id, pa_prior.parcel_assessment_id) AS parcel_assessment_id,
-                        COALESCE(pa.market_value, pa_prior.market_value) AS market_value,
-                        COALESCE(pa.assessed_value, pa_prior.assessed_value) AS assessed_value,
-                        COALESCE(pa.capped_value, pa_prior.capped_value) AS capped_value,
-                        COALESCE(pa.appraised_value, pa_prior.appraised_value) AS appraised_value,
-                        COALESCE(pa.certified_value, pa_prior.certified_value) AS certified_value,
-                        COALESCE(pa.notice_value, pa_prior.notice_value) AS notice_value,
+                        COALESCE(NULLIF(pa.market_value, 0), NULLIF(pa_prior.market_value, 0)) AS market_value,
+                        COALESCE(NULLIF(pa.assessed_value, 0), NULLIF(pa_prior.assessed_value, 0)) AS assessed_value,
+                        COALESCE(NULLIF(pa.capped_value, 0), NULLIF(pa_prior.capped_value, 0)) AS capped_value,
+                        COALESCE(NULLIF(pa.appraised_value, 0), NULLIF(pa_prior.appraised_value, 0)) AS appraised_value,
+                        COALESCE(NULLIF(pa.certified_value, 0), NULLIF(pa_prior.certified_value, 0)) AS certified_value,
+                        COALESCE(NULLIF(pa.notice_value, 0), NULLIF(pa_prior.notice_value, 0)) AS notice_value,
                         COALESCE(pa.land_value, pa_prior.land_value) AS land_value,
                         COALESCE(pa.improvement_value, pa_prior.improvement_value) AS improvement_value,
                         COALESCE(pa.exemption_value_total, pa_prior.exemption_value_total) AS exemption_value_total,
@@ -826,19 +826,19 @@ class InstantQuoteRefreshService:
                         ) AS used_prior_year_living_area_fallback,
                         (
                           COALESCE(
-                            pa.certified_value,
-                            pa.appraised_value,
-                            pa.assessed_value,
-                            pa.market_value,
-                            pa.notice_value,
+                            NULLIF(pa.certified_value, 0),
+                            NULLIF(pa.appraised_value, 0),
+                            NULLIF(pa.assessed_value, 0),
+                            NULLIF(pa.market_value, 0),
+                            NULLIF(pa.notice_value, 0),
                             0
                           ) <= 0
                           AND COALESCE(
-                            pa_prior.certified_value,
-                            pa_prior.appraised_value,
-                            pa_prior.assessed_value,
-                            pa_prior.market_value,
-                            pa_prior.notice_value,
+                            NULLIF(pa_prior.certified_value, 0),
+                            NULLIF(pa_prior.appraised_value, 0),
+                            NULLIF(pa_prior.assessed_value, 0),
+                            NULLIF(pa_prior.market_value, 0),
+                            NULLIF(pa_prior.notice_value, 0),
                             0
                           ) > 0
                         ) AS used_prior_year_assessment_basis_fallback,

@@ -287,6 +287,26 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
         for statement in cursor.statements
     )
     assert any(
+        "COALESCE(NULLIF(pa.certified_value, 0), NULLIF(pa_prior.certified_value, 0)) AS certified_value"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "COALESCE(NULLIF(pa.assessed_value, 0), NULLIF(pa_prior.assessed_value, 0)) AS assessed_value"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "COALESCE( NULLIF(pa.certified_value, 0), NULLIF(pa.appraised_value, 0), NULLIF(pa.assessed_value, 0), NULLIF(pa.market_value, 0), NULLIF(pa.notice_value, 0), 0 ) <= 0"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
+        "COALESCE( NULLIF(pa_prior.certified_value, 0), NULLIF(pa_prior.appraised_value, 0), NULLIF(pa_prior.assessed_value, 0), NULLIF(pa_prior.market_value, 0), NULLIF(pa_prior.notice_value, 0), 0 ) > 0"
+        in statement
+        for statement in cursor.statements
+    )
+    assert any(
         "prior_year_living_area_fallback" in statement for statement in cursor.statements
     )
     assert any(
