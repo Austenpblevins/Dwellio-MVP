@@ -769,17 +769,17 @@ class InstantQuoteRefreshService:
                           ELSE COALESCE(pi.year_built, pi_prior.year_built)
                         END AS year_built,
                         pl.parcel_land_id,
-                        pa.parcel_assessment_id,
-                        pa.market_value,
-                        pa.assessed_value,
-                        pa.capped_value,
-                        pa.appraised_value,
-                        pa.certified_value,
-                        pa.notice_value,
-                        pa.land_value,
-                        pa.improvement_value,
-                        pa.exemption_value_total,
-                        pa.homestead_flag AS assessment_homestead_flag,
+                        COALESCE(pa.parcel_assessment_id, pa_prior.parcel_assessment_id) AS parcel_assessment_id,
+                        COALESCE(pa.market_value, pa_prior.market_value) AS market_value,
+                        COALESCE(pa.assessed_value, pa_prior.assessed_value) AS assessed_value,
+                        COALESCE(pa.capped_value, pa_prior.capped_value) AS capped_value,
+                        COALESCE(pa.appraised_value, pa_prior.appraised_value) AS appraised_value,
+                        COALESCE(pa.certified_value, pa_prior.certified_value) AS certified_value,
+                        COALESCE(pa.notice_value, pa_prior.notice_value) AS notice_value,
+                        COALESCE(pa.land_value, pa_prior.land_value) AS land_value,
+                        COALESCE(pa.improvement_value, pa_prior.improvement_value) AS improvement_value,
+                        COALESCE(pa.exemption_value_total, pa_prior.exemption_value_total) AS exemption_value_total,
+                        COALESCE(pa.homestead_flag, pa_prior.homestead_flag) AS assessment_homestead_flag,
                         COALESCE(er.exemption_record_count, 0) AS exemption_record_count,
                         COALESCE(er.granted_exemption_amount_total, 0::numeric) AS granted_exemption_amount_total,
                         COALESCE(er.exemption_type_codes, ARRAY[]::text[]) AS exemption_type_codes,
@@ -804,9 +804,37 @@ class InstantQuoteRefreshService:
                         COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
                         COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
                         pc.property_characteristic_id IS NOT NULL AS has_characteristics,
-                        pi.parcel_improvement_id IS NOT NULL AS has_improvement,
+                        (
+                          pi.parcel_improvement_id IS NOT NULL
+                          OR pi_prior.parcel_improvement_id IS NOT NULL
+                        ) AS has_improvement,
+                        (
+                          COALESCE(pi.living_area_sf, 0) <= 0
+                          AND COALESCE(pi_prior.living_area_sf, 0) > 0
+                        ) AS used_prior_year_living_area_fallback,
+                        (
+                          COALESCE(
+                            pa.certified_value,
+                            pa.appraised_value,
+                            pa.assessed_value,
+                            pa.market_value,
+                            pa.notice_value,
+                            0
+                          ) <= 0
+                          AND COALESCE(
+                            pa_prior.certified_value,
+                            pa_prior.appraised_value,
+                            pa_prior.assessed_value,
+                            pa_prior.market_value,
+                            pa_prior.notice_value,
+                            0
+                          ) > 0
+                        ) AS used_prior_year_assessment_basis_fallback,
                         pl.parcel_land_id IS NOT NULL AS has_land,
-                        pa.parcel_assessment_id IS NOT NULL AS has_assessment,
+                        (
+                          pa.parcel_assessment_id IS NOT NULL
+                          OR pa_prior.parcel_assessment_id IS NOT NULL
+                        ) AS has_assessment,
                         cor.current_owner_rollup_id IS NOT NULL AS has_owner_rollup,
                         etr.effective_tax_rate IS NOT NULL AS has_effective_tax_rate
                       FROM tmp_instant_quote_subject_scope scope
@@ -819,12 +847,18 @@ class InstantQuoteRefreshService:
                       LEFT JOIN parcel_improvements pi
                         ON pi.parcel_id = scope.parcel_id
                        AND pi.tax_year = scope.tax_year
+                      LEFT JOIN parcel_improvements pi_prior
+                        ON pi_prior.parcel_id = scope.parcel_id
+                       AND pi_prior.tax_year = scope.tax_year - 1
                       LEFT JOIN parcel_lands pl
                         ON pl.parcel_id = scope.parcel_id
                        AND pl.tax_year = scope.tax_year
                       LEFT JOIN parcel_assessments pa
                         ON pa.parcel_id = scope.parcel_id
                        AND pa.tax_year = scope.tax_year
+                      LEFT JOIN parcel_assessments pa_prior
+                        ON pa_prior.parcel_id = scope.parcel_id
+                       AND pa_prior.tax_year = scope.tax_year - 1
                       LEFT JOIN exemption_rollup er
                         ON er.parcel_id = scope.parcel_id
                        AND er.tax_year = scope.tax_year
@@ -976,6 +1010,14 @@ class InstantQuoteRefreshService:
                           CASE
                             WHEN NOT (sb.has_parcel_polygon OR sb.has_parcel_centroid)
                             THEN 'missing_geometry'
+                          END,
+                          CASE
+                            WHEN sb.used_prior_year_living_area_fallback
+                            THEN 'prior_year_living_area_fallback'
+                          END,
+                          CASE
+                            WHEN sb.used_prior_year_assessment_basis_fallback
+                            THEN 'prior_year_assessment_basis_fallback'
                           END
                         ],
                         NULL
