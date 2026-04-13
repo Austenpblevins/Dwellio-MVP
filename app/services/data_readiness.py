@@ -8,8 +8,14 @@ from app.county_adapters.common.config_loader import (
     resolve_dataset_year_support,
 )
 from app.db.connection import get_connection
+from app.services.instant_quote_tax_rate_basis import (
+    INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS,
+)
+from app.services.instant_quote_tax_completeness import (
+    classify_instant_quote_tax_completeness,
+)
 
-INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = 20
+INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT = INSTANT_QUOTE_TAX_RATE_BASIS_MIN_SUPPORTABLE_SUBJECTS
 
 
 @dataclass(frozen=True)
@@ -46,7 +52,54 @@ class TaxYearDerivedReadiness:
     instant_quote_last_refresh_at: datetime | None = None
     instant_quote_last_validated_at: datetime | None = None
     instant_quote_cache_view_row_delta: int | None = None
+    instant_quote_tax_rate_basis_year: int | None = None
+    instant_quote_tax_rate_basis_reason: str | None = None
+    instant_quote_tax_rate_basis_fallback_applied: bool = False
+    instant_quote_tax_rate_basis_status: str | None = None
+    instant_quote_tax_rate_basis_status_reason: str | None = None
+    instant_quote_tax_rate_basis_internal_note: str | None = None
+    instant_quote_tax_completeness_status: str | None = None
+    instant_quote_tax_completeness_reason: str | None = None
+    instant_quote_tax_completeness_internal_note: str | None = None
+    instant_quote_tax_completeness_warning_codes: list[str] = field(default_factory=list)
+    instant_quote_tax_rate_requested_year_supportable_subject_row_count: int = 0
+    instant_quote_tax_rate_basis_supportable_subject_row_count: int = 0
+    instant_quote_tax_rate_quoteable_subject_row_count: int = 0
+    instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio: float = 0.0
+    instant_quote_tax_rate_requested_year_assignment_coverage_ratio: float = 0.0
+    instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio: float = 0.0
+    instant_quote_tax_rate_basis_assignment_coverage_ratio: float = 0.0
+    instant_quote_tax_rate_basis_continuity_parcel_match_row_count: int = 0
+    instant_quote_tax_rate_basis_continuity_parcel_gap_row_count: int = 0
+    instant_quote_tax_rate_basis_continuity_parcel_match_ratio: float = 0.0
+    instant_quote_tax_rate_basis_continuity_account_number_match_row_count: int = 0
+    instant_quote_tax_rate_basis_warning_codes: list[str] = field(default_factory=list)
     instant_quote_supported_public_quote_exists: bool = False
+    instant_quote_supportable_row_rate: float = 0.0
+    instant_quote_support_rate_all_sfr_flagged_denominator_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged_supportable_count: int = 0
+    instant_quote_support_rate_all_sfr_flagged: float = 0.0
+    instant_quote_total_count_all_sfr_flagged: int = 0
+    instant_quote_support_count_all_sfr_flagged: int = 0
+    instant_quote_support_rate_strict_sfr_eligible_denominator_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible_supportable_count: int = 0
+    instant_quote_support_rate_strict_sfr_eligible: float = 0.0
+    instant_quote_total_count_strict_sfr_eligible: int = 0
+    instant_quote_support_count_strict_sfr_eligible: int = 0
+    instant_quote_denominator_shift_alert: dict[str, object] = field(default_factory=dict)
+    instant_quote_denominator_shift_warning_codes: list[str] = field(default_factory=list)
+    instant_quote_high_value_subject_row_count: int = 0
+    instant_quote_high_value_supportable_subject_row_count: int = 0
+    instant_quote_high_value_support_rate: float = 0.0
+    instant_quote_special_district_heavy_subject_row_count: int = 0
+    instant_quote_special_district_heavy_supportable_subject_row_count: int = 0
+    instant_quote_special_district_heavy_support_rate: float = 0.0
+    instant_quote_monitored_zero_savings_sample_row_count: int = 0
+    instant_quote_monitored_zero_savings_supported_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_count: int = 0
+    instant_quote_monitored_zero_savings_quote_share: float = 0.0
+    instant_quote_monitored_extreme_savings_watchlist_count: int = 0
+    instant_quote_monitored_extreme_savings_flagged_count: int = 0
     instant_quote_subject_rows_without_usable_neighborhood_stats: int = 0
     instant_quote_subject_rows_without_usable_segment_stats: int = 0
     instant_quote_subject_rows_missing_segment_row: int = 0
@@ -463,6 +516,78 @@ class DataReadinessService:
             and instant_quote_segment_stats_row_count > 0
             and int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0) == 0
         )
+        instant_quote_tax_rate_basis_year = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_year") is None
+                else int(latest_instant_quote_refresh.get("tax_rate_basis_year"))
+            )
+        )
+        instant_quote_tax_rate_basis_reason = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_reason") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_reason"))
+            )
+        )
+        instant_quote_tax_rate_basis_status = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_status") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_status"))
+            )
+        )
+        instant_quote_tax_rate_basis_status_reason = (
+            None
+            if latest_instant_quote_refresh is None
+            else (
+                None
+                if latest_instant_quote_refresh.get("tax_rate_basis_status_reason") is None
+                else str(latest_instant_quote_refresh.get("tax_rate_basis_status_reason"))
+            )
+        )
+        instant_quote_ready = (
+            instant_quote_asset_ready
+            and instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
+            and instant_quote_supported_neighborhood_stats_row_count > 0
+        )
+        tax_completeness_posture = classify_instant_quote_tax_completeness(
+            county_id=county_id,
+            tax_year=tax_year,
+            instant_quote_ready=instant_quote_ready,
+            basis_tax_year=instant_quote_tax_rate_basis_year,
+            basis_status=instant_quote_tax_rate_basis_status,
+            basis_effective_tax_rate_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_effective_tax_rate_coverage_ratio"
+                )
+                or 0.0
+            ),
+            basis_assignment_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_assignment_coverage_ratio"
+                )
+                or 0.0
+            ),
+            continuity_parcel_gap_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_gap_row_count"
+                )
+                or 0
+            ),
+            continuity_parcel_match_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_match_ratio"
+                )
+                or 0.0
+            ),
+        )
 
         return TaxYearDerivedReadiness(
             parcel_summary_ready=parcel_summary_row_count > 0,
@@ -473,12 +598,7 @@ class DataReadinessService:
             instant_quote_neighborhood_stats_ready=instant_quote_neighborhood_stats_row_count > 0,
             instant_quote_segment_stats_ready=instant_quote_segment_stats_row_count > 0,
             instant_quote_asset_ready=instant_quote_asset_ready,
-            instant_quote_ready=(
-                instant_quote_asset_ready
-                and
-                instant_quote_supportable_row_count >= INSTANT_QUOTE_PUBLIC_SUPPORT_MIN_COUNT
-                and instant_quote_supported_neighborhood_stats_row_count > 0
-            ),
+            instant_quote_ready=instant_quote_ready,
             instant_quote_refresh_status=(
                 None
                 if latest_instant_quote_refresh is None
@@ -499,11 +619,269 @@ class DataReadinessService:
                 if latest_instant_quote_refresh is None
                 else int(latest_instant_quote_refresh.get("cache_view_row_delta") or 0)
             ),
+            instant_quote_tax_rate_basis_year=instant_quote_tax_rate_basis_year,
+            instant_quote_tax_rate_basis_reason=instant_quote_tax_rate_basis_reason,
+            instant_quote_tax_rate_basis_fallback_applied=bool(
+                latest_instant_quote_refresh
+                and latest_instant_quote_refresh.get("tax_rate_basis_fallback_applied")
+            ),
+            instant_quote_tax_rate_basis_status=instant_quote_tax_rate_basis_status,
+            instant_quote_tax_rate_basis_status_reason=instant_quote_tax_rate_basis_status_reason,
+            instant_quote_tax_rate_basis_internal_note=self._instant_quote_tax_rate_basis_internal_note(
+                tax_year=tax_year,
+                basis_tax_year=instant_quote_tax_rate_basis_year,
+                basis_status=instant_quote_tax_rate_basis_status,
+            ),
+            instant_quote_tax_completeness_status=tax_completeness_posture.status,
+            instant_quote_tax_completeness_reason=tax_completeness_posture.reason,
+            instant_quote_tax_completeness_internal_note=tax_completeness_posture.internal_note,
+            instant_quote_tax_completeness_warning_codes=list(
+                tax_completeness_posture.warning_codes
+            ),
+            instant_quote_tax_rate_requested_year_supportable_subject_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "requested_tax_rate_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_basis_supportable_subject_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_quoteable_subject_row_count=int(
+                (latest_instant_quote_refresh or {}).get("tax_rate_quoteable_subject_row_count")
+                or 0
+            ),
+            instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "requested_tax_rate_effective_tax_rate_coverage_ratio"
+                )
+                or 0.0
+            ),
+            instant_quote_tax_rate_requested_year_assignment_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "requested_tax_rate_assignment_coverage_ratio"
+                )
+                or 0.0
+            ),
+            instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_effective_tax_rate_coverage_ratio"
+                )
+                or 0.0
+            ),
+            instant_quote_tax_rate_basis_assignment_coverage_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_assignment_coverage_ratio"
+                )
+                or 0.0
+            ),
+            instant_quote_tax_rate_basis_continuity_parcel_match_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_match_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_basis_continuity_parcel_gap_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_gap_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_basis_continuity_parcel_match_ratio=float(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_parcel_match_ratio"
+                )
+                or 0.0
+            ),
+            instant_quote_tax_rate_basis_continuity_account_number_match_row_count=int(
+                (latest_instant_quote_refresh or {}).get(
+                    "tax_rate_basis_continuity_account_number_match_row_count"
+                )
+                or 0
+            ),
+            instant_quote_tax_rate_basis_warning_codes=list(
+                (latest_instant_quote_refresh or {}).get("tax_rate_basis_warning_codes") or []
+            ),
             instant_quote_supported_public_quote_exists=bool(
                 latest_instant_quote_refresh
                 and (latest_instant_quote_refresh.get("validation_report") or {}).get(
                     "supported_public_quote_exists"
                 )
+            ),
+            instant_quote_supportable_row_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "supportable_row_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_support_rate_all_sfr_flagged_denominator_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_all_sfr_flagged_supportable_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_all_sfr_flagged=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged"
+                )
+                or 0.0
+            ),
+            instant_quote_total_count_all_sfr_flagged=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "total_count_all_sfr_flagged"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_count_all_sfr_flagged=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_count_all_sfr_flagged"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_all_sfr_flagged_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible_denominator_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible_supportable_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_support_rate_strict_sfr_eligible=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible"
+                )
+                or 0.0
+            ),
+            instant_quote_total_count_strict_sfr_eligible=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "total_count_strict_sfr_eligible"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_denominator_count"
+                )
+                or 0
+            ),
+            instant_quote_support_count_strict_sfr_eligible=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_count_strict_sfr_eligible"
+                )
+                or ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "support_rate_strict_sfr_eligible_supportable_count"
+                )
+                or 0
+            ),
+            instant_quote_denominator_shift_alert=dict(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "denominator_shift_alert"
+                )
+                or {}
+            ),
+            instant_quote_denominator_shift_warning_codes=list(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "denominator_shift_warning_codes"
+                )
+                or (
+                    ((latest_instant_quote_refresh or {}).get("validation_report") or {})
+                    .get("denominator_shift_alert", {})
+                    .get("warning_codes", [])
+                    if isinstance(
+                        ((latest_instant_quote_refresh or {}).get("validation_report") or {})
+                        .get("denominator_shift_alert", {}),
+                        dict,
+                    )
+                    else []
+                )
+            ),
+            instant_quote_high_value_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_high_value_supportable_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_high_value_support_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "high_value_support_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_special_district_heavy_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_special_district_heavy_supportable_subject_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_supportable_subject_row_count"
+                )
+                or 0
+            ),
+            instant_quote_special_district_heavy_support_rate=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "special_district_heavy_support_rate"
+                )
+                or 0.0
+            ),
+            instant_quote_monitored_zero_savings_sample_row_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_sample_row_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_supported_quote_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_supported_quote_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_quote_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_quote_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_zero_savings_quote_share=float(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_zero_savings_quote_share"
+                )
+                or 0.0
+            ),
+            instant_quote_monitored_extreme_savings_watchlist_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_extreme_savings_watchlist_count"
+                )
+                or 0
+            ),
+            instant_quote_monitored_extreme_savings_flagged_count=int(
+                ((latest_instant_quote_refresh or {}).get("validation_report") or {}).get(
+                    "monitored_extreme_savings_flagged_count"
+                )
+                or 0
             ),
             instant_quote_subject_rows_without_usable_neighborhood_stats=int(
                 (
@@ -587,6 +965,25 @@ class DataReadinessService:
             quote_row_count=quote_row_count,
         )
 
+    def _instant_quote_tax_rate_basis_internal_note(
+        self,
+        *,
+        tax_year: int,
+        basis_tax_year: int | None,
+        basis_status: str | None,
+    ) -> str | None:
+        if (
+            basis_tax_year is None
+            or basis_tax_year >= tax_year
+            or basis_status != "prior_year_adopted_rates"
+        ):
+            return None
+        return (
+            f"{tax_year} instant quote currently uses {basis_tax_year} adopted tax-rate "
+            f"basis until {tax_year} rates are available and refreshed. Current-year "
+            "rates are typically updated later in the year, often around September-October."
+        )
+
     def _tax_year_exists(self, connection: object, *, tax_year: int) -> bool:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 AS present FROM tax_years WHERE tax_year = %s", (tax_year,))
@@ -627,6 +1024,10 @@ class DataReadinessService:
                 WHERE ib.county_id = %s
                   AND ib.tax_year = %s
                   AND ib.dataset_type = %s
+                  AND NOT (
+                    ib.status = 'rolled_back'
+                    AND ib.publish_state = 'rolled_back'
+                  )
                 ORDER BY ib.created_at DESC, ib.import_batch_id DESC
                 LIMIT 1
                 """,
@@ -649,6 +1050,23 @@ class DataReadinessService:
                   refresh_finished_at,
                   validated_at,
                   cache_view_row_delta,
+                  tax_rate_basis_year,
+                  tax_rate_basis_reason,
+                  tax_rate_basis_fallback_applied,
+                  tax_rate_basis_status,
+                  tax_rate_basis_status_reason,
+                  requested_tax_rate_supportable_subject_row_count,
+                  tax_rate_basis_supportable_subject_row_count,
+                  tax_rate_quoteable_subject_row_count,
+                  requested_tax_rate_effective_tax_rate_coverage_ratio,
+                  requested_tax_rate_assignment_coverage_ratio,
+                  tax_rate_basis_effective_tax_rate_coverage_ratio,
+                  tax_rate_basis_assignment_coverage_ratio,
+                  tax_rate_basis_continuity_parcel_match_row_count,
+                  tax_rate_basis_continuity_parcel_gap_row_count,
+                  tax_rate_basis_continuity_parcel_match_ratio,
+                  tax_rate_basis_continuity_account_number_match_row_count,
+                  tax_rate_basis_warning_codes,
                   validation_report
                 FROM instant_quote_refresh_runs
                 WHERE county_id = %s
