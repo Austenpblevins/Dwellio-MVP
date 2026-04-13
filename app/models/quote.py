@@ -62,6 +62,7 @@ InstantQuoteUnsupportedReason = Literal[
     "thin_market_support",
     "low_confidence_refined_review",
     "tax_limitation_uncertain",
+    "implausible_savings_outlier",
 ]
 
 

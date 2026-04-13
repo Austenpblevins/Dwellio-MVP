@@ -115,6 +115,34 @@ class StubDataReadinessService:
                     instant_quote_segment_stats_ready=True,
                     instant_quote_asset_ready=True,
                     instant_quote_ready=False,
+                    instant_quote_tax_rate_basis_year=2024,
+                    instant_quote_tax_rate_basis_reason=(
+                        "fallback_requested_year_missing_supportable_subjects"
+                    ),
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_rate_basis_status_reason="basis_year_precedes_quote_year",
+                    instant_quote_tax_rate_basis_internal_note=(
+                        "2025 instant quote currently uses 2024 adopted tax-rate basis until 2025 "
+                        "rates are available and refreshed. Current-year rates are typically updated "
+                        "later in the year, often around September-October."
+                    ),
+                    instant_quote_tax_rate_requested_year_supportable_subject_row_count=0,
+                    instant_quote_tax_rate_basis_supportable_subject_row_count=31,
+                    instant_quote_tax_rate_quoteable_subject_row_count=100,
+                    instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio=0.31,
+                    instant_quote_tax_rate_requested_year_assignment_coverage_ratio=0.62,
+                    instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio=0.93,
+                    instant_quote_tax_rate_basis_assignment_coverage_ratio=0.96,
+                    instant_quote_tax_rate_basis_continuity_parcel_match_row_count=88,
+                    instant_quote_tax_rate_basis_continuity_parcel_gap_row_count=12,
+                    instant_quote_tax_rate_basis_continuity_parcel_match_ratio=0.88,
+                    instant_quote_tax_rate_basis_continuity_account_number_match_row_count=5,
+                    instant_quote_tax_rate_basis_warning_codes=[
+                        "parcel_continuity_warning",
+                        "account_number_continuity_diagnostic",
+                        "current_year_final_adoption_metadata_incomplete",
+                    ],
                     search_support_ready=True,
                     feature_ready=False,
                     comp_ready=False,
@@ -229,6 +257,26 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "manual_backfill_required" in row.blockers
     assert "instant_quote_public_support_thin" in row.blockers
     assert row.derived.instant_quote_asset_ready is True
+    assert row.derived.instant_quote_tax_rate_basis_year == 2024
+    assert row.derived.instant_quote_tax_rate_basis_fallback_applied is True
+    assert row.derived.instant_quote_tax_rate_basis_reason == (
+        "fallback_requested_year_missing_supportable_subjects"
+    )
+    assert row.derived.instant_quote_tax_rate_basis_status == "prior_year_adopted_rates"
+    assert row.derived.instant_quote_tax_rate_basis_internal_note == (
+        "2025 instant quote currently uses 2024 adopted tax-rate basis until 2025 rates are "
+        "available and refreshed. Current-year rates are typically updated later in the year, "
+        "often around September-October."
+    )
+    assert row.derived.instant_quote_tax_rate_basis_status_reason == (
+        "basis_year_precedes_quote_year"
+    )
+    assert row.derived.instant_quote_tax_rate_basis_continuity_parcel_match_ratio == 0.88
+    assert row.derived.instant_quote_tax_rate_basis_warning_codes == [
+        "parcel_continuity_warning",
+        "account_number_continuity_diagnostic",
+        "current_year_final_adoption_metadata_incomplete",
+    ]
     assert "search_read_model_not_ready" not in row.blockers
     assert row.operational.quality_status == "critical"
     assert row.operational.stale_running_job_count == 1
@@ -236,6 +284,8 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert "deeds_validation_regression" in row.operational.alerts
     assert "deeds_stale_jobs" in row.operational.alerts
     assert "instant_quote_support_too_thin" in row.operational.alerts
+    assert "instant_quote_tax_rate_parcel_continuity_warning" in row.operational.alerts
+    assert "instant_quote_tax_rate_final_adoption_metadata_incomplete" in row.operational.alerts
     assert dashboard.kpi_summary.critical_year_count == 1
     assert dashboard.kpi_summary.validation_regression_count == 1
 
@@ -309,6 +359,254 @@ def test_admin_readiness_marks_publish_blocked_dataset() -> None:
     )
     assert dataset.freshness_status == "stale"
     assert dataset.validation_regression is True
+    assert dataset.validation_regression is True
+
+
+def test_admin_readiness_surfaces_fort_bend_tax_completeness_caveats() -> None:
+    class FortBendStubDataReadinessService:
+        def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
+            assert county_id == "fort_bend"
+            return CountyTaxYearReadiness(
+                county_id=county_id,
+                tax_year=tax_year,
+                tax_year_known=True,
+                datasets=[
+                    DatasetYearReadiness(
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        dataset_type="property_roll",
+                        source_system_code="FBCAD_BULK",
+                        access_method="manual_upload",
+                        availability_status="manual_upload_required",
+                        tax_year_known=True,
+                        raw_file_count=1,
+                        latest_import_batch_id=f"batch-{tax_year}",
+                        latest_import_status="normalized",
+                        latest_publish_state="published",
+                        staged=True,
+                        canonical_published=True,
+                    )
+                ],
+                derived=TaxYearDerivedReadiness(
+                    parcel_summary_ready=True,
+                    parcel_year_trend_ready=True,
+                    neighborhood_stats_ready=True,
+                    neighborhood_year_trend_ready=True,
+                    instant_quote_subject_ready=True,
+                    instant_quote_neighborhood_stats_ready=True,
+                    instant_quote_segment_stats_ready=True,
+                    instant_quote_asset_ready=True,
+                    instant_quote_ready=True,
+                    instant_quote_refresh_status="completed",
+                    instant_quote_tax_rate_basis_year=2025,
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_completeness_status="operational_with_caveats",
+                    instant_quote_tax_completeness_reason="fort_bend_revalidation_residual_risk",
+                    instant_quote_tax_completeness_internal_note=(
+                        "Fort Bend 2026 parcel tax completeness is operational with caveats."
+                    ),
+                    instant_quote_tax_completeness_warning_codes=[
+                        "acceptable_caution_rows_operational",
+                        "risky_caution_rows_monitored",
+                        "continuity_gap_rows_monitored",
+                    ],
+                    instant_quote_supportable_row_rate=0.72,
+                    instant_quote_support_rate_all_sfr_flagged_denominator_count=100,
+                    instant_quote_support_rate_all_sfr_flagged_supportable_count=72,
+                    instant_quote_support_rate_all_sfr_flagged=0.72,
+                    instant_quote_total_count_all_sfr_flagged=100,
+                    instant_quote_support_count_all_sfr_flagged=72,
+                    instant_quote_support_rate_strict_sfr_eligible_denominator_count=80,
+                    instant_quote_support_rate_strict_sfr_eligible_supportable_count=72,
+                    instant_quote_support_rate_strict_sfr_eligible=0.9,
+                    instant_quote_total_count_strict_sfr_eligible=80,
+                    instant_quote_support_count_strict_sfr_eligible=72,
+                    instant_quote_denominator_shift_alert={
+                        "status": "threshold_exceeded",
+                        "triggered": True,
+                        "threshold_pct": 0.05,
+                        "current_total_count_all_sfr_flagged": 100,
+                        "prior_total_count_all_sfr_flagged": 90,
+                        "pct_change": 0.1111111111111111,
+                        "abs_pct_change": 0.1111111111111111,
+                        "warning_codes": ["all_sfr_flagged_denominator_shift_exceeded"],
+                    },
+                    instant_quote_denominator_shift_warning_codes=[
+                        "all_sfr_flagged_denominator_shift_exceeded"
+                    ],
+                    instant_quote_high_value_subject_row_count=40,
+                    instant_quote_high_value_supportable_subject_row_count=28,
+                    instant_quote_high_value_support_rate=0.7,
+                    instant_quote_special_district_heavy_subject_row_count=30,
+                    instant_quote_special_district_heavy_supportable_subject_row_count=24,
+                    instant_quote_special_district_heavy_support_rate=0.8,
+                    instant_quote_monitored_zero_savings_sample_row_count=20,
+                    instant_quote_monitored_zero_savings_supported_quote_count=18,
+                    instant_quote_monitored_zero_savings_quote_count=9,
+                    instant_quote_monitored_zero_savings_quote_share=0.5,
+                    instant_quote_monitored_extreme_savings_watchlist_count=10,
+                    instant_quote_monitored_extreme_savings_flagged_count=2,
+                    search_support_ready=True,
+                    feature_ready=False,
+                    comp_ready=False,
+                    valuation_ready=False,
+                    savings_ready=False,
+                    decision_tree_ready=False,
+                    explanation_ready=False,
+                    recommendation_ready=False,
+                    quote_ready=False,
+                    parcel_summary_row_count=10,
+                    instant_quote_subject_row_count=10,
+                    instant_quote_neighborhood_stats_row_count=5,
+                    instant_quote_segment_stats_row_count=5,
+                    instant_quote_supportable_row_count=10,
+                    instant_quote_supported_neighborhood_stats_row_count=5,
+                    instant_quote_supported_segment_stats_row_count=5,
+                    search_document_row_count=10,
+                    parcel_feature_row_count=0,
+                    comp_pool_row_count=0,
+                    quote_row_count=0,
+                ),
+            )
+
+    dashboard = AdminReadinessService(
+        data_readiness_service=FortBendStubDataReadinessService(),
+        operational_metrics_provider=type(
+            "FortBendStubOperationalMetricsProvider",
+            (),
+            {
+                "build_dataset_metrics": lambda self, connection, *, county_id, tax_year, dataset_type: DatasetOperationalMetrics(
+                    freshness_status="fresh",
+                    freshness_sla_days=14,
+                    freshness_age_days=1,
+                )
+            },
+        )(),
+        connection_factory=lambda: NullConnection(),
+    ).build_dashboard(county_id="fort_bend", tax_years=[2026])
+
+    row = dashboard.readiness_rows[0]
+    assert row.derived.instant_quote_ready is True
+    assert row.derived.instant_quote_tax_completeness_status == "operational_with_caveats"
+    assert row.derived.instant_quote_tax_completeness_reason == (
+        "fort_bend_revalidation_residual_risk"
+    )
+    assert row.derived.instant_quote_tax_completeness_warning_codes == [
+        "acceptable_caution_rows_operational",
+        "risky_caution_rows_monitored",
+        "continuity_gap_rows_monitored",
+    ]
+    assert row.derived.instant_quote_supportable_row_rate == 0.72
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count == 100
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count == 72
+    assert row.derived.instant_quote_support_rate_all_sfr_flagged == 0.72
+    assert row.derived.instant_quote_total_count_all_sfr_flagged == 100
+    assert row.derived.instant_quote_support_count_all_sfr_flagged == 72
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count == 80
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count == 72
+    assert row.derived.instant_quote_support_rate_strict_sfr_eligible == 0.9
+    assert row.derived.instant_quote_total_count_strict_sfr_eligible == 80
+    assert row.derived.instant_quote_support_count_strict_sfr_eligible == 72
+    assert row.derived.instant_quote_denominator_shift_alert["status"] == (
+        "threshold_exceeded"
+    )
+    assert row.derived.instant_quote_denominator_shift_warning_codes == [
+        "all_sfr_flagged_denominator_shift_exceeded"
+    ]
+    assert row.derived.instant_quote_high_value_support_rate == 0.7
+    assert row.derived.instant_quote_special_district_heavy_support_rate == 0.8
+    assert row.derived.instant_quote_monitored_zero_savings_quote_share == 0.5
+    assert row.derived.instant_quote_monitored_extreme_savings_watchlist_count == 10
+    assert row.derived.instant_quote_monitored_extreme_savings_flagged_count == 2
+    assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
+    assert "instant_quote_tax_completeness_risky_caution_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
+    assert "instant_quote_extreme_savings_review_required" in row.operational.alerts
+    assert "instant_quote_denominator_shift_review_required" in row.operational.alerts
+
+
+def test_admin_readiness_surfaces_harris_caveated_special_family_monitoring() -> None:
+    class HarrisStubDataReadinessService:
+        def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
+            assert county_id == "harris"
+            return CountyTaxYearReadiness(
+                county_id=county_id,
+                tax_year=tax_year,
+                tax_year_known=True,
+                datasets=[],
+                derived=TaxYearDerivedReadiness(
+                    parcel_summary_ready=True,
+                    parcel_year_trend_ready=True,
+                    neighborhood_stats_ready=True,
+                    neighborhood_year_trend_ready=True,
+                    instant_quote_subject_ready=True,
+                    instant_quote_neighborhood_stats_ready=True,
+                    instant_quote_segment_stats_ready=True,
+                    instant_quote_asset_ready=True,
+                    instant_quote_ready=True,
+                    instant_quote_refresh_status="completed",
+                    instant_quote_tax_rate_basis_year=2025,
+                    instant_quote_tax_rate_basis_fallback_applied=True,
+                    instant_quote_tax_rate_basis_status="prior_year_adopted_rates",
+                    instant_quote_tax_completeness_status="operational_with_caveats",
+                    instant_quote_tax_completeness_reason="harris_refreshed_special_family_recovery",
+                    instant_quote_tax_completeness_internal_note=(
+                        "Harris 2026 parcel tax completeness is operational with caveats."
+                    ),
+                    instant_quote_tax_completeness_warning_codes=[
+                        "recovered_special_family_billable_rows_operational",
+                        "caveated_special_family_rows_monitored",
+                        "missing_school_assignment_rows_monitored",
+                        "continuity_gap_rows_monitored",
+                    ],
+                    search_support_ready=True,
+                    feature_ready=False,
+                    comp_ready=False,
+                    valuation_ready=False,
+                    savings_ready=False,
+                    decision_tree_ready=False,
+                    explanation_ready=False,
+                    recommendation_ready=False,
+                    quote_ready=False,
+                    parcel_summary_row_count=10,
+                    instant_quote_subject_row_count=10,
+                    instant_quote_neighborhood_stats_row_count=5,
+                    instant_quote_segment_stats_row_count=5,
+                    instant_quote_supportable_row_count=10,
+                    instant_quote_supported_neighborhood_stats_row_count=5,
+                    instant_quote_supported_segment_stats_row_count=5,
+                    search_document_row_count=10,
+                    parcel_feature_row_count=0,
+                    comp_pool_row_count=0,
+                    quote_row_count=0,
+                ),
+            )
+
+    dashboard = AdminReadinessService(
+        data_readiness_service=HarrisStubDataReadinessService(),
+        operational_metrics_provider=type(
+            "HarrisStubOperationalMetricsProvider",
+            (),
+            {
+                "build_dataset_metrics": lambda self, connection, *, county_id, tax_year, dataset_type: DatasetOperationalMetrics(
+                    freshness_status="fresh",
+                    freshness_sla_days=14,
+                    freshness_age_days=1,
+                )
+            },
+        )(),
+        connection_factory=lambda: NullConnection(),
+    ).build_dashboard(county_id="harris", tax_years=[2026])
+
+    row = dashboard.readiness_rows[0]
+    assert row.derived.instant_quote_tax_completeness_reason == (
+        "harris_refreshed_special_family_recovery"
+    )
+    assert "instant_quote_tax_completeness_operational_caveat" in row.operational.alerts
+    assert "instant_quote_tax_completeness_continuity_gap_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_caveated_special_family_monitored" in row.operational.alerts
+    assert "instant_quote_tax_completeness_missing_school_assignment_monitored" in row.operational.alerts
 
 
 def test_operational_metrics_provider_applies_sla_windows() -> None:

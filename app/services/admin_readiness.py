@@ -372,8 +372,145 @@ class AdminReadinessService:
                 instant_quote_last_refresh_at=readiness.derived.instant_quote_last_refresh_at,
                 instant_quote_last_validated_at=readiness.derived.instant_quote_last_validated_at,
                 instant_quote_cache_view_row_delta=readiness.derived.instant_quote_cache_view_row_delta,
+                instant_quote_tax_rate_basis_year=readiness.derived.instant_quote_tax_rate_basis_year,
+                instant_quote_tax_rate_basis_reason=readiness.derived.instant_quote_tax_rate_basis_reason,
+                instant_quote_tax_rate_basis_fallback_applied=(
+                    readiness.derived.instant_quote_tax_rate_basis_fallback_applied
+                ),
+                instant_quote_tax_rate_basis_status=(
+                    readiness.derived.instant_quote_tax_rate_basis_status
+                ),
+                instant_quote_tax_rate_basis_status_reason=(
+                    readiness.derived.instant_quote_tax_rate_basis_status_reason
+                ),
+                instant_quote_tax_rate_basis_internal_note=(
+                    readiness.derived.instant_quote_tax_rate_basis_internal_note
+                ),
+                instant_quote_tax_completeness_status=(
+                    readiness.derived.instant_quote_tax_completeness_status
+                ),
+                instant_quote_tax_completeness_reason=(
+                    readiness.derived.instant_quote_tax_completeness_reason
+                ),
+                instant_quote_tax_completeness_internal_note=(
+                    readiness.derived.instant_quote_tax_completeness_internal_note
+                ),
+                instant_quote_tax_completeness_warning_codes=(
+                    readiness.derived.instant_quote_tax_completeness_warning_codes
+                ),
+                instant_quote_tax_rate_requested_year_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_supportable_subject_row_count
+                ),
+                instant_quote_tax_rate_basis_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_supportable_subject_row_count
+                ),
+                instant_quote_tax_rate_quoteable_subject_row_count=(
+                    readiness.derived.instant_quote_tax_rate_quoteable_subject_row_count
+                ),
+                instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_effective_tax_rate_coverage_ratio
+                ),
+                instant_quote_tax_rate_requested_year_assignment_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_requested_year_assignment_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_effective_tax_rate_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_assignment_coverage_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_assignment_coverage_ratio
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_match_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_row_count
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_gap_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_gap_row_count
+                ),
+                instant_quote_tax_rate_basis_continuity_parcel_match_ratio=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_parcel_match_ratio
+                ),
+                instant_quote_tax_rate_basis_continuity_account_number_match_row_count=(
+                    readiness.derived.instant_quote_tax_rate_basis_continuity_account_number_match_row_count
+                ),
+                instant_quote_tax_rate_basis_warning_codes=(
+                    readiness.derived.instant_quote_tax_rate_basis_warning_codes
+                ),
                 instant_quote_supported_public_quote_exists=(
                     readiness.derived.instant_quote_supported_public_quote_exists
+                ),
+                instant_quote_supportable_row_rate=(
+                    readiness.derived.instant_quote_supportable_row_rate
+                ),
+                instant_quote_support_rate_all_sfr_flagged_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_denominator_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged_supportable_count
+                ),
+                instant_quote_support_rate_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_rate_all_sfr_flagged
+                ),
+                instant_quote_total_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_total_count_all_sfr_flagged
+                ),
+                instant_quote_support_count_all_sfr_flagged=(
+                    readiness.derived.instant_quote_support_count_all_sfr_flagged
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_denominator_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_denominator_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible_supportable_count=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible_supportable_count
+                ),
+                instant_quote_support_rate_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_rate_strict_sfr_eligible
+                ),
+                instant_quote_total_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_total_count_strict_sfr_eligible
+                ),
+                instant_quote_support_count_strict_sfr_eligible=(
+                    readiness.derived.instant_quote_support_count_strict_sfr_eligible
+                ),
+                instant_quote_denominator_shift_alert=(
+                    readiness.derived.instant_quote_denominator_shift_alert
+                ),
+                instant_quote_denominator_shift_warning_codes=(
+                    readiness.derived.instant_quote_denominator_shift_warning_codes
+                ),
+                instant_quote_high_value_subject_row_count=(
+                    readiness.derived.instant_quote_high_value_subject_row_count
+                ),
+                instant_quote_high_value_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_high_value_supportable_subject_row_count
+                ),
+                instant_quote_high_value_support_rate=(
+                    readiness.derived.instant_quote_high_value_support_rate
+                ),
+                instant_quote_special_district_heavy_subject_row_count=(
+                    readiness.derived.instant_quote_special_district_heavy_subject_row_count
+                ),
+                instant_quote_special_district_heavy_supportable_subject_row_count=(
+                    readiness.derived.instant_quote_special_district_heavy_supportable_subject_row_count
+                ),
+                instant_quote_special_district_heavy_support_rate=(
+                    readiness.derived.instant_quote_special_district_heavy_support_rate
+                ),
+                instant_quote_monitored_zero_savings_sample_row_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_sample_row_count
+                ),
+                instant_quote_monitored_zero_savings_supported_quote_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_supported_quote_count
+                ),
+                instant_quote_monitored_zero_savings_quote_count=(
+                    readiness.derived.instant_quote_monitored_zero_savings_quote_count
+                ),
+                instant_quote_monitored_zero_savings_quote_share=(
+                    readiness.derived.instant_quote_monitored_zero_savings_quote_share
+                ),
+                instant_quote_monitored_extreme_savings_watchlist_count=(
+                    readiness.derived.instant_quote_monitored_extreme_savings_watchlist_count
+                ),
+                instant_quote_monitored_extreme_savings_flagged_count=(
+                    readiness.derived.instant_quote_monitored_extreme_savings_flagged_count
                 ),
                 instant_quote_subject_rows_without_usable_neighborhood_stats=(
                     readiness.derived.instant_quote_subject_rows_without_usable_neighborhood_stats
@@ -661,6 +798,49 @@ class AdminReadinessService:
             alerts.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             alerts.append("instant_quote_support_too_thin")
+        if readiness.derived.instant_quote_tax_rate_basis_year is None:
+            alerts.append("instant_quote_tax_rate_basis_missing")
+        if readiness.derived.instant_quote_tax_completeness_status == "operational_with_caveats":
+            alerts.append("instant_quote_tax_completeness_operational_caveat")
+        if (
+            "risky_caution_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_risky_caution_monitored")
+        if (
+            "continuity_gap_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_continuity_gap_monitored")
+        if (
+            "caveated_special_family_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_caveated_special_family_monitored")
+        if (
+            "missing_school_assignment_rows_monitored"
+            in readiness.derived.instant_quote_tax_completeness_warning_codes
+        ):
+            alerts.append("instant_quote_tax_completeness_missing_school_assignment_monitored")
+        if readiness.derived.instant_quote_monitored_extreme_savings_flagged_count > 0:
+            alerts.append("instant_quote_extreme_savings_review_required")
+        if (
+            "all_sfr_flagged_denominator_shift_exceeded"
+            in readiness.derived.instant_quote_denominator_shift_warning_codes
+        ):
+            alerts.append("instant_quote_denominator_shift_review_required")
+        if "parcel_continuity_warning" in readiness.derived.instant_quote_tax_rate_basis_warning_codes:
+            alerts.append("instant_quote_tax_rate_parcel_continuity_warning")
+        if (
+            "current_year_final_adoption_metadata_incomplete"
+            in readiness.derived.instant_quote_tax_rate_basis_warning_codes
+        ):
+            alerts.append("instant_quote_tax_rate_final_adoption_metadata_incomplete")
+        if (
+            "current_year_final_adoption_source_unverified"
+            in readiness.derived.instant_quote_tax_rate_basis_warning_codes
+        ):
+            alerts.append("instant_quote_tax_rate_final_adoption_source_unverified")
         if not searchable_ready:
             alerts.append("ingestion_to_searchable_incomplete")
         return list(dict.fromkeys(alerts))
@@ -696,4 +876,6 @@ class AdminReadinessService:
             blockers.append("instant_quote_cache_mismatch")
         if readiness.derived.instant_quote_subject_ready and not readiness.derived.instant_quote_ready:
             blockers.append("instant_quote_public_support_thin")
+        if readiness.derived.instant_quote_tax_rate_basis_year is None:
+            blockers.append("instant_quote_tax_rate_basis_missing")
         return list(dict.fromkeys(blockers))
