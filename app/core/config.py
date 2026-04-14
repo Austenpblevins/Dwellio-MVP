@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROTECTED_SHARED_BASELINE_DATABASE_URL = "postgresql://postgres:postgres@localhost:54322/postgres"
+PROTECTED_SHARED_BASELINE_PORT = 54322
 
 
 class Settings(BaseSettings):
@@ -27,6 +32,20 @@ class Settings(BaseSettings):
         default=0.05,
         alias="DWELLIO_INSTANT_QUOTE_DENOMINATOR_SHIFT_ALERT_THRESHOLD",
     )
+
+    @model_validator(mode="after")
+    def validate_stage21_database_isolation(self) -> Settings:
+        parsed = urlparse(self.database_url)
+        protected_host = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        protected_port = parsed.port == PROTECTED_SHARED_BASELINE_PORT
+        protected_path = parsed.path.rstrip("/") == "/postgres"
+        if protected_host and protected_port and protected_path:
+            raise ValueError(
+                "Stage 21 branch is baseline-protected and cannot run against "
+                f"{PROTECTED_SHARED_BASELINE_DATABASE_URL}. "
+                "Point DWELLIO_DATABASE_URL at an isolated Stage 21 database instead."
+            )
+        return self
 
 
 @lru_cache(maxsize=1)
