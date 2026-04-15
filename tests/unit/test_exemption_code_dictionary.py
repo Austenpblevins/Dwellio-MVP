@@ -23,3 +23,16 @@ def test_map_raw_exemption_codes_marks_unknown_codes_without_dropping() -> None:
     assert mapped[0].canonical_exemption_type_code == "unknown"
     assert mapped[0].mapping_status == "unknown"
     assert mapped[0].raw_exemption_code == "NOREALCODE"
+
+
+def test_map_raw_exemption_codes_supports_compound_multi_mapping() -> None:
+    mapped = map_raw_exemption_codes(county_id="fort_bend", raw_codes=["DVO65", "DVTD", "DP65"])
+    canonical = [entry.canonical_exemption_type_code for entry in mapped]
+    assert canonical == [
+        "disabled_veteran",
+        "over65",
+        "disabled_veteran",
+        "freeze_ceiling",
+        "disabled_person",
+        "over65",
+    ]

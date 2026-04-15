@@ -87,16 +87,16 @@ def split_raw_exemption_code_tokens(value: Any) -> list[str]:
 
 def load_exemption_code_dictionary(
     dictionary_path: Path = DEFAULT_EXEMPTION_CODE_DICTIONARY_PATH,
-) -> dict[tuple[str, str], ExemptionCodeMapping]:
+) -> dict[tuple[str, str], tuple[ExemptionCodeMapping, ...]]:
     return _load_exemption_code_dictionary_cached(str(dictionary_path.resolve()))
 
 
 @lru_cache(maxsize=4)
 def _load_exemption_code_dictionary_cached(
     dictionary_path: str,
-) -> dict[tuple[str, str], ExemptionCodeMapping]:
+) -> dict[tuple[str, str], tuple[ExemptionCodeMapping, ...]]:
     path = Path(dictionary_path)
-    mappings: dict[tuple[str, str], ExemptionCodeMapping] = {}
+    mappings: dict[tuple[str, str], list[ExemptionCodeMapping]] = {}
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
@@ -113,8 +113,28 @@ def _load_exemption_code_dictionary_cached(
                 mapping_status=str(row.get("mapping_status") or "unknown").strip().lower() or "unknown",
                 notes=_optional_text(row.get("notes")),
             )
-            mappings[(county_id, raw_code)] = mapping
-    return mappings
+            bucket = mappings.setdefault((county_id, raw_code), [])
+            duplicate_key = (
+                mapping.canonical_exemption_type_code,
+                mapping.mapping_status,
+                mapping.description,
+                mapping.notes,
+            )
+            if any(
+                (
+                    existing.canonical_exemption_type_code,
+                    existing.mapping_status,
+                    existing.description,
+                    existing.notes,
+                ) == duplicate_key
+                for existing in bucket
+            ):
+                continue
+            bucket.append(mapping)
+    return {
+        key: tuple(value)
+        for key, value in mappings.items()
+    }
 
 
 def map_raw_exemption_codes(
@@ -129,13 +149,14 @@ def map_raw_exemption_codes(
     seen: set[tuple[str, str]] = set()
     for raw_code in raw_codes:
         for token in split_raw_exemption_code_tokens(raw_code):
-            dictionary_entry = dictionary.get((county_key, token))
-            if dictionary_entry is not None:
-                key = (dictionary_entry.canonical_exemption_type_code, dictionary_entry.raw_exemption_code)
-                if key in seen:
-                    continue
-                seen.add(key)
-                mapped.append(dictionary_entry)
+            dictionary_entries = dictionary.get((county_key, token))
+            if dictionary_entries is not None:
+                for dictionary_entry in dictionary_entries:
+                    key = (dictionary_entry.canonical_exemption_type_code, dictionary_entry.raw_exemption_code)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    mapped.append(dictionary_entry)
                 continue
 
             alias_code = normalize_known_exemption_type_code(token)
@@ -176,4 +197,3 @@ def map_raw_exemption_codes(
 def _optional_text(value: Any) -> str | None:
     cleaned = str(value or "").strip()
     return cleaned or None
-

@@ -27,7 +27,9 @@ harris,SPX,unknown,Spaceport Exemption (TOTAL exemption),unknown,No current cano
 harris,SSF,surviving_spouse,,alias,Observed spouse-related variant.
 harris,STT,surviving_spouse,Surviving Spouse Total Transfer,exact,Description-aligned mapping.
 harris,STX,surviving_spouse,Surviving Spouse Vet Disability Total Exemption,exact,Description-aligned mapping.
+harris,STX,disabled_veteran,Surviving Spouse Vet Disability Total Exemption,alias,Compound spouse veteran-disability code also preserves veteran disability signal.
 harris,SUR,surviving_spouse,Surviving Spouse Over-65,exact,Description-aligned mapping.
+harris,SUR,over65,Surviving Spouse Over-65,alias,Compound spouse senior code also preserves over-65 signal.
 harris,TOT,unknown,Total,unknown,Generic total code without stable canonical type.
 harris,UND,unknown,Under $Min Taxable Value,unknown,No current canonical exemption type.
 harris,V11,disabled_veteran,Vet Disability #1 10-29 pct,exact,Description-aligned mapping.
@@ -55,10 +57,13 @@ fort_bend,CHD,unknown,,unknown,Raw code observed without stable canonical mappin
 fort_bend,DATD,freeze_ceiling,,alias,Deferred/freeze-related alias.
 fort_bend,DP,disabled_person,,exact,Disabled person exemption code.
 fort_bend,DP65,disabled_person,,alias,Disabled senior variant.
+fort_bend,DP65,over65,,alias,Disabled senior variant also preserves the over-65 signal.
 fort_bend,DTD,freeze_ceiling,,alias,Deferred/freeze-related alias.
 fort_bend,DV,disabled_veteran,,exact,Disabled veteran exemption code.
 fort_bend,DVO65,disabled_veteran,,alias,Disabled veteran senior variant.
+fort_bend,DVO65,over65,,alias,Disabled veteran senior variant also preserves the over-65 signal.
 fort_bend,DVTD,disabled_veteran,,alias,Disabled veteran transfer/deferred variant.
+fort_bend,DVTD,freeze_ceiling,,alias,Disabled veteran transfer/deferred variant also preserves freeze/ceiling signal.
 fort_bend,EPS,unknown,,unknown,Raw code observed without stable canonical mapping.
 fort_bend,EX,unknown,,unknown,Generic exemption code without stable subtype.
 fort_bend,EXC,unknown,,unknown,Generic exemption code without stable subtype.

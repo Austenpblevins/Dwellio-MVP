@@ -862,6 +862,19 @@ def test_uncertain_tax_limitation_case_can_trigger_suppressed_outcome() -> None:
     assert determine_tax_limitation_outcome(subject_row=subject_row, confidence_score=82) == "suppressed"
 
 
+def test_missing_exemption_amount_alone_does_not_force_suppressed_tax_limitation_outcome() -> None:
+    subject_row = {
+        "homestead_flag": True,
+        "freeze_flag": False,
+        "capped_value": 290000,
+        "assessment_basis_value": 350000,
+        "warning_codes": ["missing_exemption_amount", "homestead_flag_mismatch"],
+    }
+
+    assert has_uncertain_tax_limitation_signal(subject_row) is False
+    assert determine_tax_limitation_outcome(subject_row=subject_row, confidence_score=82) == "constrained"
+
+
 def test_confidence_score_penalizes_neighborhood_only_and_freeze_flags() -> None:
     neighborhood = InstantQuoteStatsRow(
         parcel_count=22,
@@ -1702,6 +1715,87 @@ def test_uncertain_tax_limitation_case_suppresses_numeric_range(monkeypatch) -> 
 
     assert response.supported is False
     assert response.unsupported_reason == "tax_limitation_uncertain"
+
+
+def test_missing_exemption_amount_warning_constrains_but_does_not_suppress_numeric_range(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2026,
+        "account_number": "1001001001001",
+        "address": "101 Main St, Houston, TX 77002",
+        "neighborhood_code": "NBHD-1",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 2200.0,
+        "year_built": 2003,
+        "capped_value": 290000.0,
+        "notice_value": 360000.0,
+        "assessment_basis_value": 350000.0,
+        "effective_tax_rate": 0.021,
+        "effective_tax_rate_source_method": "manual",
+        "subject_assessed_psf": 159.09,
+        "size_bucket": "2000_2399",
+        "age_bucket": "1990_2004",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": True,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": ["missing_exemption_amount", "homestead_flag_mismatch"],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=35,
+        p10_assessed_psf=120,
+        p25_assessed_psf=130,
+        p50_assessed_psf=145,
+        p75_assessed_psf=155,
+        p90_assessed_psf=170,
+        mean_assessed_psf=146,
+        median_assessed_psf=145,
+        stddev_assessed_psf=11,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+    segment = InstantQuoteStatsRow(
+        parcel_count=25,
+        p10_assessed_psf=125,
+        p25_assessed_psf=135,
+        p50_assessed_psf=140,
+        p75_assessed_psf=150,
+        p90_assessed_psf=160,
+        mean_assessed_psf=141,
+        median_assessed_psf=140,
+        stddev_assessed_psf=8,
+        coefficient_of_variation=0.05,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: segment)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2026,
+        account_number="1001001001001",
+    )
+
+    assert response.supported is True
+    assert response.estimate is not None
+    assert response.estimate.tax_protection_limited is True
+    assert response.unsupported_reason is None
 
 
 def test_enqueue_request_log_persistence_swallow_submit_failures(monkeypatch) -> None:
