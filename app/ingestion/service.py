@@ -576,7 +576,15 @@ class IngestionLifecycleService:
             rollback_manifest: dict[str, Any]
 
             if dataset_type == "property_roll":
-                rollback_manifest = {"dataset_type": "property_roll", "entries": []}
+                if bulk_property_roll_mode:
+                    rollback_manifest = {
+                        "dataset_type": "property_roll",
+                        "storage_mode": "summary_only_bulk_property_roll",
+                        "entry_count": 0,
+                        "sample_account_numbers": [],
+                    }
+                else:
+                    rollback_manifest = {"dataset_type": "property_roll", "entries": []}
                 # Bulk-mode recovery should only short-circuit once the canonical parcel-year
                 # summaries are materially complete; snapshot rows alone are not enough for
                 # parcel_summary_view / instant-quote support.
@@ -598,6 +606,37 @@ class IngestionLifecycleService:
                             ),
                         },
                     )
+                    # Recovery-mode reruns must still reapply normalized exemptions from staging,
+                    # because the bulk core upsert path intentionally defers detail-table writes.
+                    repaired_property_roll_rows = 0
+                    for staged_rows in repository.iterate_staging_rows(
+                        import_batch_id=batch.import_batch_id,
+                        dataset_type=dataset_type,
+                        chunk_size=PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE,
+                    ):
+                        normalized = adapter.normalize_staging_to_canonical(
+                            dataset_type,
+                            [row["raw_payload"] for row in staged_rows],
+                        )
+                        property_roll_records = normalized["property_roll"]
+                        repository._bulk_replace_property_roll_exemptions(
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            source_system_id=batch.source_system_id,
+                            normalized_records=property_roll_records,
+                        )
+                        repaired_property_roll_rows += len(property_roll_records)
+                        logger.info(
+                            "property_roll bulk normalize recovery exemption repair chunk finished",
+                            extra={
+                                "county_id": county_id,
+                                "tax_year": tax_year,
+                                "import_batch_id": batch.import_batch_id,
+                                "processed_rows": repaired_property_roll_rows,
+                                "staging_row_count": staging_row_count,
+                                "chunk_row_count": len(property_roll_records),
+                            },
+                        )
                 else:
                     if bulk_property_roll_mode and existing_bulk_property_roll_rows > 0:
                         logger.info(
@@ -657,7 +696,30 @@ class IngestionLifecycleService:
                                 savepoint_name=savepoint_name,
                                 dry_run=dry_run,
                             )
-                        rollback_manifest["entries"].extend(rollback_chunk.get("entries", []))
+                        rollback_entries = list(rollback_chunk.get("entries", []))
+                        if bulk_property_roll_mode:
+                            rollback_manifest["entry_count"] = (
+                                int(rollback_manifest.get("entry_count") or 0)
+                                + len(rollback_entries)
+                            )
+                            sample_accounts = list(
+                                rollback_manifest.get("sample_account_numbers") or []
+                            )
+                            seen_accounts = {str(account) for account in sample_accounts}
+                            for entry in rollback_entries:
+                                account_number = entry.get("account_number")
+                                if account_number is None:
+                                    continue
+                                account_number_value = str(account_number)
+                                if account_number_value in seen_accounts:
+                                    continue
+                                sample_accounts.append(account_number_value)
+                                seen_accounts.add(account_number_value)
+                                if len(sample_accounts) >= 5:
+                                    break
+                            rollback_manifest["sample_account_numbers"] = sample_accounts[:5]
+                        else:
+                            rollback_manifest["entries"].extend(rollback_entries)
                         chunk_targets = repository.upsert_property_roll_records(
                             county_id=county_id,
                             tax_year=tax_year,
@@ -1092,16 +1154,25 @@ class IngestionLifecycleService:
         self,
         rollback_manifest: dict[str, Any],
     ) -> dict[str, Any]:
-        entries = list(rollback_manifest.get("entries", []))
-        sample_accounts = [
-            str(entry.get("account_number"))
-            for entry in entries[:5]
-            if entry.get("account_number") is not None
-        ]
+        if rollback_manifest.get("storage_mode") == "summary_only_bulk_property_roll":
+            entry_count = int(rollback_manifest.get("entry_count") or 0)
+            sample_accounts = [
+                str(account)
+                for account in list(rollback_manifest.get("sample_account_numbers") or [])[:5]
+                if account is not None
+            ]
+        else:
+            entries = list(rollback_manifest.get("entries", []))
+            entry_count = len(entries)
+            sample_accounts = [
+                str(entry.get("account_number"))
+                for entry in entries[:5]
+                if entry.get("account_number") is not None
+            ]
         return {
             "dataset_type": "property_roll",
             "storage_mode": "summary_only_bulk_property_roll",
-            "entry_count": len(entries),
+            "entry_count": entry_count,
             "sample_account_numbers": sample_accounts,
         }
 

@@ -3254,8 +3254,6 @@ def has_uncertain_tax_limitation_signal(subject_row: dict[str, Any]) -> bool:
         warning_codes.intersection(
             {
                 "freeze_without_qualifying_exemption",
-                "homestead_flag_mismatch",
-                "missing_exemption_amount",
                 "assessment_exemption_total_mismatch",
             }
         )

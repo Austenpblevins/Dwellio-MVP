@@ -62,3 +62,69 @@ def test_normalize_exemption_type_code_handles_known_aliases() -> None:
     assert normalize_exemption_type_code("hs_amt") == "homestead"
     assert normalize_exemption_type_code("OV65") == "over65"
     assert normalize_exemption_type_code("disabled-vet") == "disabled_veteran"
+
+
+def test_normalize_parcel_exemptions_uses_county_dictionary_and_splits_composite_codes() -> None:
+    normalized = normalize_parcel_exemptions(
+        [
+            {
+                "raw_exemption_code": "RES VTX",
+                "exemption_amount": None,
+            }
+        ],
+        county_id="harris",
+    )
+
+    assert [item["exemption_type_code"] for item in normalized] == [
+        "disabled_veteran",
+        "homestead",
+    ]
+    assert normalized[0]["amount_missing_flag"] is True
+    assert normalized[1]["amount_missing_flag"] is True
+
+
+def test_normalize_parcel_exemptions_preserves_unmapped_code_as_unknown() -> None:
+    normalized = normalize_parcel_exemptions(
+        [{"raw_exemption_code": "UNSEEN_CODE_123"}],
+        county_id="harris",
+    )
+
+    assert normalized == [
+        {
+            "exemption_type_code": "unknown",
+            "exemption_amount": None,
+            "granted_flag": True,
+            "raw_exemption_codes": ["UNSEEN_CODE_123"],
+            "source_entry_count": 1,
+            "amount_missing_flag": True,
+        }
+    ]
+
+
+def test_normalize_parcel_exemptions_emits_compound_signals_for_multi_mapped_codes() -> None:
+    normalized = normalize_parcel_exemptions(
+        [
+            {"raw_exemption_code": "DVO65", "exemption_amount": None},
+            {"raw_exemption_code": "DVTD", "exemption_amount": None},
+            {"raw_exemption_code": "DP65", "exemption_amount": None},
+        ],
+        county_id="fort_bend",
+    )
+    assert [item["exemption_type_code"] for item in normalized] == [
+        "disabled_person",
+        "disabled_veteran",
+        "freeze_ceiling",
+        "over65",
+    ]
+    assert all(item["amount_missing_flag"] is True for item in normalized)
+
+
+def test_normalize_parcel_exemptions_supports_harris_compound_spouse_senior_mapping() -> None:
+    normalized = normalize_parcel_exemptions(
+        [{"raw_exemption_code": "SUR", "exemption_amount": None}],
+        county_id="harris",
+    )
+    assert [item["exemption_type_code"] for item in normalized] == [
+        "over65",
+        "surviving_spouse",
+    ]
