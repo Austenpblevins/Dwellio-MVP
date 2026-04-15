@@ -91,6 +91,40 @@ SearchIndexService().rebuild_search_documents(county_id="harris", tax_year=2026)
 
 Use county/year-scoped refreshes when rebuilding a single slice after canonical updates.
 
+## Manual Harris refresh
+
+Use a manual Harris-only refresh when canonical Harris parcel state is already published but `search_documents` or `v_search_read_model` is stale, especially after an interrupted post-commit refresh.
+
+Run it in a dedicated SQL session with protective settings:
+
+```sql
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET max_parallel_workers_per_gather = 0;
+
+SELECT dwellio_refresh_search_documents('harris', 2026);
+```
+
+Expected behavior and risk:
+
+- Harris refresh is a heavy maintenance step and can run for several minutes.
+- Avoid interrupting the session once it starts.
+- This refresh updates search/read-model freshness only; it does not republish canonical parcel state or change instant-quote logic.
+
+Verify freshness afterward:
+
+```sql
+SELECT min(updated_at), max(updated_at), count(*)
+FROM search_documents
+WHERE county_id = 'harris' AND tax_year = 2026;
+
+SELECT min(updated_at), max(updated_at), count(*)
+FROM parcel_year_snapshots
+WHERE county_id = 'harris' AND tax_year = 2026 AND is_current = true;
+```
+
+`search_documents.max(updated_at)` should be at or after the current Harris snapshot update window for the same county-year.
+
 ## Boundaries
 
 - Public search stays on `v_search_read_model` semantics and public-safe fields.

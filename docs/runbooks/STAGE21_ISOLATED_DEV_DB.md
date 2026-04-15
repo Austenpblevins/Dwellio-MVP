@@ -87,3 +87,28 @@ Durable backups for this isolated DB live under:
 ```bash
 /Users/nblevins/Desktop/Dwellio/artifacts/stage21_db_seed/
 ```
+
+## Shared Rollout Completion Note
+
+Scoped Stage 21 shared rollout on `main` is complete and accepted.
+
+Rolled out:
+- exemption normalization improvements already merged to `main`
+- instant quote tax-limitation tuning
+- accepted improved-input Harris standard
+- Harris search/read-model freshness remediation via successful rerun of `dwellio_refresh_search_documents('harris', 2026)`
+
+Why this is complete:
+- Fort Bend shared behavior is accepted on the revised `main` standard
+- Harris canonical publish succeeded and instant-quote validation passed on the published state
+- Harris search freshness is now caught up after the post-commit search refresh rerun
+
+Final accepted shared standards on `main`:
+- Fort Bend 2026: accepted on the revised `main` standard with support rate `0.9930394682`, zero-share `0.5306122449`, blockers `supportable=276489, missing_living_area=1452, missing_assessment_basis=2, missing_effective_tax_rate=484`
+- Harris 2026: support rate `0.9980317582`, zero-share `0.44`, blockers `supportable=1169298, missing_living_area=900, missing_assessment_basis=1345, missing_effective_tax_rate=61`
+
+Out of scope:
+- Harris parcel-level senior/over65 completeness remains unresolved and was not part of this rollout
+
+Operational follow-up:
+- Continue any future Harris senior/over65 work only as a separately scoped follow-up, not as part of the accepted shared Stage 21 rollout
