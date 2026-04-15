@@ -99,3 +99,32 @@ def test_normalize_parcel_exemptions_preserves_unmapped_code_as_unknown() -> Non
             "amount_missing_flag": True,
         }
     ]
+
+
+def test_normalize_parcel_exemptions_emits_compound_signals_for_multi_mapped_codes() -> None:
+    normalized = normalize_parcel_exemptions(
+        [
+            {"raw_exemption_code": "DVO65", "exemption_amount": None},
+            {"raw_exemption_code": "DVTD", "exemption_amount": None},
+            {"raw_exemption_code": "DP65", "exemption_amount": None},
+        ],
+        county_id="fort_bend",
+    )
+    assert [item["exemption_type_code"] for item in normalized] == [
+        "disabled_person",
+        "disabled_veteran",
+        "freeze_ceiling",
+        "over65",
+    ]
+    assert all(item["amount_missing_flag"] is True for item in normalized)
+
+
+def test_normalize_parcel_exemptions_supports_harris_compound_spouse_senior_mapping() -> None:
+    normalized = normalize_parcel_exemptions(
+        [{"raw_exemption_code": "SUR", "exemption_amount": None}],
+        county_id="harris",
+    )
+    assert [item["exemption_type_code"] for item in normalized] == [
+        "over65",
+        "surviving_spouse",
+    ]
