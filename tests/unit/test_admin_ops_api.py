@@ -8,6 +8,7 @@ from app.models.admin import (
     AdminImportBatchDetail,
     AdminImportBatchInspection,
     AdminIngestionStepRun,
+    AdminIngestionStepSummary,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
     AdminManualImportRequest,
@@ -69,8 +70,21 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
                 publish_version="v1",
                 row_count=123,
                 error_count=0,
+                validation_warning_count=2,
+                publish_control_warning_count=1,
+                latest_publish_control_code="PUBLISH_WARNING_EXEMPTION_DROP",
+                latest_publish_control_severity="warning",
+                latest_publish_control_message=(
+                    "Property-roll publish would reduce exemption-bearing coverage for touched parcels "
+                    "relative to current canonical state."
+                ),
+                latest_job_duration_ms=18000,
                 maintenance_status="failed",
                 maintenance_failed_step_name="search_refresh",
+                maintenance_latest_step_name="search_refresh",
+                maintenance_latest_duration_ms=42000,
+                maintenance_attempt_count=2,
+                maintenance_retry_count=1,
                 raw_file_count=1,
                 validation_result_count=3,
                 validation_error_count=0,
@@ -94,6 +108,18 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
     assert payload["batches"][0]["publish_state"] == "published"
     assert payload["batches"][0]["status_reason"] == "published_to_canonical: property_roll publish succeeded."
     assert payload["batches"][0]["maintenance_status"] == "failed"
+    assert payload["batches"][0]["validation_warning_count"] == 2
+    assert payload["batches"][0]["publish_control_warning_count"] == 1
+    assert (
+        payload["batches"][0]["latest_publish_control_code"]
+        == "PUBLISH_WARNING_EXEMPTION_DROP"
+    )
+    assert payload["batches"][0]["latest_publish_control_severity"] == "warning"
+    assert payload["batches"][0]["latest_job_duration_ms"] == 18000
+    assert payload["batches"][0]["maintenance_latest_step_name"] == "search_refresh"
+    assert payload["batches"][0]["maintenance_latest_duration_ms"] == 42000
+    assert payload["batches"][0]["maintenance_attempt_count"] == 2
+    assert payload["batches"][0]["maintenance_retry_count"] == 1
 
 
 def test_admin_manual_register_route_uses_existing_backfill_path(monkeypatch) -> None:
@@ -165,10 +191,12 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
             ),
             validation_summary=AdminValidationResultsResponse(
                 import_batch_id="batch-1",
-                total_count=1,
-                error_count=0,
-                warning_count=0,
+                total_count=3,
+                error_count=1,
+                warning_count=1,
                 info_count=1,
+                publish_control_error_count=1,
+                publish_control_warning_count=1,
                 findings=[],
             ),
             source_files=[],
@@ -178,7 +206,22 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
                     step_run_id="step-1",
                     step_name="search_refresh",
                     status="failed",
+                    attempt_number=2,
+                    duration_ms=42000,
+                    is_retry=True,
                     error_message="search refresh failed",
+                )
+            ],
+            step_summary=[
+                AdminIngestionStepSummary(
+                    step_name="search_refresh",
+                    latest_status="failed",
+                    latest_attempt_number=2,
+                    attempt_count=2,
+                    retry_count=1,
+                    failed_attempt_count=1,
+                    latest_duration_ms=42000,
+                    last_error_message="search refresh failed",
                 )
             ],
             actions=AdminImportBatchActions(
@@ -201,6 +244,12 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
     payload = response.json()
     assert payload["step_runs"][0]["step_name"] == "search_refresh"
     assert payload["step_runs"][0]["status"] == "failed"
+    assert payload["step_runs"][0]["duration_ms"] == 42000
+    assert payload["step_runs"][0]["is_retry"] is True
+    assert payload["step_summary"][0]["step_name"] == "search_refresh"
+    assert payload["step_summary"][0]["attempt_count"] == 2
+    assert payload["validation_summary"]["publish_control_error_count"] == 1
+    assert payload["validation_summary"]["publish_control_warning_count"] == 1
     assert payload["actions"]["can_retry_maintenance"] is True
 
 

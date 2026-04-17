@@ -77,6 +77,10 @@ class PostCommitMaintenanceSummary:
     error_message: str | None = None
     last_finished_at: datetime | None = None
     retryable: bool = False
+    latest_step_name: str | None = None
+    latest_duration_ms: int | None = None
+    attempt_count: int = 0
+    retry_count: int = 0
 
 
 STAGING_TABLES: dict[str, tuple[str, str]] = {
@@ -534,15 +538,19 @@ class IngestionRepository:
         import_batch_id: str,
     ) -> PostCommitMaintenanceSummary:
         step_order = ("tax_assignment_refresh", "search_refresh")
-        latest_runs = {
-            run.step_name: run
-            for run in self.fetch_latest_ingestion_step_runs(
-                import_batch_id=import_batch_id,
-                step_names=list(step_order),
-            )
-        }
+        maintenance_runs = self.list_ingestion_step_runs(import_batch_id=import_batch_id)
+        maintenance_runs = [run for run in maintenance_runs if run.step_name in step_order]
+        latest_runs: dict[str, IngestionStepRunRecord] = {}
+        for run in maintenance_runs:
+            if run.step_name not in latest_runs:
+                latest_runs[run.step_name] = run
         if not latest_runs:
             return PostCommitMaintenanceSummary(status="not_applicable")
+
+        latest_run = maintenance_runs[0]
+        latest_duration_ms = self._duration_ms(latest_run.started_at, latest_run.finished_at)
+        attempt_count = len(maintenance_runs)
+        retry_count = sum(1 for run in maintenance_runs if run.retry_of_step_run_id is not None)
 
         last_finished_at = max(
             (
@@ -561,6 +569,10 @@ class IngestionRepository:
                     error_message=run.error_message,
                     last_finished_at=last_finished_at,
                     retryable=True,
+                    latest_step_name=latest_run.step_name,
+                    latest_duration_ms=latest_duration_ms,
+                    attempt_count=attempt_count,
+                    retry_count=retry_count,
                 )
         for step_name in step_order:
             run = latest_runs.get(step_name)
@@ -569,6 +581,10 @@ class IngestionRepository:
                     status="running",
                     failed_step_name=step_name,
                     last_finished_at=last_finished_at,
+                    latest_step_name=latest_run.step_name,
+                    latest_duration_ms=latest_duration_ms,
+                    attempt_count=attempt_count,
+                    retry_count=retry_count,
                 )
         if all(
             latest_runs.get(step_name) is not None
@@ -578,12 +594,27 @@ class IngestionRepository:
             return PostCommitMaintenanceSummary(
                 status="succeeded",
                 last_finished_at=last_finished_at,
+                latest_step_name=latest_run.step_name,
+                latest_duration_ms=latest_duration_ms,
+                attempt_count=attempt_count,
+                retry_count=retry_count,
             )
         return PostCommitMaintenanceSummary(
             status="pending",
             last_finished_at=last_finished_at,
             retryable=True,
+            latest_step_name=latest_run.step_name,
+            latest_duration_ms=latest_duration_ms,
+            attempt_count=attempt_count,
+            retry_count=retry_count,
         )
+
+    def _duration_ms(
+        self, started_at: datetime | None, finished_at: datetime | None
+    ) -> int | None:
+        if started_at is None or finished_at is None:
+            return None
+        return max(int((finished_at - started_at).total_seconds() * 1000), 0)
 
     def update_import_batch(
         self,

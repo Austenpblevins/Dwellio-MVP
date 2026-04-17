@@ -14,6 +14,7 @@ from app.models.admin import (
     AdminImportBatchActions,
     AdminImportBatchDetail,
     AdminIngestionStepRun,
+    AdminIngestionStepSummary,
     AdminImportBatchInspection,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
@@ -104,6 +105,7 @@ class AdminOpsService:
                 prefetched_step_runs=step_runs,
             ),
         )
+        built_step_runs = [self._build_ingestion_step_run(row) for row in step_runs]
         return AdminImportBatchDetail(
             batch=summary,
             inspection=AdminImportBatchInspection(
@@ -133,7 +135,8 @@ class AdminOpsService:
             validation_summary=validation_summary,
             source_files=[self._build_source_file(row) for row in source_files],
             job_runs=[self._build_job_run(row) for row in job_runs],
-            step_runs=[self._build_ingestion_step_run(row) for row in step_runs],
+            step_runs=built_step_runs,
+            step_summary=self._build_ingestion_step_summary_rows(built_step_runs),
             actions=AdminImportBatchActions(
                 can_publish=summary.status in {"staged", "rolled_back"},
                 can_rollback=summary.publish_state == "published",
@@ -437,6 +440,14 @@ class AdminOpsService:
                   COUNT(DISTINCT rf.raw_file_id) AS raw_file_count,
                   COUNT(DISTINCT vr.validation_result_id) AS validation_result_count,
                   COUNT(DISTINCT vr.validation_result_id) FILTER (WHERE vr.severity = 'error') AS validation_error_count,
+                  COUNT(DISTINCT vr.validation_result_id) FILTER (WHERE vr.severity = 'warning') AS validation_warning_count,
+                  COUNT(DISTINCT vr.validation_result_id) FILTER (
+                    WHERE vr.severity = 'warning'
+                      AND vr.validation_scope = 'publish_control'
+                  ) AS publish_control_warning_count,
+                  latest_publish_control.validation_code AS latest_publish_control_code,
+                  latest_publish_control.severity AS latest_publish_control_severity,
+                  latest_publish_control.message AS latest_publish_control_message,
                   latest_job.job_name AS latest_job_name,
                   latest_job.job_stage AS latest_job_stage,
                   latest_job.status AS latest_job_status,
@@ -451,6 +462,17 @@ class AdminOpsService:
                   ON ss.source_system_id = ib.source_system_id
                 LEFT JOIN validation_results vr
                   ON vr.import_batch_id = ib.import_batch_id
+                LEFT JOIN LATERAL (
+                  SELECT
+                    vr_latest.validation_code,
+                    vr_latest.severity,
+                    vr_latest.message
+                  FROM validation_results vr_latest
+                  WHERE vr_latest.import_batch_id = ib.import_batch_id
+                    AND vr_latest.validation_scope = 'publish_control'
+                  ORDER BY vr_latest.created_at DESC, vr_latest.validation_result_id DESC
+                  LIMIT 1
+                ) latest_publish_control ON true
                 LEFT JOIN LATERAL (
                   SELECT
                     jr.job_name,
@@ -490,6 +512,9 @@ class AdminOpsService:
                   ib.row_count,
                   ib.error_count,
                   ib.created_at,
+                  latest_publish_control.validation_code,
+                  latest_publish_control.severity,
+                  latest_publish_control.message,
                   latest_job.job_name,
                   latest_job.job_stage,
                   latest_job.status,
@@ -651,7 +676,15 @@ class AdminOpsService:
                   COUNT(*) AS total_count,
                   COUNT(*) FILTER (WHERE severity = 'error') AS error_count,
                   COUNT(*) FILTER (WHERE severity = 'warning') AS warning_count,
-                  COUNT(*) FILTER (WHERE severity = 'info') AS info_count
+                  COUNT(*) FILTER (WHERE severity = 'info') AS info_count,
+                  COUNT(*) FILTER (
+                    WHERE severity = 'error'
+                      AND validation_scope = 'publish_control'
+                  ) AS publish_control_error_count,
+                  COUNT(*) FILTER (
+                    WHERE severity = 'warning'
+                      AND validation_scope = 'publish_control'
+                  ) AS publish_control_warning_count
                 FROM validation_results
                 WHERE import_batch_id = %s
                 """,
@@ -684,10 +717,14 @@ class AdminOpsService:
             error_count=int(counts["error_count"] or 0),
             warning_count=int(counts["warning_count"] or 0),
             info_count=int(counts["info_count"] or 0),
+            publish_control_error_count=int(counts["publish_control_error_count"] or 0),
+            publish_control_warning_count=int(counts["publish_control_warning_count"] or 0),
             findings=[self._build_validation_finding(row) for row in rows],
         )
 
     def _build_ingestion_step_run(self, row: dict[str, Any]) -> AdminIngestionStepRun:
+        started_at = row.get("started_at")
+        finished_at = row.get("finished_at")
         return AdminIngestionStepRun(
             step_run_id=str(row["step_run_id"]),
             step_name=row["step_name"],
@@ -698,12 +735,40 @@ class AdminOpsService:
                 if row.get("retry_of_step_run_id") is None
                 else str(row["retry_of_step_run_id"])
             ),
-            started_at=row.get("started_at"),
-            finished_at=row.get("finished_at"),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=self._compute_duration_ms(started_at, finished_at),
+            is_retry=row.get("retry_of_step_run_id") is not None,
             row_count=row.get("row_count"),
             error_message=row.get("error_message"),
             details_json=dict(row.get("details_json") or {}),
         )
+
+    def _build_ingestion_step_summary_rows(
+        self, step_runs: list[AdminIngestionStepRun]
+    ) -> list[AdminIngestionStepSummary]:
+        grouped: dict[str, list[AdminIngestionStepRun]] = {}
+        for step_run in step_runs:
+            grouped.setdefault(step_run.step_name, []).append(step_run)
+
+        summaries: list[AdminIngestionStepSummary] = []
+        for step_name, runs in grouped.items():
+            latest_run = runs[0]
+            summaries.append(
+                AdminIngestionStepSummary(
+                    step_name=step_name,
+                    latest_status=latest_run.status,
+                    latest_attempt_number=latest_run.attempt_number,
+                    attempt_count=len(runs),
+                    retry_count=sum(1 for run in runs if run.is_retry),
+                    failed_attempt_count=sum(1 for run in runs if run.status == "failed"),
+                    latest_started_at=latest_run.started_at,
+                    latest_finished_at=latest_run.finished_at,
+                    latest_duration_ms=latest_run.duration_ms,
+                    last_error_message=latest_run.error_message,
+                )
+            )
+        return sorted(summaries, key=lambda item: (item.step_name, item.latest_attempt_number))
 
     def _build_import_batch_summary(
         self,
@@ -728,11 +793,20 @@ class AdminOpsService:
             raw_file_count=int(row["raw_file_count"] or 0),
             validation_result_count=int(row["validation_result_count"] or 0),
             validation_error_count=int(row["validation_error_count"] or 0),
+            validation_warning_count=int(row.get("validation_warning_count") or 0),
+            publish_control_warning_count=int(row.get("publish_control_warning_count") or 0),
+            latest_publish_control_code=row.get("latest_publish_control_code"),
+            latest_publish_control_severity=row.get("latest_publish_control_severity"),
+            latest_publish_control_message=row.get("latest_publish_control_message"),
             latest_job_name=row.get("latest_job_name"),
             latest_job_stage=row.get("latest_job_stage"),
             latest_job_status=row.get("latest_job_status"),
             latest_job_started_at=row.get("latest_job_started_at"),
             latest_job_finished_at=row.get("latest_job_finished_at"),
+            latest_job_duration_ms=self._compute_duration_ms(
+                row.get("latest_job_started_at"),
+                row.get("latest_job_finished_at"),
+            ),
             latest_job_error_message=row.get("latest_job_error_message"),
             maintenance_status=(
                 None if maintenance_summary is None else maintenance_summary.get("status")
@@ -746,6 +820,26 @@ class AdminOpsService:
                 None
                 if maintenance_summary is None
                 else maintenance_summary.get("last_finished_at")
+            ),
+            maintenance_latest_step_name=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("latest_step_name")
+            ),
+            maintenance_latest_duration_ms=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("latest_duration_ms")
+            ),
+            maintenance_attempt_count=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("attempt_count")
+            ),
+            maintenance_retry_count=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("retry_count")
             ),
             created_at=row.get("created_at"),
         )
@@ -769,17 +863,26 @@ class AdminOpsService:
         )
 
     def _build_job_run(self, row: dict[str, Any]) -> AdminJobRunSummary:
+        started_at = row.get("started_at")
+        finished_at = row.get("finished_at")
         return AdminJobRunSummary(
             job_run_id=str(row["job_run_id"]),
             job_name=row["job_name"],
             job_stage=row["job_stage"],
             status=row["status"],
-            started_at=row.get("started_at"),
-            finished_at=row.get("finished_at"),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=self._compute_duration_ms(started_at, finished_at),
             row_count=row.get("row_count"),
             error_message=row.get("error_message"),
             metadata_json=dict(row.get("metadata_json") or {}),
         )
+
+    def _compute_duration_ms(self, started_at: Any, finished_at: Any) -> int | None:
+        if started_at is None or finished_at is None:
+            return None
+        duration = finished_at - started_at
+        return max(int(duration.total_seconds() * 1000), 0)
 
     def _build_validation_finding(self, row: dict[str, Any]) -> AdminValidationFinding:
         return AdminValidationFinding(
@@ -807,13 +910,17 @@ class AdminOpsService:
 
         if prefetched_step_runs is not None:
             maintenance_steps = {"tax_assignment_refresh", "search_refresh"}
+            maintenance_rows = [
+                row for row in prefetched_step_runs if row.get("step_name") in maintenance_steps
+            ]
             latest_by_name: dict[str, dict[str, Any]] = {}
-            for row in prefetched_step_runs:
+            for row in maintenance_rows:
                 step_name = row.get("step_name")
                 if step_name in maintenance_steps and step_name not in latest_by_name:
                     latest_by_name[step_name] = row
             if not latest_by_name:
                 return None
+            latest_row = maintenance_rows[0]
             last_finished_at = max(
                 (
                     row.get("finished_at") or row.get("started_at")
@@ -822,17 +929,29 @@ class AdminOpsService:
                 ),
                 default=None,
             )
+            summary_fields = {
+                "last_finished_at": last_finished_at,
+                "latest_step_name": latest_row.get("step_name"),
+                "latest_duration_ms": self._compute_duration_ms(
+                    latest_row.get("started_at"),
+                    latest_row.get("finished_at"),
+                ),
+                "attempt_count": len(maintenance_rows),
+                "retry_count": sum(
+                    1 for row in maintenance_rows if row.get("retry_of_step_run_id") is not None
+                ),
+            }
             if latest_by_name.get("tax_assignment_refresh", {}).get("status") == "failed":
                 return {
                     "status": "failed",
                     "failed_step_name": "tax_assignment_refresh",
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if latest_by_name.get("search_refresh", {}).get("status") == "failed":
                 return {
                     "status": "failed",
                     "failed_step_name": "search_refresh",
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if any(
                 row.get("status") == "running"
@@ -841,7 +960,7 @@ class AdminOpsService:
                 return {
                     "status": "running",
                     "failed_step_name": None,
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if (
                 latest_by_name.get("tax_assignment_refresh", {}).get("status") == "succeeded"
@@ -850,12 +969,12 @@ class AdminOpsService:
                 return {
                     "status": "succeeded",
                     "failed_step_name": None,
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             return {
                 "status": "pending",
                 "failed_step_name": None,
-                "last_finished_at": last_finished_at,
+                **summary_fields,
             }
 
         if connection is None:
@@ -868,4 +987,8 @@ class AdminOpsService:
             "status": summary.status,
             "failed_step_name": summary.failed_step_name,
             "last_finished_at": summary.last_finished_at,
+            "latest_step_name": summary.latest_step_name,
+            "latest_duration_ms": summary.latest_duration_ms,
+            "attempt_count": summary.attempt_count,
+            "retry_count": summary.retry_count,
         }
