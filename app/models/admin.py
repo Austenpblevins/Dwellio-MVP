@@ -232,6 +232,8 @@ class AdminImportBatchSummary(DwellioBaseModel):
     raw_file_count: int
     validation_result_count: int
     validation_error_count: int
+    validation_warning_count: int = 0
+    publish_control_warning_count: int = 0
     latest_job_name: str | None = None
     latest_job_stage: str | None = None
     latest_job_status: str | None = None

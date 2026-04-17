@@ -14,7 +14,7 @@ This internal-only surface gives operators one place to review ingestion status,
 - `/admin/ops`
   - overview with county-year readiness, QA counts, and recent import batches
 - `/admin/ops/jobs`
-  - import batch dashboard by county-year and dataset, including latest job duration and maintenance retry/duration summary
+  - import batch dashboard by county-year and dataset, including latest job duration, maintenance retry/duration summary, and warning-count visibility for replay-risk triage
 - `/admin/ops/jobs/{importBatchId}`
   - batch detail, validation summary, raw files, job runs, maintenance step runs, per-step telemetry summary, publish control, rollback control, maintenance retry control
 - `/admin/ops/validation?import_batch_id=...`
@@ -34,7 +34,7 @@ This internal-only surface gives operators one place to review ingestion status,
 
 1. Start in `/admin/ops` or `/admin/readiness` and choose the target county-year.
 2. Open `/admin/ops/jobs` to inspect recent import batches.
-3. Use the batch list summary to quickly spot long-running jobs, repeated maintenance retries, or unusually slow maintenance steps before drilling into a specific batch.
+3. Use the batch list summary to quickly spot long-running jobs, repeated maintenance retries, unusually slow maintenance steps, or warning-heavy replay candidates before drilling into a specific batch.
 4. Open a batch detail page to review validation findings, source files, and job runs.
 5. Use the batch detail `step_runs` and `step_summary` to review durations, retries, and the latest status for each maintenance step.
 6. If canonical publish succeeded but maintenance failed, use the batch detail maintenance telemetry and retry action before rerunning the full pipeline.

@@ -70,6 +70,8 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
                 publish_version="v1",
                 row_count=123,
                 error_count=0,
+                validation_warning_count=2,
+                publish_control_warning_count=1,
                 latest_job_duration_ms=18000,
                 maintenance_status="failed",
                 maintenance_failed_step_name="search_refresh",
@@ -100,6 +102,8 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
     assert payload["batches"][0]["publish_state"] == "published"
     assert payload["batches"][0]["status_reason"] == "published_to_canonical: property_roll publish succeeded."
     assert payload["batches"][0]["maintenance_status"] == "failed"
+    assert payload["batches"][0]["validation_warning_count"] == 2
+    assert payload["batches"][0]["publish_control_warning_count"] == 1
     assert payload["batches"][0]["latest_job_duration_ms"] == 18000
     assert payload["batches"][0]["maintenance_latest_step_name"] == "search_refresh"
     assert payload["batches"][0]["maintenance_latest_duration_ms"] == 42000

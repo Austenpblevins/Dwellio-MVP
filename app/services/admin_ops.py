@@ -440,6 +440,11 @@ class AdminOpsService:
                   COUNT(DISTINCT rf.raw_file_id) AS raw_file_count,
                   COUNT(DISTINCT vr.validation_result_id) AS validation_result_count,
                   COUNT(DISTINCT vr.validation_result_id) FILTER (WHERE vr.severity = 'error') AS validation_error_count,
+                  COUNT(DISTINCT vr.validation_result_id) FILTER (WHERE vr.severity = 'warning') AS validation_warning_count,
+                  COUNT(DISTINCT vr.validation_result_id) FILTER (
+                    WHERE vr.severity = 'warning'
+                      AND vr.validation_scope = 'publish_control'
+                  ) AS publish_control_warning_count,
                   latest_job.job_name AS latest_job_name,
                   latest_job.job_stage AS latest_job_stage,
                   latest_job.status AS latest_job_status,
@@ -761,6 +766,8 @@ class AdminOpsService:
             raw_file_count=int(row["raw_file_count"] or 0),
             validation_result_count=int(row["validation_result_count"] or 0),
             validation_error_count=int(row["validation_error_count"] or 0),
+            validation_warning_count=int(row.get("validation_warning_count") or 0),
+            publish_control_warning_count=int(row.get("publish_control_warning_count") or 0),
             latest_job_name=row.get("latest_job_name"),
             latest_job_stage=row.get("latest_job_stage"),
             latest_job_status=row.get("latest_job_status"),
