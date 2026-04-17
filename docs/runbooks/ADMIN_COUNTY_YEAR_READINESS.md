@@ -35,6 +35,7 @@ This route is internal/admin-facing by contract. It exposes blockers and readine
 - `/admin/readiness?county=harris&years=2026,2025,2024`
 
 The page uses the internal readiness API and is intended for operator review.
+It can also surface the county capability matrix so operator expectations stay aligned with what each county source truly supports today.
 
 If the API is not reachable, set:
 

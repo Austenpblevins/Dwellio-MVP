@@ -174,10 +174,20 @@ class AdminCountyYearReadinessKpiSummary(DwellioBaseModel):
     validation_regression_count: int = 0
 
 
+class AdminCountyCapability(DwellioBaseModel):
+    capability_code: str
+    label: str
+    status: str
+    source_datasets: list[str] = Field(default_factory=list)
+    notes: str = ""
+    metadata: JsonDict = Field(default_factory=dict)
+
+
 class AdminCountyYearReadinessDashboard(DwellioBaseModel):
     access_scope: str = "internal"
     county_id: str
     tax_years: list[int]
+    capabilities: list[AdminCountyCapability] = Field(default_factory=list)
     readiness_rows: list[AdminCountyYearReadiness]
     kpi_summary: AdminCountyYearReadinessKpiSummary = Field(
         default_factory=AdminCountyYearReadinessKpiSummary
