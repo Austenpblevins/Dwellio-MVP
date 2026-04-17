@@ -127,6 +127,10 @@ python3 -m infra.scripts.run_historical_backfill \
 Notes:
 
 - The runner reuses the existing `register_manual_import`, `job_load_staging`, and `job_normalize` path.
+- The runner now requires the prep-generated `*.manifest.json` file for each dataset and validates that:
+  - the manifest matches the requested county/year/dataset
+  - `validation.status = passed`
+  - the manifest output checksum still matches the ready file on disk
 - Existing-batch mutation commands must pass `--import-batch-id`; do not rely on latest-batch inference for staging, normalize, or rollback flows.
 - Duplicate ready files are reused idempotently. If the same checksum already published successfully, the runner reports the existing batch and skips re-ingest.
 - Publish still blocks when staging validation or publish-control checks fail.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -9,24 +11,102 @@ from app.ingestion.manual_backfill import ManualImportRegistrationResult
 from app.ingestion.service import PipelineStepResult
 
 
-def test_resolve_ready_file_finds_expected_extension(tmp_path: Path) -> None:
+def _write_ready_manifest(
+    tmp_path: Path,
+    *,
+    county_id: str,
+    tax_year: int,
+    dataset_type: str,
+    ready_file: Path,
+    validation_status: str = "passed",
+) -> Path:
+    manifest_path = tmp_path / f"{county_id}_{dataset_type}_{tax_year}.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "county_id": county_id,
+                "tax_year": tax_year,
+                "dataset_type": dataset_type,
+                "raw_files": [{"logical_name": dataset_type, "path": "/tmp/source", "size_bytes": 1, "checksum_sha256": "raw"}],
+                "output_files": [
+                    {
+                        "path": str(ready_file),
+                        "size_bytes": ready_file.stat().st_size,
+                        "checksum_sha256": hashlib.sha256(ready_file.read_bytes()).hexdigest(),
+                        "row_count": 1,
+                    }
+                ],
+                "row_count": 1,
+                "validation": {
+                    "status": validation_status,
+                    "parse_issue_count": 0,
+                    "validation_error_count": 0,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def test_resolve_ready_dataset_uses_manifest_and_checksum(tmp_path: Path) -> None:
     ready_file = tmp_path / "harris_property_roll_2024.json"
     ready_file.write_text("[]", encoding="utf-8")
+    manifest_path = _write_ready_manifest(
+        tmp_path,
+        county_id="harris",
+        tax_year=2024,
+        dataset_type="property_roll",
+        ready_file=ready_file,
+    )
 
     orchestrator = HistoricalBackfillOrchestrator()
-    resolved = orchestrator.resolve_ready_file(
+    resolved = orchestrator.resolve_ready_dataset(
         ready_root=str(tmp_path),
         county_id="harris",
         tax_year=2024,
         dataset_type="property_roll",
     )
 
-    assert resolved == ready_file
+    assert resolved.source_file_path == str(ready_file)
+    assert resolved.manifest_path == str(manifest_path)
+
+
+def test_resolve_ready_dataset_requires_validation_passed_manifest(tmp_path: Path) -> None:
+    ready_file = tmp_path / "harris_property_roll_2024.json"
+    ready_file.write_text("[]", encoding="utf-8")
+    _write_ready_manifest(
+        tmp_path,
+        county_id="harris",
+        tax_year=2024,
+        dataset_type="property_roll",
+        ready_file=ready_file,
+        validation_status="failed",
+    )
+
+    orchestrator = HistoricalBackfillOrchestrator()
+    with pytest.raises(ValueError, match="not validation-passed"):
+        orchestrator.resolve_ready_dataset(
+            ready_root=str(tmp_path),
+            county_id="harris",
+            tax_year=2024,
+            dataset_type="property_roll",
+        )
 
 
 def test_run_skips_already_published_duplicate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ready_file = tmp_path / "fort_bend_tax_rates_2024.csv"
     ready_file.write_text("unit_code,rate_value\n001,0.02\n", encoding="utf-8")
+    manifest_path = _write_ready_manifest(
+        tmp_path,
+        county_id="fort_bend",
+        tax_year=2024,
+        dataset_type="tax_rates",
+        ready_file=ready_file,
+    )
 
     monkeypatch.setattr(
         "app.ingestion.historical_backfill.register_manual_import",
@@ -64,6 +144,7 @@ def test_run_skips_already_published_duplicate(monkeypatch: pytest.MonkeyPatch, 
 
     assert len(results) == 1
     assert results[0].skipped_duplicate is True
+    assert results[0].manifest_path == str(manifest_path)
     assert results[0].staging_result is None
     assert results[0].normalize_result is None
 
@@ -71,6 +152,13 @@ def test_run_skips_already_published_duplicate(monkeypatch: pytest.MonkeyPatch, 
 def test_run_loads_and_normalizes_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ready_file = tmp_path / "harris_property_roll_2024.json"
     ready_file.write_text("[]", encoding="utf-8")
+    manifest_path = _write_ready_manifest(
+        tmp_path,
+        county_id="harris",
+        tax_year=2024,
+        dataset_type="property_roll",
+        ready_file=ready_file,
+    )
     calls: list[tuple[str, str, int, str]] = []
 
     monkeypatch.setattr(
@@ -127,5 +215,6 @@ def test_run_loads_and_normalizes_target(monkeypatch: pytest.MonkeyPatch, tmp_pa
         ("load_staging", "harris", 2024, "property_roll"),
         ("normalize", "harris", 2024, "property_roll"),
     ]
+    assert results[0].manifest_path == str(manifest_path)
     assert results[0].normalize_result is not None
     assert results[0].normalize_result.publish_version == "harris-2024-property_roll-jobnorm"
