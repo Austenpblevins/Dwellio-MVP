@@ -1,14 +1,24 @@
 from __future__ import annotations
 
-from app.api.admin import get_county_year_readiness
-from app.models.admin import AdminCountyYearReadinessDashboard
-from app.models.parcel import ParcelSummaryResponse
 from datetime import datetime, timezone
 
+from app.api.admin import get_county_onboarding_contract, get_county_year_readiness
+from app.models.admin import AdminCountyOnboardingContract, AdminCountyYearReadinessDashboard
+from app.models.parcel import ParcelSummaryResponse
 from app.services.admin_readiness import (
     AdminOperationalMetricsProvider,
     AdminReadinessService,
     DatasetOperationalMetrics,
+)
+from app.services.county_onboarding import (
+    CountyOnboardingContract,
+    OnboardingAction,
+    OnboardingBaselineComparison,
+    OnboardingDatasetSnapshot,
+    OnboardingPhase,
+    OnboardingReadinessSnapshot,
+    OnboardingSummary,
+    OnboardingValidationYear,
 )
 from app.services.data_readiness import (
     CountyTaxYearReadiness,
@@ -323,6 +333,112 @@ def test_get_county_year_readiness_wraps_service(monkeypatch) -> None:
 
     assert dashboard.county_id == "fort_bend"
     assert dashboard.tax_years == [2025, 2024]
+
+
+def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
+    class StubCountyOnboardingService:
+        def build_contract(
+            self,
+            *,
+            county_id: str,
+            tax_years: list[int],
+            current_tax_year: int | None = None,
+        ) -> CountyOnboardingContract:
+            assert county_id == "fort_bend"
+            assert tax_years == [2026, 2025]
+            assert current_tax_year == 2026
+            return CountyOnboardingContract(
+                county_id=county_id,
+                current_tax_year=2026,
+                validation_tax_year=2025,
+                validation_recommended=True,
+                onboarding_summary=OnboardingSummary(
+                    overall_status="blocked",
+                    done_phase_count=1,
+                    pending_phase_count=1,
+                    blocked_phase_count=0,
+                    blocking_phase_codes=["dataset_prep_contract"],
+                    next_phase_code="dataset_prep_contract",
+                    next_blocking_phase_code="dataset_prep_contract",
+                ),
+                baseline_comparison=OnboardingBaselineComparison(
+                    baseline_tax_year=2025,
+                    current_tax_year=2026,
+                    comparable=True,
+                    current_year_lagging=True,
+                    lagging_signals=["property_roll:canonical_publish"],
+                ),
+                capabilities=[],
+                validation_candidates=[
+                    OnboardingValidationYear(
+                        tax_year=2025,
+                        readiness_score=42,
+                        recommended_for_qa=True,
+                        caveats=["comp_generation_not_ready"],
+                        validation_capabilities={"parcel_summary_validation_ready": True},
+                    )
+                ],
+                current_year_snapshot=OnboardingReadinessSnapshot(
+                    tax_year=2026,
+                    datasets=[
+                        OnboardingDatasetSnapshot(
+                            dataset_type="property_roll",
+                            access_method="manual_upload",
+                            availability_status="manual_upload_required",
+                            raw_file_count=0,
+                            latest_import_batch_id=None,
+                            latest_import_status=None,
+                            latest_publish_state=None,
+                            canonical_published=False,
+                        )
+                    ],
+                    parcel_summary_ready=False,
+                    search_support_ready=False,
+                    feature_ready=False,
+                    comp_ready=False,
+                    quote_ready=False,
+                ),
+                validation_year_snapshot=None,
+                phases=[
+                    OnboardingPhase(
+                        phase_code="validation_year_selection",
+                        label="Validation year selection",
+                        status="done",
+                        blocking=False,
+                        summary="Use tax year 2025 as the repeatable onboarding QA baseline.",
+                        details=["comp_generation_not_ready"],
+                        success_criteria=["A repeatable prior-year QA baseline is selected."],
+                    )
+                ],
+                recommended_actions=[
+                    OnboardingAction(
+                        action_code="prepare_adapter_ready_files",
+                        phase_code="dataset_prep_contract",
+                        blocking=True,
+                        summary="Prepare adapter-ready files and manifests.",
+                        command_hint="python3 -m infra.scripts.prepare_manual_county_files --county-id fort_bend --tax-year 2025 --dataset-type both",
+                    )
+                ],
+            )
+
+    monkeypatch.setattr("app.api.admin.CountyOnboardingService", StubCountyOnboardingService)
+
+    contract = get_county_onboarding_contract(
+        "fort_bend",
+        tax_years=[2026, 2025],
+        current_tax_year=2026,
+    )
+
+    assert isinstance(contract, AdminCountyOnboardingContract)
+    assert contract.validation_tax_year == 2025
+    assert contract.onboarding_summary.overall_status == "blocked"
+    assert contract.baseline_comparison.current_year_lagging is True
+    assert contract.validation_candidates[0].readiness_score == 42
+    assert contract.current_year_snapshot is not None
+    assert contract.current_year_snapshot.tax_year == 2026
+    assert contract.phases[0].phase_code == "validation_year_selection"
+    assert contract.phases[0].success_criteria == ["A repeatable prior-year QA baseline is selected."]
+    assert contract.recommended_actions[0].action_code == "prepare_adapter_ready_files"
 
 
 def test_public_parcel_summary_model_has_no_admin_only_fields() -> None:
