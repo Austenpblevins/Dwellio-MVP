@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from app.models.admin import (
     AdminCompletenessIssuesResponse,
+    AdminCountyOnboardingContract,
+    AdminCountyOnboardingDatasetSnapshot,
+    AdminCountyOnboardingPhase,
+    AdminCountyOnboardingReadinessSnapshot,
+    AdminCountyOnboardingValidationYear,
     AdminCountyYearReadinessDashboard,
     AdminImportBatchActionRequest,
     AdminImportBatchDetail,
@@ -16,6 +21,7 @@ from app.models.admin import (
 from app.services.address_resolver import AddressResolverService
 from app.services.admin_ops import AdminOpsService
 from app.services.admin_readiness import AdminReadinessService
+from app.services.county_onboarding import CountyOnboardingService
 
 
 def get_county_year_readiness(
@@ -24,6 +30,108 @@ def get_county_year_readiness(
 ) -> AdminCountyYearReadinessDashboard:
     service = AdminReadinessService()
     return service.build_dashboard(county_id=county_id, tax_years=tax_years)
+
+
+def get_county_onboarding_contract(
+    county_id: str,
+    *,
+    tax_years: list[int],
+    current_tax_year: int | None = None,
+) -> AdminCountyOnboardingContract:
+    service = CountyOnboardingService()
+    contract = service.build_contract(
+        county_id=county_id,
+        tax_years=tax_years,
+        current_tax_year=current_tax_year,
+    )
+    return AdminCountyOnboardingContract(
+        county_id=contract.county_id,
+        current_tax_year=contract.current_tax_year,
+        validation_tax_year=contract.validation_tax_year,
+        validation_recommended=contract.validation_recommended,
+        capabilities=[
+            {
+                "capability_code": capability.capability_code,
+                "label": capability.label,
+                "status": capability.status,
+                "source_datasets": capability.source_datasets,
+                "notes": capability.notes,
+                "metadata": capability.metadata,
+            }
+            for capability in contract.capabilities
+        ],
+        validation_candidates=[
+            AdminCountyOnboardingValidationYear(
+                tax_year=candidate.tax_year,
+                readiness_score=candidate.readiness_score,
+                recommended_for_qa=candidate.recommended_for_qa,
+                caveats=list(candidate.caveats),
+                validation_capabilities=dict(candidate.validation_capabilities),
+            )
+            for candidate in contract.validation_candidates
+        ],
+        current_year_snapshot=(
+            None
+            if contract.current_year_snapshot is None
+            else AdminCountyOnboardingReadinessSnapshot(
+                tax_year=contract.current_year_snapshot.tax_year,
+                datasets=[
+                    AdminCountyOnboardingDatasetSnapshot(
+                        dataset_type=dataset.dataset_type,
+                        access_method=dataset.access_method,
+                        availability_status=dataset.availability_status,
+                        raw_file_count=dataset.raw_file_count,
+                        latest_import_batch_id=dataset.latest_import_batch_id,
+                        latest_import_status=dataset.latest_import_status,
+                        latest_publish_state=dataset.latest_publish_state,
+                        canonical_published=dataset.canonical_published,
+                    )
+                    for dataset in contract.current_year_snapshot.datasets
+                ],
+                parcel_summary_ready=contract.current_year_snapshot.parcel_summary_ready,
+                search_support_ready=contract.current_year_snapshot.search_support_ready,
+                feature_ready=contract.current_year_snapshot.feature_ready,
+                comp_ready=contract.current_year_snapshot.comp_ready,
+                quote_ready=contract.current_year_snapshot.quote_ready,
+            )
+        ),
+        validation_year_snapshot=(
+            None
+            if contract.validation_year_snapshot is None
+            else AdminCountyOnboardingReadinessSnapshot(
+                tax_year=contract.validation_year_snapshot.tax_year,
+                datasets=[
+                    AdminCountyOnboardingDatasetSnapshot(
+                        dataset_type=dataset.dataset_type,
+                        access_method=dataset.access_method,
+                        availability_status=dataset.availability_status,
+                        raw_file_count=dataset.raw_file_count,
+                        latest_import_batch_id=dataset.latest_import_batch_id,
+                        latest_import_status=dataset.latest_import_status,
+                        latest_publish_state=dataset.latest_publish_state,
+                        canonical_published=dataset.canonical_published,
+                    )
+                    for dataset in contract.validation_year_snapshot.datasets
+                ],
+                parcel_summary_ready=contract.validation_year_snapshot.parcel_summary_ready,
+                search_support_ready=contract.validation_year_snapshot.search_support_ready,
+                feature_ready=contract.validation_year_snapshot.feature_ready,
+                comp_ready=contract.validation_year_snapshot.comp_ready,
+                quote_ready=contract.validation_year_snapshot.quote_ready,
+            )
+        ),
+        phases=[
+            AdminCountyOnboardingPhase(
+                phase_code=phase.phase_code,
+                label=phase.label,
+                status=phase.status,
+                blocking=phase.blocking,
+                summary=phase.summary,
+                details=list(phase.details),
+            )
+            for phase in contract.phases
+        ],
+    )
 
 
 def get_search_inspection(

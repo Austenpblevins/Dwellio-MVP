@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.admin import (
     get_completeness_issues,
+    get_county_onboarding_contract,
     get_county_year_readiness,
     get_import_batch_detail,
     get_import_batches,
@@ -31,6 +32,7 @@ from app.api.cases import (
 from app.api.deps.admin_auth import require_admin_access
 from app.models.admin import (
     AdminCompletenessIssuesResponse,
+    AdminCountyOnboardingContract,
     AdminCountyYearReadinessDashboard,
     AdminImportBatchActionRequest,
     AdminImportBatchDetail,
@@ -66,6 +68,22 @@ def county_year_readiness_endpoint(
     tax_years: Annotated[list[int], Query(min_length=1)],
 ) -> AdminCountyYearReadinessDashboard:
     return get_county_year_readiness(county_id=county_id, tax_years=tax_years)
+
+
+@router.get(
+    "/admin/onboarding/{county_id}",
+    response_model=AdminCountyOnboardingContract,
+)
+def county_onboarding_contract_endpoint(
+    county_id: str,
+    tax_years: Annotated[list[int], Query(min_length=1)],
+    current_tax_year: Annotated[int | None, Query()] = None,
+) -> AdminCountyOnboardingContract:
+    return get_county_onboarding_contract(
+        county_id=county_id,
+        tax_years=tax_years,
+        current_tax_year=current_tax_year,
+    )
 
 
 @router.get(

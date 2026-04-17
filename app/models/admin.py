@@ -194,6 +194,57 @@ class AdminCountyYearReadinessDashboard(DwellioBaseModel):
     )
 
 
+class AdminCountyOnboardingDatasetSnapshot(DwellioBaseModel):
+    dataset_type: str
+    access_method: str
+    availability_status: str
+    raw_file_count: int
+    latest_import_batch_id: str | None = None
+    latest_import_status: str | None = None
+    latest_publish_state: str | None = None
+    canonical_published: bool
+
+
+class AdminCountyOnboardingReadinessSnapshot(DwellioBaseModel):
+    tax_year: int
+    datasets: list[AdminCountyOnboardingDatasetSnapshot]
+    parcel_summary_ready: bool
+    search_support_ready: bool
+    feature_ready: bool
+    comp_ready: bool
+    quote_ready: bool
+
+
+class AdminCountyOnboardingValidationYear(DwellioBaseModel):
+    tax_year: int
+    readiness_score: int
+    recommended_for_qa: bool
+    caveats: list[str] = Field(default_factory=list)
+    validation_capabilities: JsonDict = Field(default_factory=dict)
+
+
+class AdminCountyOnboardingPhase(DwellioBaseModel):
+    phase_code: str
+    label: str
+    status: str
+    blocking: bool
+    summary: str
+    details: list[str] = Field(default_factory=list)
+
+
+class AdminCountyOnboardingContract(DwellioBaseModel):
+    access_scope: str = "internal"
+    county_id: str
+    current_tax_year: int
+    validation_tax_year: int | None = None
+    validation_recommended: bool = False
+    capabilities: list[AdminCountyCapability] = Field(default_factory=list)
+    validation_candidates: list[AdminCountyOnboardingValidationYear] = Field(default_factory=list)
+    current_year_snapshot: AdminCountyOnboardingReadinessSnapshot | None = None
+    validation_year_snapshot: AdminCountyOnboardingReadinessSnapshot | None = None
+    phases: list[AdminCountyOnboardingPhase] = Field(default_factory=list)
+
+
 class AdminSearchScoreComponents(DwellioBaseModel):
     basis_rank: int
     address_similarity: float

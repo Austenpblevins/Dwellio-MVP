@@ -17,6 +17,14 @@ The goal is not to guess from one dashboard or one script. The goal is to use on
 python3 -m infra.scripts.report_county_onboarding --county-id harris --tax-years 2026 2025 2024 --current-tax-year 2026
 ```
 
+## Internal admin API
+
+```bash
+GET /admin/onboarding/{county_id}?tax_years=2026&tax_years=2025&tax_years=2024&current_tax_year=2026
+```
+
+This route is internal/admin-facing by contract and returns the same onboarding phase model used by the CLI helper.
+
 The report is machine-readable and is designed to answer:
 
 1. Which prior year is the best repeatable validation baseline?
