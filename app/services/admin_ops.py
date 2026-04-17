@@ -14,6 +14,7 @@ from app.models.admin import (
     AdminImportBatchActions,
     AdminImportBatchDetail,
     AdminIngestionStepRun,
+    AdminIngestionStepSummary,
     AdminImportBatchInspection,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
@@ -104,6 +105,7 @@ class AdminOpsService:
                 prefetched_step_runs=step_runs,
             ),
         )
+        built_step_runs = [self._build_ingestion_step_run(row) for row in step_runs]
         return AdminImportBatchDetail(
             batch=summary,
             inspection=AdminImportBatchInspection(
@@ -133,7 +135,8 @@ class AdminOpsService:
             validation_summary=validation_summary,
             source_files=[self._build_source_file(row) for row in source_files],
             job_runs=[self._build_job_run(row) for row in job_runs],
-            step_runs=[self._build_ingestion_step_run(row) for row in step_runs],
+            step_runs=built_step_runs,
+            step_summary=self._build_ingestion_step_summary_rows(built_step_runs),
             actions=AdminImportBatchActions(
                 can_publish=summary.status in {"staged", "rolled_back"},
                 can_rollback=summary.publish_state == "published",
@@ -688,6 +691,8 @@ class AdminOpsService:
         )
 
     def _build_ingestion_step_run(self, row: dict[str, Any]) -> AdminIngestionStepRun:
+        started_at = row.get("started_at")
+        finished_at = row.get("finished_at")
         return AdminIngestionStepRun(
             step_run_id=str(row["step_run_id"]),
             step_name=row["step_name"],
@@ -698,12 +703,40 @@ class AdminOpsService:
                 if row.get("retry_of_step_run_id") is None
                 else str(row["retry_of_step_run_id"])
             ),
-            started_at=row.get("started_at"),
-            finished_at=row.get("finished_at"),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=self._compute_duration_ms(started_at, finished_at),
+            is_retry=row.get("retry_of_step_run_id") is not None,
             row_count=row.get("row_count"),
             error_message=row.get("error_message"),
             details_json=dict(row.get("details_json") or {}),
         )
+
+    def _build_ingestion_step_summary_rows(
+        self, step_runs: list[AdminIngestionStepRun]
+    ) -> list[AdminIngestionStepSummary]:
+        grouped: dict[str, list[AdminIngestionStepRun]] = {}
+        for step_run in step_runs:
+            grouped.setdefault(step_run.step_name, []).append(step_run)
+
+        summaries: list[AdminIngestionStepSummary] = []
+        for step_name, runs in grouped.items():
+            latest_run = runs[0]
+            summaries.append(
+                AdminIngestionStepSummary(
+                    step_name=step_name,
+                    latest_status=latest_run.status,
+                    latest_attempt_number=latest_run.attempt_number,
+                    attempt_count=len(runs),
+                    retry_count=sum(1 for run in runs if run.is_retry),
+                    failed_attempt_count=sum(1 for run in runs if run.status == "failed"),
+                    latest_started_at=latest_run.started_at,
+                    latest_finished_at=latest_run.finished_at,
+                    latest_duration_ms=latest_run.duration_ms,
+                    last_error_message=latest_run.error_message,
+                )
+            )
+        return sorted(summaries, key=lambda item: (item.step_name, item.latest_attempt_number))
 
     def _build_import_batch_summary(
         self,
@@ -769,17 +802,26 @@ class AdminOpsService:
         )
 
     def _build_job_run(self, row: dict[str, Any]) -> AdminJobRunSummary:
+        started_at = row.get("started_at")
+        finished_at = row.get("finished_at")
         return AdminJobRunSummary(
             job_run_id=str(row["job_run_id"]),
             job_name=row["job_name"],
             job_stage=row["job_stage"],
             status=row["status"],
-            started_at=row.get("started_at"),
-            finished_at=row.get("finished_at"),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=self._compute_duration_ms(started_at, finished_at),
             row_count=row.get("row_count"),
             error_message=row.get("error_message"),
             metadata_json=dict(row.get("metadata_json") or {}),
         )
+
+    def _compute_duration_ms(self, started_at: Any, finished_at: Any) -> int | None:
+        if started_at is None or finished_at is None:
+            return None
+        duration = finished_at - started_at
+        return max(int(duration.total_seconds() * 1000), 0)
 
     def _build_validation_finding(self, row: dict[str, Any]) -> AdminValidationFinding:
         return AdminValidationFinding(

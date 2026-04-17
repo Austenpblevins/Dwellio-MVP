@@ -259,6 +259,7 @@ class AdminJobRunSummary(DwellioBaseModel):
     status: str
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    duration_ms: int | None = None
     row_count: int | None = None
     error_message: str | None = None
     metadata_json: JsonDict = Field(default_factory=dict)
@@ -272,9 +273,24 @@ class AdminIngestionStepRun(DwellioBaseModel):
     retry_of_step_run_id: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    duration_ms: int | None = None
+    is_retry: bool = False
     row_count: int | None = None
     error_message: str | None = None
     details_json: JsonDict = Field(default_factory=dict)
+
+
+class AdminIngestionStepSummary(DwellioBaseModel):
+    step_name: str
+    latest_status: str
+    latest_attempt_number: int = 1
+    attempt_count: int = 1
+    retry_count: int = 0
+    failed_attempt_count: int = 0
+    latest_started_at: datetime | None = None
+    latest_finished_at: datetime | None = None
+    latest_duration_ms: int | None = None
+    last_error_message: str | None = None
 
 
 class AdminSourceFileRecord(DwellioBaseModel):
@@ -364,6 +380,7 @@ class AdminImportBatchDetail(DwellioBaseModel):
     source_files: list[AdminSourceFileRecord]
     job_runs: list[AdminJobRunSummary]
     step_runs: list[AdminIngestionStepRun] = Field(default_factory=list)
+    step_summary: list[AdminIngestionStepSummary] = Field(default_factory=list)
     actions: AdminImportBatchActions
 
 

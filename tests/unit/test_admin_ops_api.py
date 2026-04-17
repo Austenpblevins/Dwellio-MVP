@@ -8,6 +8,7 @@ from app.models.admin import (
     AdminImportBatchDetail,
     AdminImportBatchInspection,
     AdminIngestionStepRun,
+    AdminIngestionStepSummary,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
     AdminManualImportRequest,
@@ -178,7 +179,22 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
                     step_run_id="step-1",
                     step_name="search_refresh",
                     status="failed",
+                    attempt_number=2,
+                    duration_ms=42000,
+                    is_retry=True,
                     error_message="search refresh failed",
+                )
+            ],
+            step_summary=[
+                AdminIngestionStepSummary(
+                    step_name="search_refresh",
+                    latest_status="failed",
+                    latest_attempt_number=2,
+                    attempt_count=2,
+                    retry_count=1,
+                    failed_attempt_count=1,
+                    latest_duration_ms=42000,
+                    last_error_message="search refresh failed",
                 )
             ],
             actions=AdminImportBatchActions(
@@ -201,6 +217,10 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
     payload = response.json()
     assert payload["step_runs"][0]["step_name"] == "search_refresh"
     assert payload["step_runs"][0]["status"] == "failed"
+    assert payload["step_runs"][0]["duration_ms"] == 42000
+    assert payload["step_runs"][0]["is_retry"] is True
+    assert payload["step_summary"][0]["step_name"] == "search_refresh"
+    assert payload["step_summary"][0]["attempt_count"] == 2
     assert payload["actions"]["can_retry_maintenance"] is True
 
 
