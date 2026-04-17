@@ -133,3 +133,11 @@ def post_rollback_import_batch(
 ) -> AdminMutationResult:
     service = AdminOpsService()
     return service.rollback_import_batch(import_batch_id=import_batch_id, request=request)
+
+
+def post_retry_import_batch_maintenance(
+    import_batch_id: str,
+    request: AdminImportBatchActionRequest,
+) -> AdminMutationResult:
+    service = AdminOpsService()
+    return service.retry_import_batch_maintenance(import_batch_id=import_batch_id, request=request)

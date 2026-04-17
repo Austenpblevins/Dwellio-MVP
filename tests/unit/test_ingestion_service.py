@@ -5,13 +5,21 @@ from contextlib import contextmanager
 import pytest
 
 from app.county_adapters.common.base import AcquiredDataset, PublishResult, StagingRow
-from app.ingestion.repository import ImportBatchRecord
+from app.ingestion.repository import (
+    ImportBatchRecord,
+    IngestionStepRunRecord,
+    PostCommitMaintenanceSummary,
+)
 from app.jobs import job_load_staging, job_normalize, job_rollback_publish
 from app.ingestion.service import IngestionLifecycleService, PipelineStepResult
 
 
 class DummyConnection:
-    pass
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
 
 
 @contextmanager
@@ -1356,3 +1364,239 @@ def test_refresh_tax_assignments_prefers_set_based_repository_path() -> None:
 
     assert repository.called is True
     assert repository.refreshed is True
+
+
+def test_retry_post_commit_maintenance_reruns_search_only_after_search_failure(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+    created_job_runs: list[dict[str, object]] = []
+    step_runs_created: list[dict[str, object]] = []
+    step_runs_completed: list[dict[str, object]] = []
+    completed_job_runs: list[dict[str, object]] = []
+    inserted_findings: list[dict[str, object]] = []
+    search_refresh_calls: list[dict[str, object]] = []
+
+    class StubRepository:
+        step_id_counter = 0
+
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2026/property_roll/example.json",
+                original_filename="harris-property_roll-2026.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def fetch_import_batch_lifecycle_state(self, **kwargs) -> dict[str, object]:
+            return {
+                "import_batch_id": "batch-1",
+                "county_id": "harris",
+                "tax_year": 2026,
+                "dataset_type": "property_roll",
+                "status": "normalized",
+                "publish_state": "published",
+                "publish_version": "publish-v1",
+                "source_system_id": "source-1",
+            }
+
+        def summarize_post_commit_maintenance(self, **kwargs) -> PostCommitMaintenanceSummary:
+            return PostCommitMaintenanceSummary(
+                status="failed",
+                failed_step_name="search_refresh",
+                error_message="search refresh failed",
+                retryable=True,
+            )
+
+        def fetch_latest_ingestion_step_runs(self, **kwargs) -> list[IngestionStepRunRecord]:
+            return [
+                IngestionStepRunRecord(
+                    step_run_id="prior-tax",
+                    import_batch_id="batch-1",
+                    job_run_id="job-prev",
+                    step_name="tax_assignment_refresh",
+                    status="succeeded",
+                    attempt_number=1,
+                    retry_of_step_run_id=None,
+                    started_at=None,
+                    finished_at=None,
+                    row_count=None,
+                    error_message=None,
+                    details_json={},
+                ),
+                IngestionStepRunRecord(
+                    step_run_id="prior-search",
+                    import_batch_id="batch-1",
+                    job_run_id="job-prev",
+                    step_name="search_refresh",
+                    status="failed",
+                    attempt_number=1,
+                    retry_of_step_run_id=None,
+                    started_at=None,
+                    finished_at=None,
+                    row_count=None,
+                    error_message="search refresh failed",
+                    details_json={},
+                ),
+            ]
+
+        def create_job_run(self, **kwargs) -> str:
+            created_job_runs.append(kwargs)
+            return "job-retry"
+
+        def create_ingestion_step_run(self, **kwargs) -> str:
+            step_runs_created.append(kwargs)
+            StubRepository.step_id_counter += 1
+            return f"step-{StubRepository.step_id_counter}"
+
+        def complete_ingestion_step_run(self, step_run_id: str, **kwargs) -> None:
+            step_runs_completed.append({"step_run_id": step_run_id, **kwargs})
+
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted_findings.append(kwargs)
+
+        def complete_job_run(self, job_run_id: str, **kwargs) -> None:
+            completed_job_runs.append({"job_run_id": job_run_id, **kwargs})
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", dummy_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(
+        service,
+        "_refresh_tax_assignments",
+        lambda **kwargs: pytest.fail("tax refresh should not rerun"),
+    )
+    monkeypatch.setattr(
+        service,
+        "_refresh_search_documents",
+        lambda **kwargs: search_refresh_calls.append(kwargs),
+    )
+
+    result = service.retry_post_commit_maintenance(
+        county_id="harris",
+        tax_year=2026,
+        dataset_type="property_roll",
+        import_batch_id="batch-1",
+    )
+
+    assert result.job_run_id == "job-retry"
+    assert result.publish_version == "publish-v1"
+    assert created_job_runs[0]["job_stage"] == "maintenance_retry"
+    assert [item["step_name"] for item in step_runs_created] == ["search_refresh"]
+    assert step_runs_created[0]["attempt_number"] == 2
+    assert step_runs_created[0]["retry_of_step_run_id"] == "prior-search"
+    assert len(search_refresh_calls) == 1
+    assert step_runs_completed[-1]["status"] == "succeeded"
+    assert inserted_findings[-1]["findings"][0]["validation_code"] == "POST_COMMIT_MAINTENANCE_RETRY_OK"
+    assert completed_job_runs[-1]["status"] == "succeeded"
+
+
+def test_retry_post_commit_maintenance_reruns_tax_then_search_after_tax_failure(monkeypatch) -> None:
+    service = IngestionLifecycleService()
+    step_runs_created: list[dict[str, object]] = []
+    tax_refresh_calls: list[dict[str, object]] = []
+    search_refresh_calls: list[dict[str, object]] = []
+
+    class StubRepository:
+        step_id_counter = 0
+
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2026/property_roll/example.json",
+                original_filename="harris-property_roll-2026.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def fetch_import_batch_lifecycle_state(self, **kwargs) -> dict[str, object]:
+            return {
+                "import_batch_id": "batch-1",
+                "county_id": "harris",
+                "tax_year": 2026,
+                "dataset_type": "property_roll",
+                "status": "normalized",
+                "publish_state": "published",
+                "publish_version": "publish-v1",
+                "source_system_id": "source-1",
+            }
+
+        def summarize_post_commit_maintenance(self, **kwargs) -> PostCommitMaintenanceSummary:
+            return PostCommitMaintenanceSummary(
+                status="failed",
+                failed_step_name="tax_assignment_refresh",
+                error_message="tax assignment refresh failed",
+                retryable=True,
+            )
+
+        def fetch_latest_ingestion_step_runs(self, **kwargs) -> list[IngestionStepRunRecord]:
+            return [
+                IngestionStepRunRecord(
+                    step_run_id="prior-tax",
+                    import_batch_id="batch-1",
+                    job_run_id="job-prev",
+                    step_name="tax_assignment_refresh",
+                    status="failed",
+                    attempt_number=1,
+                    retry_of_step_run_id=None,
+                    started_at=None,
+                    finished_at=None,
+                    row_count=None,
+                    error_message="tax assignment refresh failed",
+                    details_json={},
+                ),
+            ]
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-retry"
+
+        def create_ingestion_step_run(self, **kwargs) -> str:
+            step_runs_created.append(kwargs)
+            StubRepository.step_id_counter += 1
+            return f"step-{StubRepository.step_id_counter}"
+
+        def complete_ingestion_step_run(self, step_run_id: str, **kwargs) -> None:
+            return None
+
+        def insert_validation_results(self, **kwargs) -> None:
+            return None
+
+        def complete_job_run(self, job_run_id: str, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", dummy_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(
+        service,
+        "_refresh_tax_assignments",
+        lambda **kwargs: tax_refresh_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        service,
+        "_refresh_search_documents",
+        lambda **kwargs: search_refresh_calls.append(kwargs),
+    )
+
+    service.retry_post_commit_maintenance(
+        county_id="harris",
+        tax_year=2026,
+        dataset_type="property_roll",
+        import_batch_id="batch-1",
+    )
+
+    assert [item["step_name"] for item in step_runs_created] == [
+        "tax_assignment_refresh",
+        "search_refresh",
+    ]
+    assert len(tax_refresh_calls) == 1
+    assert len(search_refresh_calls) == 1
