@@ -14,7 +14,7 @@ This internal-only surface gives operators one place to review ingestion status,
 - `/admin/ops`
   - overview with county-year readiness, QA counts, and recent import batches
 - `/admin/ops/jobs`
-  - import batch dashboard by county-year and dataset
+  - import batch dashboard by county-year and dataset, including latest job duration and maintenance retry/duration summary
 - `/admin/ops/jobs/{importBatchId}`
   - batch detail, validation summary, raw files, job runs, maintenance step runs, per-step telemetry summary, publish control, rollback control, maintenance retry control
 - `/admin/ops/validation?import_batch_id=...`
@@ -34,13 +34,14 @@ This internal-only surface gives operators one place to review ingestion status,
 
 1. Start in `/admin/ops` or `/admin/readiness` and choose the target county-year.
 2. Open `/admin/ops/jobs` to inspect recent import batches.
-3. Open a batch detail page to review validation findings, source files, and job runs.
-4. Use the batch detail `step_runs` and `step_summary` to review durations, retries, and the latest status for each maintenance step.
-5. If canonical publish succeeded but maintenance failed, use the batch detail maintenance telemetry and retry action before rerunning the full pipeline.
-6. If county automation is weak or a fuller year is needed, use `/admin/ops/manual-upload` to register a manual import.
-7. Publish only after validation results and QA surfaces are acceptable.
-8. Use rollback only when a published batch needs to be reversed.
-9. Review parcel completeness and tax assignment issues before downstream valuation or quote QA.
+3. Use the batch list summary to quickly spot long-running jobs, repeated maintenance retries, or unusually slow maintenance steps before drilling into a specific batch.
+4. Open a batch detail page to review validation findings, source files, and job runs.
+5. Use the batch detail `step_runs` and `step_summary` to review durations, retries, and the latest status for each maintenance step.
+6. If canonical publish succeeded but maintenance failed, use the batch detail maintenance telemetry and retry action before rerunning the full pipeline.
+7. If county automation is weak or a fuller year is needed, use `/admin/ops/manual-upload` to register a manual import.
+8. Publish only after validation results and QA surfaces are acceptable.
+9. Use rollback only when a published batch needs to be reversed.
+10. Review parcel completeness and tax assignment issues before downstream valuation or quote QA.
 
 ## Sparse-Year Guidance
 

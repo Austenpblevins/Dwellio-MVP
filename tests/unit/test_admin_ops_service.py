@@ -116,3 +116,47 @@ def test_build_job_run_adds_duration_ms() -> None:
     )
 
     assert job_run.duration_ms == 3000
+
+
+def test_summarize_post_commit_maintenance_includes_attempts_retries_and_duration() -> None:
+    service = AdminOpsService()
+    latest_started_at = datetime(2026, 4, 17, 13, 0, tzinfo=timezone.utc)
+    prior_started_at = datetime(2026, 4, 17, 12, 50, tzinfo=timezone.utc)
+
+    summary = service._summarize_post_commit_maintenance(
+        connection=None,
+        import_batch_id="batch-1",
+        dataset_type="property_roll",
+        publish_state="published",
+        prefetched_step_runs=[
+            {
+                "step_name": "search_refresh",
+                "status": "failed",
+                "retry_of_step_run_id": "step-1",
+                "started_at": latest_started_at,
+                "finished_at": latest_started_at + timedelta(seconds=6),
+            },
+            {
+                "step_name": "search_refresh",
+                "status": "failed",
+                "retry_of_step_run_id": None,
+                "started_at": prior_started_at,
+                "finished_at": prior_started_at + timedelta(seconds=5),
+            },
+            {
+                "step_name": "tax_assignment_refresh",
+                "status": "succeeded",
+                "retry_of_step_run_id": None,
+                "started_at": prior_started_at,
+                "finished_at": prior_started_at + timedelta(seconds=2),
+            },
+        ],
+    )
+
+    assert summary is not None
+    assert summary["status"] == "failed"
+    assert summary["failed_step_name"] == "search_refresh"
+    assert summary["latest_step_name"] == "search_refresh"
+    assert summary["latest_duration_ms"] == 6000
+    assert summary["attempt_count"] == 3
+    assert summary["retry_count"] == 1

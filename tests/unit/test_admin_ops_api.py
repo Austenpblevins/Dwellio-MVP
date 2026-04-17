@@ -70,8 +70,13 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
                 publish_version="v1",
                 row_count=123,
                 error_count=0,
+                latest_job_duration_ms=18000,
                 maintenance_status="failed",
                 maintenance_failed_step_name="search_refresh",
+                maintenance_latest_step_name="search_refresh",
+                maintenance_latest_duration_ms=42000,
+                maintenance_attempt_count=2,
+                maintenance_retry_count=1,
                 raw_file_count=1,
                 validation_result_count=3,
                 validation_error_count=0,
@@ -95,6 +100,11 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
     assert payload["batches"][0]["publish_state"] == "published"
     assert payload["batches"][0]["status_reason"] == "published_to_canonical: property_roll publish succeeded."
     assert payload["batches"][0]["maintenance_status"] == "failed"
+    assert payload["batches"][0]["latest_job_duration_ms"] == 18000
+    assert payload["batches"][0]["maintenance_latest_step_name"] == "search_refresh"
+    assert payload["batches"][0]["maintenance_latest_duration_ms"] == 42000
+    assert payload["batches"][0]["maintenance_attempt_count"] == 2
+    assert payload["batches"][0]["maintenance_retry_count"] == 1
 
 
 def test_admin_manual_register_route_uses_existing_backfill_path(monkeypatch) -> None:

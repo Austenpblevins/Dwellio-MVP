@@ -766,6 +766,10 @@ class AdminOpsService:
             latest_job_status=row.get("latest_job_status"),
             latest_job_started_at=row.get("latest_job_started_at"),
             latest_job_finished_at=row.get("latest_job_finished_at"),
+            latest_job_duration_ms=self._compute_duration_ms(
+                row.get("latest_job_started_at"),
+                row.get("latest_job_finished_at"),
+            ),
             latest_job_error_message=row.get("latest_job_error_message"),
             maintenance_status=(
                 None if maintenance_summary is None else maintenance_summary.get("status")
@@ -779,6 +783,26 @@ class AdminOpsService:
                 None
                 if maintenance_summary is None
                 else maintenance_summary.get("last_finished_at")
+            ),
+            maintenance_latest_step_name=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("latest_step_name")
+            ),
+            maintenance_latest_duration_ms=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("latest_duration_ms")
+            ),
+            maintenance_attempt_count=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("attempt_count")
+            ),
+            maintenance_retry_count=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("retry_count")
             ),
             created_at=row.get("created_at"),
         )
@@ -849,13 +873,17 @@ class AdminOpsService:
 
         if prefetched_step_runs is not None:
             maintenance_steps = {"tax_assignment_refresh", "search_refresh"}
+            maintenance_rows = [
+                row for row in prefetched_step_runs if row.get("step_name") in maintenance_steps
+            ]
             latest_by_name: dict[str, dict[str, Any]] = {}
-            for row in prefetched_step_runs:
+            for row in maintenance_rows:
                 step_name = row.get("step_name")
                 if step_name in maintenance_steps and step_name not in latest_by_name:
                     latest_by_name[step_name] = row
             if not latest_by_name:
                 return None
+            latest_row = maintenance_rows[0]
             last_finished_at = max(
                 (
                     row.get("finished_at") or row.get("started_at")
@@ -864,17 +892,29 @@ class AdminOpsService:
                 ),
                 default=None,
             )
+            summary_fields = {
+                "last_finished_at": last_finished_at,
+                "latest_step_name": latest_row.get("step_name"),
+                "latest_duration_ms": self._compute_duration_ms(
+                    latest_row.get("started_at"),
+                    latest_row.get("finished_at"),
+                ),
+                "attempt_count": len(maintenance_rows),
+                "retry_count": sum(
+                    1 for row in maintenance_rows if row.get("retry_of_step_run_id") is not None
+                ),
+            }
             if latest_by_name.get("tax_assignment_refresh", {}).get("status") == "failed":
                 return {
                     "status": "failed",
                     "failed_step_name": "tax_assignment_refresh",
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if latest_by_name.get("search_refresh", {}).get("status") == "failed":
                 return {
                     "status": "failed",
                     "failed_step_name": "search_refresh",
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if any(
                 row.get("status") == "running"
@@ -883,7 +923,7 @@ class AdminOpsService:
                 return {
                     "status": "running",
                     "failed_step_name": None,
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             if (
                 latest_by_name.get("tax_assignment_refresh", {}).get("status") == "succeeded"
@@ -892,12 +932,12 @@ class AdminOpsService:
                 return {
                     "status": "succeeded",
                     "failed_step_name": None,
-                    "last_finished_at": last_finished_at,
+                    **summary_fields,
                 }
             return {
                 "status": "pending",
                 "failed_step_name": None,
-                "last_finished_at": last_finished_at,
+                **summary_fields,
             }
 
         if connection is None:
@@ -910,4 +950,8 @@ class AdminOpsService:
             "status": summary.status,
             "failed_step_name": summary.failed_step_name,
             "last_finished_at": summary.last_finished_at,
+            "latest_step_name": summary.latest_step_name,
+            "latest_duration_ms": summary.latest_duration_ms,
+            "attempt_count": summary.attempt_count,
+            "retry_count": summary.retry_count,
         }

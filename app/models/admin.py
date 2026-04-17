@@ -237,10 +237,15 @@ class AdminImportBatchSummary(DwellioBaseModel):
     latest_job_status: str | None = None
     latest_job_started_at: datetime | None = None
     latest_job_finished_at: datetime | None = None
+    latest_job_duration_ms: int | None = None
     latest_job_error_message: str | None = None
     maintenance_status: str | None = None
     maintenance_failed_step_name: str | None = None
     maintenance_last_finished_at: datetime | None = None
+    maintenance_latest_step_name: str | None = None
+    maintenance_latest_duration_ms: int | None = None
+    maintenance_attempt_count: int | None = None
+    maintenance_retry_count: int | None = None
     created_at: datetime | None = None
 
 
