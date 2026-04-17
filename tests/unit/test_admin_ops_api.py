@@ -180,10 +180,12 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
             ),
             validation_summary=AdminValidationResultsResponse(
                 import_batch_id="batch-1",
-                total_count=1,
-                error_count=0,
-                warning_count=0,
+                total_count=3,
+                error_count=1,
+                warning_count=1,
                 info_count=1,
+                publish_control_error_count=1,
+                publish_control_warning_count=1,
                 findings=[],
             ),
             source_files=[],
@@ -235,6 +237,8 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
     assert payload["step_runs"][0]["is_retry"] is True
     assert payload["step_summary"][0]["step_name"] == "search_refresh"
     assert payload["step_summary"][0]["attempt_count"] == 2
+    assert payload["validation_summary"]["publish_control_error_count"] == 1
+    assert payload["validation_summary"]["publish_control_warning_count"] == 1
     assert payload["actions"]["can_retry_maintenance"] is True
 
 

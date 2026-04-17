@@ -659,7 +659,15 @@ class AdminOpsService:
                   COUNT(*) AS total_count,
                   COUNT(*) FILTER (WHERE severity = 'error') AS error_count,
                   COUNT(*) FILTER (WHERE severity = 'warning') AS warning_count,
-                  COUNT(*) FILTER (WHERE severity = 'info') AS info_count
+                  COUNT(*) FILTER (WHERE severity = 'info') AS info_count,
+                  COUNT(*) FILTER (
+                    WHERE severity = 'error'
+                      AND validation_scope = 'publish_control'
+                  ) AS publish_control_error_count,
+                  COUNT(*) FILTER (
+                    WHERE severity = 'warning'
+                      AND validation_scope = 'publish_control'
+                  ) AS publish_control_warning_count
                 FROM validation_results
                 WHERE import_batch_id = %s
                 """,
@@ -692,6 +700,8 @@ class AdminOpsService:
             error_count=int(counts["error_count"] or 0),
             warning_count=int(counts["warning_count"] or 0),
             info_count=int(counts["info_count"] or 0),
+            publish_control_error_count=int(counts["publish_control_error_count"] or 0),
+            publish_control_warning_count=int(counts["publish_control_warning_count"] or 0),
             findings=[self._build_validation_finding(row) for row in rows],
         )
 

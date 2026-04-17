@@ -36,6 +36,7 @@ This internal-only surface gives operators one place to review ingestion status,
 2. Open `/admin/ops/jobs` to inspect recent import batches.
 3. Use the batch list summary to quickly spot long-running jobs, repeated maintenance retries, unusually slow maintenance steps, or warning-heavy replay candidates before drilling into a specific batch.
 4. Open a batch detail page to review validation findings, source files, and job runs.
+   The validation summary now breaks out publish-control warning/error counts so replay-risk findings can be separated from general validation noise.
 5. Use the batch detail `step_runs` and `step_summary` to review durations, retries, and the latest status for each maintenance step.
 6. If canonical publish succeeded but maintenance failed, use the batch detail maintenance telemetry and retry action before rerunning the full pipeline.
 7. If county automation is weak or a fuller year is needed, use `/admin/ops/manual-upload` to register a manual import.

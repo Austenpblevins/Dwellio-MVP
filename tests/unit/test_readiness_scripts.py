@@ -230,6 +230,8 @@ def test_verify_ingestion_to_searchable_reports_pass(monkeypatch) -> None:
                     error_count=0,
                     warning_count=0,
                     info_count=0,
+                    publish_control_error_count=0,
+                    publish_control_warning_count=0,
                     findings=[],
                 ),
                 source_files=[],

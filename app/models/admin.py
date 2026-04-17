@@ -343,6 +343,8 @@ class AdminValidationResultsResponse(DwellioBaseModel):
     error_count: int
     warning_count: int
     info_count: int
+    publish_control_error_count: int = 0
+    publish_control_warning_count: int = 0
     findings: list[AdminValidationFinding]
 
 
