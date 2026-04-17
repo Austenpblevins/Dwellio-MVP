@@ -10,6 +10,7 @@ from app.api.admin import (
     get_county_year_readiness,
     get_import_batch_detail,
     get_import_batches,
+    get_scalability_bottleneck_review,
     get_search_inspection,
     get_source_files,
     get_tax_assignment_issues,
@@ -39,6 +40,7 @@ from app.models.admin import (
     AdminImportBatchListResponse,
     AdminManualImportRequest,
     AdminMutationResult,
+    AdminScalabilityBottleneckReview,
     AdminSearchInspectResponse,
     AdminSourceFilesResponse,
     AdminTaxAssignmentIssuesResponse,
@@ -83,6 +85,22 @@ def county_onboarding_contract_endpoint(
         county_id=county_id,
         tax_years=tax_years,
         current_tax_year=current_tax_year,
+    )
+
+
+@router.get(
+    "/admin/scalability/{county_id}",
+    response_model=AdminScalabilityBottleneckReview,
+)
+def county_scalability_bottleneck_endpoint(
+    county_id: str,
+    tax_years: Annotated[list[int], Query(min_length=1)],
+    limit: Annotated[int, Query(ge=1, le=25)] = 5,
+) -> AdminScalabilityBottleneckReview:
+    return get_scalability_bottleneck_review(
+        county_id=county_id,
+        tax_years=tax_years,
+        limit=limit,
     )
 
 

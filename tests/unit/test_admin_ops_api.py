@@ -14,6 +14,9 @@ from app.models.admin import (
     AdminManualImportRequest,
     AdminValidationResultsResponse,
     AdminMutationResult,
+    AdminScalabilityBottleneckCandidate,
+    AdminScalabilityBottleneckReview,
+    AdminScalabilityBottleneckSummary,
 )
 
 
@@ -251,6 +254,71 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
     assert payload["validation_summary"]["publish_control_error_count"] == 1
     assert payload["validation_summary"]["publish_control_warning_count"] == 1
     assert payload["actions"]["can_retry_maintenance"] is True
+
+
+def test_admin_scalability_route_returns_internal_payload(monkeypatch) -> None:
+    def stub_get_scalability_bottleneck_review(
+        county_id: str,
+        *,
+        tax_years: list[int],
+        limit: int = 5,
+    ) -> AdminScalabilityBottleneckReview:
+        assert county_id == "harris"
+        assert tax_years == [2025, 2026]
+        assert limit == 3
+        candidate = AdminScalabilityBottleneckCandidate(
+            candidate_code="step:property_roll:search_refresh:2026",
+            label="Property Roll search refresh (2026)",
+            component_type="ingestion_step",
+            component_key="property_roll:search_refresh",
+            status="investigate",
+            tax_year=2026,
+            run_count=3,
+            failed_count=1,
+            retry_count=1,
+            p95_duration_ms=410000,
+            max_duration_ms=600000,
+            latest_duration_ms=600000,
+            latest_status="failed",
+            latest_error_message="refresh failed",
+            recommendation="Profile before refactoring.",
+            evidence_notes=["1 failed run in the review window."],
+        )
+        return AdminScalabilityBottleneckReview(
+            county_id=county_id,
+            tax_years=tax_years,
+            summary=AdminScalabilityBottleneckSummary(
+                overall_status="investigate",
+                investigate_count=1,
+                monitor_count=0,
+                healthy_count=0,
+                top_candidate_code=candidate.candidate_code,
+                next_actions=["Profile before refactoring."],
+            ),
+            top_candidates=[candidate],
+            ingestion_job_candidates=[],
+            ingestion_step_candidates=[candidate],
+            instant_quote_refresh_candidates=[],
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.admin.get_scalability_bottleneck_review",
+        stub_get_scalability_bottleneck_review,
+    )
+
+    client = TestClient(app)
+    response = client.get(
+        "/admin/scalability/harris",
+        params=[("tax_years", 2025), ("tax_years", 2026), ("limit", 3)],
+        headers={"x-dwellio-admin-token": "dev-admin-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["access_scope"] == "internal"
+    assert payload["summary"]["overall_status"] == "investigate"
+    assert payload["top_candidates"][0]["candidate_code"] == "step:property_roll:search_refresh:2026"
+    assert payload["ingestion_step_candidates"][0]["latest_status"] == "failed"
 
 
 def test_admin_publish_route_returns_mutation_result(monkeypatch) -> None:
