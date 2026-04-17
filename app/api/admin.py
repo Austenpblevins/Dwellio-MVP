@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.models.admin import (
     AdminCompletenessIssuesResponse,
+    AdminCountyOnboardingAction,
     AdminCountyOnboardingContract,
     AdminCountyOnboardingDatasetSnapshot,
     AdminCountyOnboardingPhase,
@@ -130,6 +131,16 @@ def get_county_onboarding_contract(
                 details=list(phase.details),
             )
             for phase in contract.phases
+        ],
+        recommended_actions=[
+            AdminCountyOnboardingAction(
+                action_code=action.action_code,
+                phase_code=action.phase_code,
+                blocking=action.blocking,
+                summary=action.summary,
+                command_hint=action.command_hint,
+            )
+            for action in contract.recommended_actions
         ],
     )
 

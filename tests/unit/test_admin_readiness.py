@@ -12,6 +12,7 @@ from app.services.admin_readiness import (
 )
 from app.services.county_onboarding import (
     CountyOnboardingContract,
+    OnboardingAction,
     OnboardingDatasetSnapshot,
     OnboardingPhase,
     OnboardingReadinessSnapshot,
@@ -390,6 +391,15 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
                         details=["comp_generation_not_ready"],
                     )
                 ],
+                recommended_actions=[
+                    OnboardingAction(
+                        action_code="prepare_adapter_ready_files",
+                        phase_code="dataset_prep_contract",
+                        blocking=True,
+                        summary="Prepare adapter-ready files and manifests.",
+                        command_hint="python3 -m infra.scripts.prepare_manual_county_files --county-id fort_bend --tax-year 2025 --dataset-type both",
+                    )
+                ],
             )
 
     monkeypatch.setattr("app.api.admin.CountyOnboardingService", StubCountyOnboardingService)
@@ -406,6 +416,7 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
     assert contract.current_year_snapshot is not None
     assert contract.current_year_snapshot.tax_year == 2026
     assert contract.phases[0].phase_code == "validation_year_selection"
+    assert contract.recommended_actions[0].action_code == "prepare_adapter_ready_files"
 
 
 def test_public_parcel_summary_model_has_no_admin_only_fields() -> None:

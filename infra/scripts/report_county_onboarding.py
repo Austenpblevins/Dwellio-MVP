@@ -97,6 +97,16 @@ def build_payload(
             }
             for phase in contract.phases
         ],
+        "recommended_actions": [
+            {
+                "action_code": action.action_code,
+                "phase_code": action.phase_code,
+                "blocking": action.blocking,
+                "summary": action.summary,
+                "command_hint": action.command_hint,
+            }
+            for action in contract.recommended_actions
+        ],
     }
 
 

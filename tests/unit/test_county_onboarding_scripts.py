@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.ingestion.source_registry import CountyCapabilityEntry
 from app.services.county_onboarding import (
+    OnboardingAction,
     CountyOnboardingContract,
     OnboardingPhase,
     OnboardingReadinessSnapshot,
@@ -90,6 +91,15 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
                         details=["comp_generation_not_ready"],
                     )
                 ],
+                recommended_actions=[
+                    OnboardingAction(
+                        action_code="review_quote_supportability",
+                        phase_code="quote_supportability_validation",
+                        blocking=False,
+                        summary="Review quote-supportability gaps against the capability matrix.",
+                        command_hint="python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years 2025",
+                    )
+                ],
             )
 
     monkeypatch.setattr(
@@ -110,3 +120,4 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
     assert payload["current_year_snapshot"]["tax_year"] == 2026
     assert payload["validation_year_snapshot"]["tax_year"] == 2025
     assert payload["phases"][0]["phase_code"] == "validation_year_selection"
+    assert payload["recommended_actions"][0]["action_code"] == "review_quote_supportability"

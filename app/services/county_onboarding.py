@@ -52,6 +52,15 @@ class OnboardingPhase:
 
 
 @dataclass(frozen=True)
+class OnboardingAction:
+    action_code: str
+    phase_code: str
+    blocking: bool
+    summary: str
+    command_hint: str | None = None
+
+
+@dataclass(frozen=True)
 class CountyOnboardingContract:
     county_id: str
     current_tax_year: int
@@ -62,6 +71,7 @@ class CountyOnboardingContract:
     current_year_snapshot: OnboardingReadinessSnapshot | None
     validation_year_snapshot: OnboardingReadinessSnapshot | None
     phases: list[OnboardingPhase]
+    recommended_actions: list[OnboardingAction]
 
 
 class CountyOnboardingService:
@@ -119,6 +129,15 @@ class CountyOnboardingService:
                 else readiness_by_year.get(validation_candidate.tax_year)
             ),
         )
+        recommended_actions = self._build_recommended_actions(
+            county_id=county_id,
+            tax_years=tax_years,
+            current_tax_year=current_year,
+            validation_tax_year=(
+                None if validation_candidate is None else validation_candidate.tax_year
+            ),
+            phases=phases,
+        )
 
         return CountyOnboardingContract(
             county_id=county_id,
@@ -141,6 +160,7 @@ class CountyOnboardingService:
             current_year_snapshot=current_snapshot,
             validation_year_snapshot=validation_snapshot,
             phases=phases,
+            recommended_actions=recommended_actions,
         )
 
     def _build_snapshot(
@@ -451,3 +471,88 @@ class CountyOnboardingService:
             "recommendation_validation_ready": capabilities.recommendation_validation_ready,
             "quote_read_model_validation_ready": capabilities.quote_read_model_validation_ready,
         }
+
+    def _build_recommended_actions(
+        self,
+        *,
+        county_id: str,
+        tax_years: list[int],
+        current_tax_year: int,
+        validation_tax_year: int | None,
+        phases: list[OnboardingPhase],
+    ) -> list[OnboardingAction]:
+        actions: list[OnboardingAction] = []
+        tax_year_args = " ".join(str(tax_year) for tax_year in tax_years)
+        validation_year = validation_tax_year or current_tax_year
+
+        for phase in phases:
+            if phase.status == "done":
+                continue
+            if phase.phase_code == "validation_year_selection":
+                actions.append(
+                    OnboardingAction(
+                        action_code="review_validation_year_ranking",
+                        phase_code=phase.phase_code,
+                        blocking=phase.blocking,
+                        summary="Review historical validation ranking and confirm the repeatable QA baseline year.",
+                        command_hint=(
+                            "python3 -m infra.scripts.report_historical_validation "
+                            f"--county-id {county_id} --tax-years {tax_year_args} "
+                            f"--current-tax-year {current_tax_year}"
+                        ),
+                    )
+                )
+            elif phase.phase_code == "dataset_prep_contract":
+                actions.append(
+                    OnboardingAction(
+                        action_code="prepare_adapter_ready_files",
+                        phase_code=phase.phase_code,
+                        blocking=phase.blocking,
+                        summary="Prepare adapter-ready files and manifests for the validation year before onboarding validation.",
+                        command_hint=(
+                            "python3 -m infra.scripts.prepare_manual_county_files "
+                            f"--county-id {county_id} --tax-year {validation_year} --dataset-type both"
+                        ),
+                    )
+                )
+            elif phase.phase_code == "canonical_publish_validation":
+                actions.append(
+                    OnboardingAction(
+                        action_code="run_bounded_backfill_publish",
+                        phase_code=phase.phase_code,
+                        blocking=phase.blocking,
+                        summary="Run bounded historical backfill and canonical publish for the validation-year onboarding datasets.",
+                        command_hint=(
+                            "python3 -m infra.scripts.run_historical_backfill "
+                            f"--counties {county_id} --tax-years {validation_year} "
+                            "--dataset-types property_roll tax_rates --ready-root <ready-root>"
+                        ),
+                    )
+                )
+            elif phase.phase_code == "searchable_validation":
+                actions.append(
+                    OnboardingAction(
+                        action_code="verify_searchable_read_models",
+                        phase_code=phase.phase_code,
+                        blocking=phase.blocking,
+                        summary="Verify the validation year can be traced through ingestion into searchable/read-model outputs.",
+                        command_hint=(
+                            "python3 -m infra.scripts.verify_ingestion_to_searchable "
+                            f"--county-id {county_id} --tax-year {validation_year}"
+                        ),
+                    )
+                )
+            elif phase.phase_code == "quote_supportability_validation":
+                actions.append(
+                    OnboardingAction(
+                        action_code="review_quote_supportability",
+                        phase_code=phase.phase_code,
+                        blocking=phase.blocking,
+                        summary="Review quote-supportability gaps against the capability matrix before treating them as onboarding defects.",
+                        command_hint=(
+                            "python3 -m infra.scripts.report_readiness_metrics "
+                            f"--county-id {county_id} --tax-years {validation_year}"
+                        ),
+                    )
+                )
+        return actions

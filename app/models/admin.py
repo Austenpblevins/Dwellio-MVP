@@ -232,6 +232,14 @@ class AdminCountyOnboardingPhase(DwellioBaseModel):
     details: list[str] = Field(default_factory=list)
 
 
+class AdminCountyOnboardingAction(DwellioBaseModel):
+    action_code: str
+    phase_code: str
+    blocking: bool
+    summary: str
+    command_hint: str | None = None
+
+
 class AdminCountyOnboardingContract(DwellioBaseModel):
     access_scope: str = "internal"
     county_id: str
@@ -243,6 +251,7 @@ class AdminCountyOnboardingContract(DwellioBaseModel):
     current_year_snapshot: AdminCountyOnboardingReadinessSnapshot | None = None
     validation_year_snapshot: AdminCountyOnboardingReadinessSnapshot | None = None
     phases: list[AdminCountyOnboardingPhase] = Field(default_factory=list)
+    recommended_actions: list[AdminCountyOnboardingAction] = Field(default_factory=list)
 
 
 class AdminSearchScoreComponents(DwellioBaseModel):

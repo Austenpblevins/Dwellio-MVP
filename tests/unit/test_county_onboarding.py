@@ -143,6 +143,8 @@ def test_build_contract_selects_repeatable_validation_year(monkeypatch) -> None:
     assert phases["searchable_validation"].status == "done"
     assert phases["quote_supportability_validation"].status == "pending"
     assert "capability_limit:parcel_level_freeze_signal" in phases["quote_supportability_validation"].details
+    action_codes = [action.action_code for action in contract.recommended_actions]
+    assert "review_quote_supportability" in action_codes
 
 
 def test_build_contract_flags_missing_manual_prep(monkeypatch) -> None:
@@ -196,3 +198,8 @@ def test_build_contract_flags_missing_manual_prep(monkeypatch) -> None:
     assert phases["dataset_prep_contract"].status == "pending"
     assert phases["dataset_prep_contract"].blocking is True
     assert "property_roll:manual_prep_required" in phases["dataset_prep_contract"].details
+    actions = {action.action_code: action for action in contract.recommended_actions}
+    assert "review_validation_year_ranking" in actions
+    assert "prepare_adapter_ready_files" in actions
+    assert actions["prepare_adapter_ready_files"].blocking is True
+    assert "--tax-year 2026" in (actions["prepare_adapter_ready_files"].command_hint or "")
