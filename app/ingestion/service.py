@@ -23,6 +23,10 @@ PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE = 2000
 PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE = 50000
 PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD = 50_000
 POST_COMMIT_MAINTENANCE_STEP_ORDER = ("tax_assignment_refresh", "search_refresh")
+PROPERTY_ROLL_EXEMPTION_DROP_WARNING_MIN_EXISTING_ACCOUNTS = 10
+PROPERTY_ROLL_EXEMPTION_DROP_WARNING_RATIO = 0.25
+TAX_RATE_DROP_WARNING_MIN_EXISTING_UNITS = 5
+TAX_RATE_DROP_WARNING_RATIO = 0.25
 
 
 @dataclass(frozen=True)
@@ -701,6 +705,14 @@ class IngestionLifecycleService:
                                 savepoint_name=savepoint_name,
                                 dry_run=dry_run,
                             )
+                        self._persist_nonblocking_publish_control_findings(
+                            repository=repository,
+                            job_run_id=job_run_id,
+                            batch=batch,
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            findings=publish_control_findings,
+                        )
                         rollback_entries = list(rollback_chunk.get("entries", []))
                         if bulk_property_roll_mode:
                             rollback_manifest["entry_count"] = (
@@ -807,6 +819,14 @@ class IngestionLifecycleService:
                         savepoint_name=savepoint_name,
                         dry_run=dry_run,
                     )
+                self._persist_nonblocking_publish_control_findings(
+                    repository=repository,
+                    job_run_id=job_run_id,
+                    batch=batch,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=publish_control_findings,
+                )
                 canonical_targets = repository.upsert_tax_rate_records(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -850,6 +870,14 @@ class IngestionLifecycleService:
                         savepoint_name=savepoint_name,
                         dry_run=dry_run,
                     )
+                self._persist_nonblocking_publish_control_findings(
+                    repository=repository,
+                    job_run_id=job_run_id,
+                    batch=batch,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=publish_control_findings,
+                )
                 canonical_targets = repository.upsert_deed_records(
                     county_id=county_id,
                     tax_year=tax_year,
@@ -2008,6 +2036,37 @@ class IngestionLifecycleService:
                         details_json=collapse_summary,
                     )
                 )
+            elif (
+                collapse_summary["existing_exemption_account_count"]
+                >= PROPERTY_ROLL_EXEMPTION_DROP_WARNING_MIN_EXISTING_ACCOUNTS
+                and collapse_summary["normalized_exemption_account_count"]
+                < collapse_summary["existing_exemption_account_count"]
+            ):
+                dropped_account_count = (
+                    collapse_summary["existing_exemption_account_count"]
+                    - collapse_summary["normalized_exemption_account_count"]
+                )
+                dropped_ratio = dropped_account_count / float(
+                    collapse_summary["existing_exemption_account_count"]
+                )
+                if dropped_ratio >= PROPERTY_ROLL_EXEMPTION_DROP_WARNING_RATIO:
+                    findings.append(
+                        self._publish_control_finding(
+                            validation_code="PUBLISH_WARNING_EXEMPTION_DROP",
+                            message=(
+                                "Property-roll publish would reduce exemption-bearing coverage for "
+                                "touched parcels relative to current canonical state."
+                            ),
+                            dataset_type=dataset_type,
+                            tax_year=tax_year,
+                            severity="warning",
+                            details_json={
+                                **collapse_summary,
+                                "dropped_account_count": dropped_account_count,
+                                "dropped_ratio": round(dropped_ratio, 4),
+                            },
+                        )
+                    )
         elif dataset_type == "tax_rates":
             unit_keys = [
                 (
@@ -2067,6 +2126,53 @@ class IngestionLifecycleService:
                         details_json={"unit_code": unit_code},
                     )
                 )
+            current_rate_bearing_units = {
+                str(entry.get("unit_code") or "")
+                for entry in rollback_manifest.get("entries", [])
+                if entry.get("unit_code")
+                and (entry.get("prior_state") or {}).get("tax_rates")
+            }
+            normalized_rate_bearing_units = {
+                str(record.get("taxing_unit", {}).get("unit_code") or "")
+                for record in normalized_records
+                if str(record.get("taxing_unit", {}).get("unit_code") or "")
+                and record.get("tax_rate") is not None
+            }
+            remaining_rate_bearing_units = sorted(
+                current_rate_bearing_units & normalized_rate_bearing_units
+            )
+            if (
+                len(current_rate_bearing_units) >= TAX_RATE_DROP_WARNING_MIN_EXISTING_UNITS
+                and len(remaining_rate_bearing_units) < len(current_rate_bearing_units)
+            ):
+                dropped_unit_count = len(current_rate_bearing_units) - len(remaining_rate_bearing_units)
+                dropped_ratio = dropped_unit_count / float(len(current_rate_bearing_units))
+                if dropped_ratio >= TAX_RATE_DROP_WARNING_RATIO:
+                    findings.append(
+                        self._publish_control_finding(
+                            validation_code="PUBLISH_WARNING_TAX_RATE_DROP",
+                            message=(
+                                "Tax-rates publish would reduce rate-bearing unit coverage for "
+                                "touched units relative to current canonical state."
+                            ),
+                            dataset_type=dataset_type,
+                            tax_year=tax_year,
+                            severity="warning",
+                            details_json={
+                                "existing_rate_bearing_unit_count": len(
+                                    current_rate_bearing_units
+                                ),
+                                "normalized_rate_bearing_unit_count": len(
+                                    remaining_rate_bearing_units
+                                ),
+                                "dropped_unit_count": dropped_unit_count,
+                                "dropped_ratio": round(dropped_ratio, 4),
+                                "dropped_unit_codes": sorted(
+                                    current_rate_bearing_units - normalized_rate_bearing_units
+                                ),
+                            },
+                        )
+                    )
         elif dataset_type == "deeds":
             instrument_numbers = [
                 str(record.get("deed_record", {}).get("instrument_number") or "")
@@ -2143,12 +2249,13 @@ class IngestionLifecycleService:
         message: str,
         dataset_type: str,
         tax_year: int,
+        severity: str = "error",
         details_json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "validation_code": validation_code,
             "message": message,
-            "severity": "error",
+            "severity": severity,
             "validation_scope": "publish_control",
             "entity_table": None,
             "details_json": {
@@ -2221,6 +2328,33 @@ class IngestionLifecycleService:
         )
         self._finalize_connection(connection, dry_run=dry_run)
         raise RuntimeError(message)
+
+    def _persist_nonblocking_publish_control_findings(
+        self,
+        *,
+        repository: IngestionRepository,
+        job_run_id: str,
+        batch: ImportBatchRecord,
+        county_id: str,
+        tax_year: int,
+        findings: list[dict[str, Any]],
+    ) -> None:
+        persisted_findings = [
+            finding
+            for finding in findings
+            if finding["severity"] != "error"
+            and finding["validation_code"] != "PUBLISH_CONTROLS_OK"
+        ]
+        if not persisted_findings:
+            return
+        repository.insert_validation_results(
+            job_run_id=job_run_id,
+            import_batch_id=batch.import_batch_id,
+            raw_file_id=batch.raw_file_id,
+            county_id=county_id,
+            tax_year=tax_year,
+            findings=persisted_findings,
+        )
 
     def _refresh_tax_assignments(
         self,
