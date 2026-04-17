@@ -16,6 +16,9 @@ from app.models.admin import (
     AdminImportBatchListResponse,
     AdminManualImportRequest,
     AdminMutationResult,
+    AdminScalabilityBottleneckCandidate,
+    AdminScalabilityBottleneckReview,
+    AdminScalabilityBottleneckSummary,
     AdminSearchInspectResponse,
     AdminSourceFilesResponse,
     AdminTaxAssignmentIssuesResponse,
@@ -25,6 +28,7 @@ from app.services.address_resolver import AddressResolverService
 from app.services.admin_ops import AdminOpsService
 from app.services.admin_readiness import AdminReadinessService
 from app.services.county_onboarding import CountyOnboardingService
+from app.services.scalability_bottlenecks import ScalabilityBottleneckReviewService
 
 
 def get_county_year_readiness(
@@ -161,6 +165,64 @@ def get_county_onboarding_contract(
                 command_hint=action.command_hint,
             )
             for action in contract.recommended_actions
+        ],
+    )
+
+
+def get_scalability_bottleneck_review(
+    county_id: str,
+    *,
+    tax_years: list[int],
+    limit: int = 5,
+) -> AdminScalabilityBottleneckReview:
+    service = ScalabilityBottleneckReviewService()
+    review = service.build_review(county_id=county_id, tax_years=tax_years, limit=limit)
+
+    def _candidate_payload(candidate) -> AdminScalabilityBottleneckCandidate:
+        return AdminScalabilityBottleneckCandidate(
+            candidate_code=candidate.candidate_code,
+            label=candidate.label,
+            component_type=candidate.component_type,
+            component_key=candidate.component_key,
+            status=candidate.status,
+            tax_year=candidate.tax_year,
+            run_count=candidate.run_count,
+            failed_count=candidate.failed_count,
+            retry_count=candidate.retry_count,
+            warning_count=candidate.warning_count,
+            fallback_count=candidate.fallback_count,
+            avg_duration_ms=candidate.avg_duration_ms,
+            p95_duration_ms=candidate.p95_duration_ms,
+            max_duration_ms=candidate.max_duration_ms,
+            latest_duration_ms=candidate.latest_duration_ms,
+            latest_status=candidate.latest_status,
+            latest_finished_at=candidate.latest_finished_at,
+            latest_error_message=candidate.latest_error_message,
+            recommendation=candidate.recommendation,
+            evidence_notes=list(candidate.evidence_notes),
+        )
+
+    return AdminScalabilityBottleneckReview(
+        county_id=review.county_id,
+        tax_years=list(review.tax_years),
+        summary=AdminScalabilityBottleneckSummary(
+            overall_status=review.summary.overall_status,
+            investigate_count=review.summary.investigate_count,
+            monitor_count=review.summary.monitor_count,
+            healthy_count=review.summary.healthy_count,
+            top_candidate_code=review.summary.top_candidate_code,
+            next_actions=list(review.summary.next_actions),
+        ),
+        top_candidates=[_candidate_payload(candidate) for candidate in review.top_candidates],
+        ingestion_job_candidates=[
+            _candidate_payload(candidate) for candidate in review.ingestion_job_candidates
+        ],
+        ingestion_step_candidates=[
+            _candidate_payload(candidate) for candidate in review.ingestion_step_candidates
+        ],
+        instant_quote_refresh_candidates=[
+            _candidate_payload(candidate)
+            for candidate in review.instant_quote_refresh_candidates
         ],
     )
 

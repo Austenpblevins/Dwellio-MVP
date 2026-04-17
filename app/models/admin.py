@@ -276,6 +276,55 @@ class AdminCountyOnboardingContract(DwellioBaseModel):
     recommended_actions: list[AdminCountyOnboardingAction] = Field(default_factory=list)
 
 
+class AdminScalabilityBottleneckCandidate(DwellioBaseModel):
+    candidate_code: str
+    label: str
+    component_type: str
+    component_key: str
+    status: str
+    tax_year: int
+    run_count: int
+    failed_count: int = 0
+    retry_count: int = 0
+    warning_count: int = 0
+    fallback_count: int = 0
+    avg_duration_ms: int | None = None
+    p95_duration_ms: int | None = None
+    max_duration_ms: int | None = None
+    latest_duration_ms: int | None = None
+    latest_status: str | None = None
+    latest_finished_at: datetime | None = None
+    latest_error_message: str | None = None
+    recommendation: str
+    evidence_notes: list[str] = Field(default_factory=list)
+
+
+class AdminScalabilityBottleneckSummary(DwellioBaseModel):
+    overall_status: str
+    investigate_count: int
+    monitor_count: int
+    healthy_count: int
+    top_candidate_code: str | None = None
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class AdminScalabilityBottleneckReview(DwellioBaseModel):
+    access_scope: str = "internal"
+    county_id: str
+    tax_years: list[int]
+    summary: AdminScalabilityBottleneckSummary
+    top_candidates: list[AdminScalabilityBottleneckCandidate] = Field(default_factory=list)
+    ingestion_job_candidates: list[AdminScalabilityBottleneckCandidate] = Field(
+        default_factory=list
+    )
+    ingestion_step_candidates: list[AdminScalabilityBottleneckCandidate] = Field(
+        default_factory=list
+    )
+    instant_quote_refresh_candidates: list[AdminScalabilityBottleneckCandidate] = Field(
+        default_factory=list
+    )
+
+
 class AdminSearchScoreComponents(DwellioBaseModel):
     basis_rank: int
     address_similarity: float
