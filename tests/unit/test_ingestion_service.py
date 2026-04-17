@@ -1219,6 +1219,93 @@ def test_build_publish_control_findings_warns_on_partial_exemption_drop() -> Non
     assert warning["details_json"]["dropped_account_count"] == 8
 
 
+def test_build_publish_control_findings_warns_on_partial_tax_rate_drop() -> None:
+    service = IngestionLifecycleService()
+
+    findings = service._build_publish_control_findings(
+        repository=object(),  # type: ignore[arg-type]
+        county_id="harris",
+        dataset_type="tax_rates",
+        tax_year=2026,
+        normalized_records=[
+            {
+                "taxing_unit": {"unit_code": "A01"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {
+                "taxing_unit": {"unit_code": "A02"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {
+                "taxing_unit": {"unit_code": "A03"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {"taxing_unit": {"unit_code": "A04"}, "tax_rate": None},
+            {"taxing_unit": {"unit_code": "A05"}, "tax_rate": None},
+            {"taxing_unit": {"unit_code": "A06"}, "tax_rate": None},
+        ],
+        rollback_manifest={
+            "entries": [
+                {"unit_code": "A01", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A02", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A03", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A04", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A05", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A06", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+            ]
+        },
+    )
+
+    warning = next(
+        finding
+        for finding in findings
+        if finding["validation_code"] == "PUBLISH_WARNING_TAX_RATE_DROP"
+    )
+    assert warning["severity"] == "warning"
+    assert warning["details_json"]["existing_rate_bearing_unit_count"] == 6
+    assert warning["details_json"]["normalized_rate_bearing_unit_count"] == 3
+    assert warning["details_json"]["dropped_unit_count"] == 3
+    assert warning["details_json"]["dropped_unit_codes"] == ["A04", "A05", "A06"]
+
+
+def test_build_publish_control_findings_does_not_warn_on_small_tax_rate_drop() -> None:
+    service = IngestionLifecycleService()
+
+    findings = service._build_publish_control_findings(
+        repository=object(),  # type: ignore[arg-type]
+        county_id="harris",
+        dataset_type="tax_rates",
+        tax_year=2026,
+        normalized_records=[
+            {
+                "taxing_unit": {"unit_code": "A01"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {
+                "taxing_unit": {"unit_code": "A02"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {
+                "taxing_unit": {"unit_code": "A03"},
+                "tax_rate": {"rate_component": "ad_valorem", "rate_value": 0.01},
+            },
+            {"taxing_unit": {"unit_code": "A04"}, "tax_rate": None},
+        ],
+        rollback_manifest={
+            "entries": [
+                {"unit_code": "A01", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A02", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A03", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+                {"unit_code": "A04", "prior_state": {"tax_rates": [{"rate_component": "ad_valorem"}]}},
+            ]
+        },
+    )
+
+    assert not any(
+        finding["validation_code"] == "PUBLISH_WARNING_TAX_RATE_DROP" for finding in findings
+    )
+
+
 def test_persist_nonblocking_publish_control_findings_records_warnings_only() -> None:
     service = IngestionLifecycleService()
     inserted: list[dict[str, object]] = []
@@ -1252,6 +1339,41 @@ def test_persist_nonblocking_publish_control_findings_records_warnings_only() ->
     assert len(inserted) == 1
     assert inserted[0]["findings"] == [
         {"validation_code": "PUBLISH_WARNING_EXEMPTION_DROP", "severity": "warning"}
+    ]
+
+
+def test_persist_nonblocking_publish_control_findings_records_tax_rate_warning() -> None:
+    service = IngestionLifecycleService()
+    inserted: list[dict[str, object]] = []
+
+    class StubRepository:
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted.append(kwargs)
+
+    service._persist_nonblocking_publish_control_findings(
+        repository=StubRepository(),  # type: ignore[arg-type]
+        job_run_id="job-1",
+        batch=ImportBatchRecord(
+            import_batch_id="batch-1",
+            raw_file_id="raw-1",
+            source_system_id="source-1",
+            storage_path="harris/2026/tax_rates/example.json",
+            original_filename="file.json",
+            file_kind="tax_rates",
+            mime_type="application/json",
+            file_format="json",
+        ),
+        county_id="harris",
+        tax_year=2026,
+        findings=[
+            {"validation_code": "PUBLISH_CONTROLS_OK", "severity": "info"},
+            {"validation_code": "PUBLISH_WARNING_TAX_RATE_DROP", "severity": "warning"},
+        ],
+    )
+
+    assert len(inserted) == 1
+    assert inserted[0]["findings"] == [
+        {"validation_code": "PUBLISH_WARNING_TAX_RATE_DROP", "severity": "warning"}
     ]
 
 
