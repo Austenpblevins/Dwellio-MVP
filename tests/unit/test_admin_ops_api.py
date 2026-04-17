@@ -4,9 +4,14 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.admin import (
+    AdminImportBatchActions,
+    AdminImportBatchDetail,
+    AdminImportBatchInspection,
+    AdminIngestionStepRun,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
     AdminManualImportRequest,
+    AdminValidationResultsResponse,
     AdminMutationResult,
 )
 
@@ -125,6 +130,71 @@ def test_admin_manual_register_route_uses_existing_backfill_path(monkeypatch) ->
     payload = response.json()
     assert payload["action"] == "manual_import_register"
     assert payload["import_batch_id"] == "batch-2"
+
+
+def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
+    def stub_get_import_batch_detail(import_batch_id: str) -> AdminImportBatchDetail:
+        assert import_batch_id == "batch-1"
+        return AdminImportBatchDetail(
+            batch=AdminImportBatchSummary(
+                import_batch_id="batch-1",
+                county_id="harris",
+                tax_year=2025,
+                dataset_type="property_roll",
+                source_system_code="HCAD_BULK",
+                status="normalized",
+                publish_state="published",
+                raw_file_count=1,
+                validation_result_count=1,
+                validation_error_count=0,
+            ),
+            inspection=AdminImportBatchInspection(
+                status="normalized",
+                publish_state="published",
+                raw_file_count=1,
+                job_run_count=1,
+                staging_row_count=1,
+                lineage_record_count=1,
+                validation_result_count=1,
+                validation_error_count=0,
+            ),
+            validation_summary=AdminValidationResultsResponse(
+                import_batch_id="batch-1",
+                total_count=1,
+                error_count=0,
+                warning_count=0,
+                info_count=1,
+                findings=[],
+            ),
+            source_files=[],
+            job_runs=[],
+            step_runs=[
+                AdminIngestionStepRun(
+                    step_run_id="step-1",
+                    step_name="search_refresh",
+                    status="failed",
+                    error_message="search refresh failed",
+                )
+            ],
+            actions=AdminImportBatchActions(
+                can_publish=False,
+                can_rollback=True,
+                manual_fallback_supported=True,
+            ),
+        )
+
+    monkeypatch.setattr("app.api.routes.admin.get_import_batch_detail", stub_get_import_batch_detail)
+
+    client = TestClient(app)
+    response = client.get(
+        "/admin/ops/import-batches/batch-1",
+        headers={"x-dwellio-admin-token": "dev-admin-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["step_runs"][0]["step_name"] == "search_refresh"
+    assert payload["step_runs"][0]["status"] == "failed"
 
 
 def test_admin_publish_route_returns_mutation_result(monkeypatch) -> None:

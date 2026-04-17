@@ -258,6 +258,19 @@ class AdminJobRunSummary(DwellioBaseModel):
     metadata_json: JsonDict = Field(default_factory=dict)
 
 
+class AdminIngestionStepRun(DwellioBaseModel):
+    step_run_id: str
+    step_name: str
+    status: str
+    attempt_number: int = 1
+    retry_of_step_run_id: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    row_count: int | None = None
+    error_message: str | None = None
+    details_json: JsonDict = Field(default_factory=dict)
+
+
 class AdminSourceFileRecord(DwellioBaseModel):
     raw_file_id: str
     import_batch_id: str
@@ -343,6 +356,7 @@ class AdminImportBatchDetail(DwellioBaseModel):
     validation_summary: AdminValidationResultsResponse
     source_files: list[AdminSourceFileRecord]
     job_runs: list[AdminJobRunSummary]
+    step_runs: list[AdminIngestionStepRun] = Field(default_factory=list)
     actions: AdminImportBatchActions
 
 

@@ -54,6 +54,22 @@ class DuplicateRawFileRecord:
     row_count: int | None
 
 
+@dataclass(frozen=True)
+class IngestionStepRunRecord:
+    step_run_id: str
+    import_batch_id: str
+    job_run_id: str | None
+    step_name: str
+    status: str
+    attempt_number: int
+    retry_of_step_run_id: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    row_count: int | None
+    error_message: str | None
+    details_json: dict[str, Any]
+
+
 STAGING_TABLES: dict[str, tuple[str, str]] = {
     "property_roll": ("stg_county_property_raw", "stg_county_property_raw_id"),
     "tax_rates": ("stg_county_tax_rates_raw", "stg_county_tax_rates_raw_id"),
@@ -297,6 +313,135 @@ class IngestionRepository:
                         job_run_id,
                     ),
                 )
+
+    def create_ingestion_step_run(
+        self,
+        *,
+        import_batch_id: str,
+        job_run_id: str | None,
+        step_name: str,
+        status: str = "running",
+        attempt_number: int = 1,
+        retry_of_step_run_id: str | None = None,
+        details_json: dict[str, Any] | None = None,
+    ) -> str:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO ingestion_step_runs (
+                  import_batch_id,
+                  job_run_id,
+                  step_name,
+                  status,
+                  attempt_number,
+                  retry_of_step_run_id,
+                  details_json
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING step_run_id
+                """,
+                (
+                    import_batch_id,
+                    job_run_id,
+                    step_name,
+                    status,
+                    attempt_number,
+                    retry_of_step_run_id,
+                    Jsonb(details_json or {}),
+                ),
+            )
+            row = cursor.fetchone()
+        return str(row["step_run_id"])
+
+    def complete_ingestion_step_run(
+        self,
+        step_run_id: str,
+        *,
+        status: str,
+        row_count: int | None = None,
+        error_message: str | None = None,
+        details_json: dict[str, Any] | None = None,
+    ) -> None:
+        with self.connection.cursor() as cursor:
+            if details_json is None:
+                cursor.execute(
+                    """
+                    UPDATE ingestion_step_runs
+                    SET
+                      status = %s,
+                      row_count = COALESCE(%s, row_count),
+                      error_message = %s,
+                      finished_at = now()
+                    WHERE step_run_id = %s
+                    """,
+                    (status, row_count, error_message, step_run_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE ingestion_step_runs
+                    SET
+                      status = %s,
+                      row_count = COALESCE(%s, row_count),
+                      error_message = %s,
+                      details_json = %s,
+                      finished_at = now()
+                    WHERE step_run_id = %s
+                    """,
+                    (status, row_count, error_message, Jsonb(details_json), step_run_id),
+                )
+
+    def list_ingestion_step_runs(
+        self,
+        *,
+        import_batch_id: str,
+        limit: int = 50,
+    ) -> list[IngestionStepRunRecord]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  step_run_id,
+                  import_batch_id,
+                  job_run_id,
+                  step_name,
+                  status,
+                  attempt_number,
+                  retry_of_step_run_id,
+                  started_at,
+                  finished_at,
+                  row_count,
+                  error_message,
+                  details_json
+                FROM ingestion_step_runs
+                WHERE import_batch_id = %s
+                ORDER BY started_at DESC, step_run_id DESC
+                LIMIT %s
+                """,
+                (import_batch_id, limit),
+            )
+            rows = cursor.fetchall()
+        return [
+            IngestionStepRunRecord(
+                step_run_id=str(row["step_run_id"]),
+                import_batch_id=str(row["import_batch_id"]),
+                job_run_id=None if row["job_run_id"] is None else str(row["job_run_id"]),
+                step_name=row["step_name"],
+                status=row["status"],
+                attempt_number=int(row["attempt_number"]),
+                retry_of_step_run_id=(
+                    None
+                    if row["retry_of_step_run_id"] is None
+                    else str(row["retry_of_step_run_id"])
+                ),
+                started_at=row.get("started_at"),
+                finished_at=row.get("finished_at"),
+                row_count=row.get("row_count"),
+                error_message=row.get("error_message"),
+                details_json=dict(row.get("details_json") or {}),
+            )
+            for row in rows
+        ]
 
     def update_import_batch(
         self,
@@ -693,6 +838,60 @@ class IngestionRepository:
         if row is None:
             return 0
         return int(row["count"] or 0)
+
+    def summarize_property_roll_exemption_collapse(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        affected_account_numbers: list[str],
+        normalized_exemption_account_numbers: list[str],
+    ) -> dict[str, int]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH affected_accounts AS (
+                  SELECT DISTINCT unnest(%s::text[]) AS account_number
+                ),
+                normalized_exemption_accounts AS (
+                  SELECT DISTINCT unnest(%s::text[]) AS account_number
+                ),
+                existing_exemption_accounts AS (
+                  SELECT DISTINCT p.account_number
+                  FROM affected_accounts aa
+                  JOIN parcels p
+                    ON p.county_id = %s
+                   AND p.account_number = aa.account_number
+                  JOIN parcel_exemptions pe
+                    ON pe.parcel_id = p.parcel_id
+                   AND pe.tax_year = %s
+                ),
+                normalized_existing_exemption_accounts AS (
+                  SELECT DISTINCT eea.account_number
+                  FROM existing_exemption_accounts eea
+                  JOIN normalized_exemption_accounts nea
+                    ON nea.account_number = eea.account_number
+                )
+                SELECT
+                  (SELECT COUNT(*) FROM affected_accounts) AS affected_account_count,
+                  (SELECT COUNT(*) FROM existing_exemption_accounts) AS existing_exemption_account_count,
+                  (SELECT COUNT(*) FROM normalized_existing_exemption_accounts) AS normalized_exemption_account_count
+                """,
+                (
+                    affected_account_numbers,
+                    normalized_exemption_account_numbers,
+                    county_id,
+                    tax_year,
+                ),
+            )
+            row = cursor.fetchone()
+        return {
+            "affected_account_count": int(row["affected_account_count"] or 0),
+            "existing_exemption_account_count": int(row["existing_exemption_account_count"] or 0),
+            "normalized_exemption_account_count": int(
+                row["normalized_exemption_account_count"] or 0
+            ),
+        }
 
     def insert_validation_results(
         self,

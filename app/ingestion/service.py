@@ -310,6 +310,7 @@ class IngestionLifecycleService:
         import_batch_id: str | None = None,
         dry_run: bool = False,
     ) -> PipelineStepResult:
+        self._require_existing_batch_id("job_load_staging", import_batch_id=import_batch_id)
         adapter = self._resolve_adapter(county_id)
         with get_connection() as connection:
             repository = IngestionRepository(connection)
@@ -453,6 +454,7 @@ class IngestionLifecycleService:
         import_batch_id: str | None = None,
         dry_run: bool = False,
     ) -> PipelineStepResult:
+        self._require_existing_batch_id("job_normalize", import_batch_id=import_batch_id)
         adapter = self._resolve_adapter(county_id)
         post_commit_search_context: dict[str, Any] | None = None
         with get_connection() as connection:
@@ -676,6 +678,8 @@ class IngestionLifecycleService:
                             ],
                         )
                         publish_control_findings = self._build_publish_control_findings(
+                            repository=repository,
+                            county_id=county_id,
                             dataset_type=dataset_type,
                             tax_year=tax_year,
                             normalized_records=property_roll_records,
@@ -782,6 +786,8 @@ class IngestionLifecycleService:
                     ],
                 )
                 publish_control_findings = self._build_publish_control_findings(
+                    repository=repository,
+                    county_id=county_id,
                     dataset_type=dataset_type,
                     tax_year=tax_year,
                     normalized_records=normalized["tax_rates"],
@@ -823,6 +829,8 @@ class IngestionLifecycleService:
                     normalized_records=normalized["deeds"],
                 )
                 publish_control_findings = self._build_publish_control_findings(
+                    repository=repository,
+                    county_id=county_id,
                     dataset_type=dataset_type,
                     tax_year=tax_year,
                     normalized_records=normalized["deeds"],
@@ -913,6 +921,23 @@ class IngestionLifecycleService:
                 property_roll_row_count if dataset_type == "property_roll" else len(canonical_targets)
             )
             publish_result = adapter.publish_dataset(job_run_id, tax_year, dataset_type)
+            canonical_publish_step_run_id = self._create_step_run(
+                repository,
+                import_batch_id=batch.import_batch_id,
+                job_run_id=job_run_id,
+                step_name="canonical_publish",
+                details_json={"dataset_type": dataset_type},
+            )
+            self._complete_step_run(
+                repository,
+                canonical_publish_step_run_id,
+                status="succeeded",
+                row_count=final_row_count,
+                details_json={
+                    "dataset_type": dataset_type,
+                    "publish_version": publish_result.publish_version,
+                },
+            )
             repository.insert_validation_results(
                 job_run_id=job_run_id,
                 import_batch_id=batch.import_batch_id,
@@ -960,6 +985,29 @@ class IngestionLifecycleService:
                     ],
                 )
             if dataset_type == "property_roll" and bulk_property_roll_mode:
+                repository.update_import_batch(
+                    batch.import_batch_id,
+                    status="normalized",
+                    row_count=final_row_count,
+                    error_count=0,
+                    publish_state=publish_result.publish_state,
+                    publish_version=publish_result.publish_version,
+                    status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
+                )
+                tax_assignment_step_run_id = self._create_step_run(
+                    repository,
+                    import_batch_id=batch.import_batch_id,
+                    job_run_id=job_run_id,
+                    step_name="tax_assignment_refresh",
+                    details_json={"dataset_type": dataset_type, "bulk_property_roll_mode": True},
+                )
+                search_refresh_step_run_id = self._create_step_run(
+                    repository,
+                    import_batch_id=batch.import_batch_id,
+                    job_run_id=job_run_id,
+                    step_name="search_refresh",
+                    details_json={"dataset_type": dataset_type, "bulk_property_roll_mode": True},
+                )
                 post_commit_search_context = {
                     "batch": batch,
                     "job_run_id": job_run_id,
@@ -970,6 +1018,8 @@ class IngestionLifecycleService:
                     "deferred_steps": deferred_steps,
                     "final_row_count": final_row_count,
                     "publish_result": publish_result,
+                    "tax_assignment_step_run_id": tax_assignment_step_run_id,
+                    "search_refresh_step_run_id": search_refresh_step_run_id,
                 }
                 self._finalize_connection(connection, dry_run=dry_run)
             else:
@@ -1027,6 +1077,10 @@ class IngestionLifecycleService:
             deferred_steps = post_commit_search_context["deferred_steps"]
             final_row_count = post_commit_search_context["final_row_count"]
             publish_result = post_commit_search_context["publish_result"]
+            tax_assignment_step_run_id = post_commit_search_context["tax_assignment_step_run_id"]
+            search_refresh_step_run_id = post_commit_search_context["search_refresh_step_run_id"]
+            active_step_run_id = tax_assignment_step_run_id
+            active_step_name = "tax_assignment_refresh"
             try:
                 with get_connection() as post_commit_connection:
                     post_commit_repository = IngestionRepository(post_commit_connection)
@@ -1039,10 +1093,30 @@ class IngestionLifecycleService:
                         source_system_id=batch.source_system_id,
                         force=False,
                     )
+                    self._complete_step_run(
+                        post_commit_repository,
+                        tax_assignment_step_run_id,
+                        status="succeeded",
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_step": "tax_assignment_refresh",
+                        },
+                    )
+                    active_step_run_id = search_refresh_step_run_id
+                    active_step_name = "search_refresh"
                     self._refresh_search_documents(
                         repository=post_commit_repository,
                         county_id=county_id,
                         tax_year=tax_year,
+                    )
+                    self._complete_step_run(
+                        post_commit_repository,
+                        search_refresh_step_run_id,
+                        status="succeeded",
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_step": "search_refresh",
+                        },
                     )
                     post_commit_repository.insert_validation_results(
                         job_run_id=job_run_id,
@@ -1065,17 +1139,20 @@ class IngestionLifecycleService:
                                     "post_commit_tax_assignment_refresh": True,
                                     "post_commit_refresh": True,
                                 },
+                            },
+                            {
+                                "validation_code": "POST_COMMIT_MAINTENANCE_OK",
+                                "message": "Post-commit maintenance completed after canonical publish.",
+                                "severity": "info",
+                                "validation_scope": "publish",
+                                "entity_table": "search_documents",
+                                "details_json": {
+                                    "dataset_type": dataset_type,
+                                    "post_commit_tax_assignment_refresh": True,
+                                    "post_commit_search_refresh": True,
+                                },
                             }
                         ],
-                    )
-                    post_commit_repository.update_import_batch(
-                        batch.import_batch_id,
-                        status="normalized",
-                        row_count=final_row_count,
-                        error_count=0,
-                        publish_state=publish_result.publish_state,
-                        publish_version=publish_result.publish_version,
-                        status_reason=f"published_to_canonical: {dataset_type} publish succeeded.",
                     )
                     post_commit_repository.complete_job_run(
                         job_run_id,
@@ -1097,14 +1174,52 @@ class IngestionLifecycleService:
             except Exception as exc:
                 with get_connection() as error_connection:
                     error_repository = IngestionRepository(error_connection)
-                    error_repository.update_import_batch(
-                        batch.import_batch_id,
+                    if active_step_name == "search_refresh":
+                        self._complete_step_run(
+                            error_repository,
+                            tax_assignment_step_run_id,
+                            status="succeeded",
+                            details_json={
+                                "dataset_type": dataset_type,
+                                "maintenance_step": "tax_assignment_refresh",
+                            },
+                        )
+                    self._complete_step_run(
+                        error_repository,
+                        active_step_run_id,
                         status="failed",
-                        row_count=final_row_count,
-                        error_count=1,
-                        publish_state=publish_result.publish_state,
-                        publish_version=publish_result.publish_version,
-                        status_reason=f"post_commit_refresh_failed: {exc}",
+                        error_message=str(exc),
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_step": active_step_name,
+                        },
+                    )
+                    error_repository.insert_validation_results(
+                        job_run_id=job_run_id,
+                        import_batch_id=batch.import_batch_id,
+                        raw_file_id=batch.raw_file_id,
+                        county_id=county_id,
+                        tax_year=tax_year,
+                        findings=[
+                            {
+                                "validation_code": "POST_COMMIT_MAINTENANCE_FAILED",
+                                "message": (
+                                    "Canonical publish succeeded, but post-commit maintenance failed."
+                                ),
+                                "severity": "error",
+                                "validation_scope": "publish",
+                                "entity_table": "search_documents",
+                                "details_json": {
+                                    "dataset_type": dataset_type,
+                                    "error_message": str(exc),
+                                    "failed_step_name": active_step_name,
+                                    "post_commit_tax_assignment_refresh": (
+                                        active_step_name != "tax_assignment_refresh"
+                                    ),
+                                    "post_commit_search_refresh": False,
+                                },
+                            }
+                        ],
                     )
                     error_repository.complete_job_run(
                         job_run_id,
@@ -1119,8 +1234,10 @@ class IngestionLifecycleService:
                             "rollback_manifest": rollback_manifest,
                             "rollback_manifest_summary": rollback_manifest_metadata,
                             "deferred_post_publish_steps": deferred_steps,
-                            "post_commit_tax_assignment_refresh": True,
-                            "post_commit_search_refresh": True,
+                            "post_commit_tax_assignment_refresh": (
+                                active_step_name != "tax_assignment_refresh"
+                            ),
+                            "post_commit_search_refresh": False,
                             "post_commit_refresh_failed": True,
                         },
                     )
@@ -1184,6 +1301,7 @@ class IngestionLifecycleService:
         dataset_type: str,
         import_batch_id: str | None = None,
     ) -> None:
+        self._require_existing_batch_id("job_rollback_publish", import_batch_id=import_batch_id)
         adapter = self._resolve_adapter(county_id)
         with get_connection() as connection:
             repository = IngestionRepository(connection)
@@ -1498,9 +1616,53 @@ class IngestionLifecycleService:
             return
         connection.commit()
 
+    def _require_existing_batch_id(self, action: str, *, import_batch_id: str | None) -> None:
+        if import_batch_id is None:
+            raise ValueError(f"{action} requires import_batch_id for existing-batch mutation.")
+
+    def _create_step_run(
+        self,
+        repository: IngestionRepository,
+        *,
+        import_batch_id: str,
+        job_run_id: str | None,
+        step_name: str,
+        details_json: dict[str, Any] | None = None,
+    ) -> str | None:
+        if not hasattr(repository, "create_ingestion_step_run"):
+            return None
+        return repository.create_ingestion_step_run(
+            import_batch_id=import_batch_id,
+            job_run_id=job_run_id,
+            step_name=step_name,
+            details_json=details_json,
+        )
+
+    def _complete_step_run(
+        self,
+        repository: IngestionRepository,
+        step_run_id: str | None,
+        *,
+        status: str,
+        row_count: int | None = None,
+        error_message: str | None = None,
+        details_json: dict[str, Any] | None = None,
+    ) -> None:
+        if step_run_id is None or not hasattr(repository, "complete_ingestion_step_run"):
+            return
+        repository.complete_ingestion_step_run(
+            step_run_id,
+            status=status,
+            row_count=row_count,
+            error_message=error_message,
+            details_json=details_json,
+        )
+
     def _build_publish_control_findings(
         self,
         *,
+        repository: IngestionRepository,
+        county_id: str,
         dataset_type: str,
         tax_year: int,
         normalized_records: list[dict[str, Any]],
@@ -1556,6 +1718,50 @@ class IngestionLifecycleService:
                         dataset_type=dataset_type,
                         tax_year=tax_year,
                         details_json={"account_number": account_number},
+                    )
+                )
+            normalized_exemption_accounts = sorted(
+                {
+                    str(record.get("parcel", {}).get("account_number") or "")
+                    for record in normalized_records
+                    if record.get("exemptions")
+                    and str(record.get("parcel", {}).get("account_number") or "")
+                }
+            )
+            affected_accounts = sorted(
+                {
+                    account_number
+                    for account_number in account_numbers
+                    if account_number
+                }
+            )
+            if hasattr(repository, "summarize_property_roll_exemption_collapse"):
+                collapse_summary = repository.summarize_property_roll_exemption_collapse(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    affected_account_numbers=affected_accounts,
+                    normalized_exemption_account_numbers=normalized_exemption_accounts,
+                )
+            else:
+                collapse_summary = {
+                    "affected_account_count": len(affected_accounts),
+                    "existing_exemption_account_count": 0,
+                    "normalized_exemption_account_count": len(normalized_exemption_accounts),
+                }
+            if (
+                collapse_summary["existing_exemption_account_count"] > 0
+                and collapse_summary["normalized_exemption_account_count"] == 0
+            ):
+                findings.append(
+                    self._publish_control_finding(
+                        validation_code="PUBLISH_BLOCKED_EXEMPTION_COLLAPSE",
+                        message=(
+                            "Property-roll publish would remove exemptions from all touched parcels "
+                            "that currently have canonical exemptions."
+                        ),
+                        dataset_type=dataset_type,
+                        tax_year=tax_year,
+                        details_json=collapse_summary,
                     )
                 )
         elif dataset_type == "tax_rates":

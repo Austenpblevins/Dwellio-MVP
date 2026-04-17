@@ -6,6 +6,7 @@ import pytest
 
 from app.county_adapters.common.base import AcquiredDataset, PublishResult, StagingRow
 from app.ingestion.repository import ImportBatchRecord
+from app.jobs import job_load_staging, job_normalize, job_rollback_publish
 from app.ingestion.service import IngestionLifecycleService, PipelineStepResult
 
 
@@ -195,6 +196,7 @@ def test_load_staging_preserves_archived_media_type(monkeypatch) -> None:
         county_id="fort_bend",
         tax_year=2026,
         dataset_type="property_roll",
+        import_batch_id="batch-1",
     )
 
     assert result.import_batch_id == "batch-1"
@@ -358,6 +360,7 @@ def test_normalize_supports_deeds_and_refreshes_owner_reconciliation(monkeypatch
         county_id="harris",
         tax_year=2026,
         dataset_type="deeds",
+        import_batch_id="batch-1",
     )
 
     assert result.row_count == 1
@@ -410,6 +413,7 @@ def test_normalize_blocks_publish_when_validation_failed(monkeypatch) -> None:
             county_id="harris",
             tax_year=2025,
             dataset_type="property_roll",
+            import_batch_id="batch-1",
         )
     except RuntimeError as exc:
         assert "Publish blocked because 2 validation error finding(s) exist" in str(exc)
@@ -520,6 +524,7 @@ def test_normalize_blocks_publish_when_publish_controls_fail(monkeypatch) -> Non
             county_id="harris",
             tax_year=2025,
             dataset_type="property_roll",
+            import_batch_id="batch-1",
         )
 
     assert "publish-control error finding(s)" in str(exc_info.value)
@@ -677,6 +682,7 @@ def test_normalize_tax_rates_allows_unit_only_harris_rows(monkeypatch) -> None:
         county_id="harris",
         tax_year=2026,
         dataset_type="tax_rates",
+        import_batch_id="batch-1",
     )
 
     assert result.row_count == 2
@@ -701,6 +707,8 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     search_refresh_calls: list[dict[str, object]] = []
     updates: list[dict[str, object]] = []
     completed_runs: list[dict[str, object]] = []
+    step_runs_created: list[dict[str, object]] = []
+    step_runs_completed: list[dict[str, object]] = []
 
     class StubRepository:
         def __init__(self, connection: object) -> None:
@@ -762,6 +770,13 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
         def complete_job_run(self, *args, **kwargs) -> None:
             completed_runs.append(kwargs)
 
+        def create_ingestion_step_run(self, **kwargs) -> str:
+            step_runs_created.append(kwargs)
+            return f"step-{len(step_runs_created)}"
+
+        def complete_ingestion_step_run(self, step_run_id: str, **kwargs) -> None:
+            step_runs_completed.append({"step_run_id": step_run_id, **kwargs})
+
     class StubAdapter:
         def normalize_staging_to_canonical(self, dataset_type: str, staging_rows):
             assert dataset_type == "property_roll"
@@ -817,6 +832,7 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
         county_id="harris",
         tax_year=2025,
         dataset_type="property_roll",
+        import_batch_id="batch-1",
     )
 
     assert result.row_count == 1
@@ -828,7 +844,9 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     assert completed_runs[-1]["status"] == "succeeded"
     assert completed_runs[-1]["metadata_json"]["rollback_manifest"] == {
         "dataset_type": "property_roll",
-        "entries": [{"account_number": "1001001001001", "prior_state": None}],
+        "storage_mode": "summary_only_bulk_property_roll",
+        "entry_count": 1,
+        "sample_account_numbers": ["1001001001001"],
     }
     assert completed_runs[-1]["metadata_json"]["rollback_manifest_summary"] == {
         "dataset_type": "property_roll",
@@ -838,6 +856,12 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
     }
     assert completed_runs[-1]["metadata_json"]["post_commit_tax_assignment_refresh"] is True
     assert completed_runs[-1]["metadata_json"]["post_commit_search_refresh"] is True
+    assert [item["step_name"] for item in step_runs_created] == [
+        "canonical_publish",
+        "tax_assignment_refresh",
+        "search_refresh",
+    ]
+    assert step_runs_completed[-1]["status"] == "succeeded"
 
 
 def test_normalize_bulk_property_roll_recovery_reapplies_exemptions_from_staging(
@@ -960,6 +984,7 @@ def test_normalize_bulk_property_roll_recovery_reapplies_exemptions_from_staging
         county_id="harris",
         tax_year=2026,
         dataset_type="property_roll",
+        import_batch_id="batch-1",
     )
 
     assert result.row_count == 2
@@ -971,6 +996,198 @@ def test_normalize_bulk_property_roll_recovery_reapplies_exemptions_from_staging
     assert search_refresh_calls
     assert updates[-1]["status"] == "normalized"
     assert completed_runs[-1]["status"] == "succeeded"
+
+
+def test_normalize_bulk_property_roll_preserves_canonical_publish_when_post_commit_refresh_fails(
+    monkeypatch,
+) -> None:
+    service = IngestionLifecycleService()
+    updates: list[dict[str, object]] = []
+    completed_runs: list[dict[str, object]] = []
+    inserted_findings: list[dict[str, object]] = []
+    step_runs_created: list[dict[str, object]] = []
+    step_runs_completed: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="harris/2025/property_roll/example.json",
+                original_filename="harris-property_roll-2025.json",
+                file_kind="property_roll",
+                mime_type="application/json",
+                file_format="json",
+            )
+
+        def count_validation_errors(self, **kwargs) -> int:
+            return 0
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-normalize"
+
+        def count_staging_rows(self, **kwargs) -> int:
+            return 50_001
+
+        def count_property_roll_rows_for_import_batch(self, **kwargs) -> int:
+            return 1
+
+        def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
+        def iterate_staging_rows(self, **kwargs):
+            yield [
+                {
+                    "staging_table": "stg_county_property_raw",
+                    "staging_row_id": "stage-1",
+                    "raw_payload": {"account_number": "1001001001001"},
+                    "row_hash": "hash-1",
+                }
+            ]
+
+        def capture_property_roll_rollback_manifest(self, **kwargs) -> dict[str, object]:
+            return {
+                "dataset_type": "property_roll",
+                "entries": [{"account_number": "1001001001001", "prior_state": None}],
+            }
+
+        def upsert_property_roll_records(self, **kwargs):
+            return [
+                {
+                    "target_table": "parcel_year_snapshots",
+                    "target_id": "snap-1",
+                    "parcel_id": "parcel-1",
+                }
+            ]
+
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted_findings.extend(kwargs["findings"])
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            updates.append(kwargs)
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            completed_runs.append(kwargs)
+
+        def create_ingestion_step_run(self, **kwargs) -> str:
+            step_runs_created.append(kwargs)
+            return f"step-{len(step_runs_created)}"
+
+        def complete_ingestion_step_run(self, step_run_id: str, **kwargs) -> None:
+            step_runs_completed.append({"step_run_id": step_run_id, **kwargs})
+
+    class StubAdapter:
+        def normalize_staging_to_canonical(self, dataset_type: str, staging_rows):
+            return {
+                "property_roll": [
+                    {
+                        "parcel": {
+                            "account_number": "1001001001001",
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "owner_name": "Jane Doe",
+                            "source_record_hash": "hash-1",
+                        },
+                        "address": {
+                            "situs_address": "123 Main St",
+                            "situs_city": "Houston",
+                            "situs_zip": "77001",
+                            "normalized_address": "123 MAIN ST",
+                        },
+                        "characteristics": {"homestead_flag": False},
+                        "improvements": [{"living_area_sf": 2150, "year_built": 2004}],
+                        "land_segments": [{"land_sf": 5000}],
+                        "value_components": [],
+                        "assessment": {"market_value": 300000},
+                        "exemptions": [],
+                    }
+                ]
+            }
+
+        def publish_dataset(self, job_id: str, tax_year: int, dataset_type: str) -> PublishResult:
+            return PublishResult(
+                publish_version=f"harris-{tax_year}-{dataset_type}-{job_id[:8]}",
+                details_json={"dataset_type": dataset_type},
+            )
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(service, "_build_publish_control_findings", lambda **kwargs: [])
+    monkeypatch.setattr(service, "_refresh_tax_assignments", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_refresh_search_documents",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("search refresh failed")),
+    )
+    service.adapter = StubAdapter()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="search refresh failed"):
+        service.normalize(
+            county_id="harris",
+            tax_year=2025,
+            dataset_type="property_roll",
+            import_batch_id="batch-1",
+        )
+
+    assert updates[-1]["status"] == "normalized"
+    assert updates[-1]["publish_state"] == "published"
+    assert completed_runs[-1]["status"] == "failed"
+    assert completed_runs[-1]["metadata_json"]["post_commit_refresh_failed"] is True
+    assert step_runs_created[-1]["step_name"] == "search_refresh"
+    assert any(
+        item["step_run_id"] == "step-2" and item["status"] == "succeeded"
+        for item in step_runs_completed
+    )
+    assert step_runs_completed[-1]["status"] == "failed"
+    assert any(
+        finding["validation_code"] == "POST_COMMIT_MAINTENANCE_FAILED"
+        for finding in inserted_findings
+    )
+
+
+def test_build_publish_control_findings_blocks_total_exemption_collapse() -> None:
+    service = IngestionLifecycleService()
+
+    class StubRepository:
+        def summarize_property_roll_exemption_collapse(self, **kwargs) -> dict[str, int]:
+            return {
+                "affected_account_count": 2,
+                "existing_exemption_account_count": 2,
+                "normalized_exemption_account_count": 0,
+            }
+
+    findings = service._build_publish_control_findings(
+        repository=StubRepository(),  # type: ignore[arg-type]
+        county_id="fort_bend",
+        dataset_type="property_roll",
+        tax_year=2025,
+        normalized_records=[
+            {"parcel": {"account_number": "1"}, "exemptions": []},
+            {"parcel": {"account_number": "2"}, "exemptions": []},
+        ],
+        rollback_manifest={"entries": [{"account_number": "1"}, {"account_number": "2"}]},
+    )
+
+    assert any(
+        finding["validation_code"] == "PUBLISH_BLOCKED_EXEMPTION_COLLAPSE"
+        for finding in findings
+    )
+
+
+def test_mutation_jobs_require_import_batch_id() -> None:
+    with pytest.raises(ValueError, match="job_load_staging requires import_batch_id"):
+        job_load_staging.run(county_id="harris", tax_year=2025, dataset_type="property_roll")
+
+    with pytest.raises(ValueError, match="job_normalize requires import_batch_id"):
+        job_normalize.run(county_id="harris", tax_year=2025, dataset_type="property_roll")
+
+    with pytest.raises(ValueError, match="job_rollback_publish requires import_batch_id"):
+        job_rollback_publish.run(county_id="harris", tax_year=2025, dataset_type="property_roll")
 
 
 def test_build_bulk_property_roll_manifest_metadata_returns_small_summary() -> None:
@@ -1088,6 +1305,7 @@ def test_rollback_property_roll_refreshes_search_documents(monkeypatch) -> None:
         county_id="harris",
         tax_year=2025,
         dataset_type="property_roll",
+        import_batch_id="batch-1",
     )
 
     assert len(search_refresh_calls) == 1
