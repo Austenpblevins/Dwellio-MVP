@@ -127,6 +127,7 @@ python3 -m infra.scripts.run_historical_backfill \
 Notes:
 
 - The runner reuses the existing `register_manual_import`, `job_load_staging`, and `job_normalize` path.
+- Existing-batch mutation commands must pass `--import-batch-id`; do not rely on latest-batch inference for staging, normalize, or rollback flows.
 - Duplicate ready files are reused idempotently. If the same checksum already published successfully, the runner reports the existing batch and skips re-ingest.
 - Publish still blocks when staging validation or publish-control checks fail.
 - `property_roll` rollback manifests now include newly inserted accounts so first-time historical publishes can be rolled back safely.

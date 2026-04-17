@@ -128,7 +128,7 @@ Lead flow note:
 Dataset rollback path:
 
 ```bash
-python3 -m app.jobs.cli job_rollback_publish --county-id harris --tax-year 2026 --dataset-type property_roll
+python3 -m app.jobs.cli job_rollback_publish --county-id harris --tax-year 2026 --dataset-type property_roll --import-batch-id <import_batch_id>
 ```
 
 Admin rollback path:
@@ -138,6 +138,7 @@ Recovery rules:
 - use rollback only for publish-state ingestion corrections
 - do not edit ordered migrations after they have been applied
 - rebuild search and quote-safe surfaces after corrected data is republished
+- if a bulk property-roll publish reaches canonical publish and then fails during post-commit maintenance, treat the batch as canonically published and inspect admin import-batch detail for failed `step_runs` before rerunning anything
 
 Post-rollback recovery:
 

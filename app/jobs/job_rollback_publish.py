@@ -12,6 +12,8 @@ def run(
 ) -> None:
     if county_id is None or tax_year is None or dataset_type is None:
         raise ValueError("job_rollback_publish requires county_id, tax_year, and dataset_type.")
+    if import_batch_id is None:
+        raise ValueError("job_rollback_publish requires import_batch_id.")
 
     IngestionLifecycleService().rollback_publish(
         county_id=county_id,

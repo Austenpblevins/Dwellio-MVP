@@ -12,6 +12,7 @@ from app.models.admin import (
     AdminImportBatchActionRequest,
     AdminImportBatchActions,
     AdminImportBatchDetail,
+    AdminIngestionStepRun,
     AdminImportBatchInspection,
     AdminImportBatchListResponse,
     AdminImportBatchSummary,
@@ -58,6 +59,9 @@ class AdminOpsService:
                 raise ValueError(f"Missing import batch {import_batch_id}.")
             source_files = self._fetch_source_file_rows(connection, import_batch_id=import_batch_id)
             job_runs = self._fetch_job_run_rows(connection, import_batch_id=import_batch_id)
+            step_runs = self._fetch_ingestion_step_run_rows(
+                connection, import_batch_id=import_batch_id
+            )
             validation_summary = self._build_validation_summary(
                 connection,
                 import_batch_id=import_batch_id,
@@ -104,6 +108,7 @@ class AdminOpsService:
             validation_summary=validation_summary,
             source_files=[self._build_source_file(row) for row in source_files],
             job_runs=[self._build_job_run(row) for row in job_runs],
+            step_runs=[self._build_ingestion_step_run(row) for row in step_runs],
             actions=AdminImportBatchActions(
                 can_publish=summary.status in {"staged", "rolled_back"},
                 can_rollback=summary.publish_state == "published",
@@ -553,6 +558,35 @@ class AdminOpsService:
             )
             return cursor.fetchall()
 
+    def _fetch_ingestion_step_run_rows(
+        self,
+        connection: Any,
+        *,
+        import_batch_id: str,
+    ) -> list[dict[str, Any]]:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  step_run_id,
+                  step_name,
+                  status,
+                  attempt_number,
+                  retry_of_step_run_id,
+                  started_at,
+                  finished_at,
+                  row_count,
+                  error_message,
+                  details_json
+                FROM ingestion_step_runs
+                WHERE import_batch_id = %s
+                ORDER BY started_at DESC, step_run_id DESC
+                LIMIT 50
+                """,
+                (import_batch_id,),
+            )
+            return cursor.fetchall()
+
     def _build_validation_summary(
         self,
         connection: Any,
@@ -602,6 +636,24 @@ class AdminOpsService:
             warning_count=int(counts["warning_count"] or 0),
             info_count=int(counts["info_count"] or 0),
             findings=[self._build_validation_finding(row) for row in rows],
+        )
+
+    def _build_ingestion_step_run(self, row: dict[str, Any]) -> AdminIngestionStepRun:
+        return AdminIngestionStepRun(
+            step_run_id=str(row["step_run_id"]),
+            step_name=row["step_name"],
+            status=row["status"],
+            attempt_number=int(row.get("attempt_number") or 1),
+            retry_of_step_run_id=(
+                None
+                if row.get("retry_of_step_run_id") is None
+                else str(row["retry_of_step_run_id"])
+            ),
+            started_at=row.get("started_at"),
+            finished_at=row.get("finished_at"),
+            row_count=row.get("row_count"),
+            error_message=row.get("error_message"),
+            details_json=dict(row.get("details_json") or {}),
         )
 
     def _build_import_batch_summary(self, row: dict[str, Any]) -> AdminImportBatchSummary:
