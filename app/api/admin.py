@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.admin import (
+    AdminCountyOnboardingBaselineComparison,
     AdminCompletenessIssuesResponse,
     AdminCountyOnboardingAction,
     AdminCountyOnboardingContract,
@@ -59,6 +60,14 @@ def get_county_onboarding_contract(
             blocking_phase_codes=list(contract.onboarding_summary.blocking_phase_codes),
             next_phase_code=contract.onboarding_summary.next_phase_code,
             next_blocking_phase_code=contract.onboarding_summary.next_blocking_phase_code,
+        ),
+        baseline_comparison=AdminCountyOnboardingBaselineComparison(
+            baseline_tax_year=contract.baseline_comparison.baseline_tax_year,
+            current_tax_year=contract.baseline_comparison.current_tax_year,
+            comparable=contract.baseline_comparison.comparable,
+            current_year_lagging=contract.baseline_comparison.current_year_lagging,
+            lagging_signals=list(contract.baseline_comparison.lagging_signals),
+            notes=list(contract.baseline_comparison.notes),
         ),
         capabilities=[
             {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.ingestion.source_registry import CountyCapabilityEntry
 from app.services.county_onboarding import (
     OnboardingAction,
+    OnboardingBaselineComparison,
     CountyOnboardingContract,
     OnboardingPhase,
     OnboardingReadinessSnapshot,
@@ -32,6 +33,13 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
                     blocking_phase_codes=[],
                     next_phase_code="quote_supportability_validation",
                     next_blocking_phase_code=None,
+                ),
+                baseline_comparison=OnboardingBaselineComparison(
+                    baseline_tax_year=None,
+                    current_tax_year=2026,
+                    comparable=False,
+                    current_year_lagging=False,
+                    notes=["baseline_comparison_unavailable"],
                 ),
                 capabilities=[
                     CountyCapabilityEntry(
@@ -127,6 +135,8 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
     assert payload["validation_recommended"] is True
     assert payload["onboarding_summary"]["overall_status"] == "partial"
     assert payload["onboarding_summary"]["next_phase_code"] == "quote_supportability_validation"
+    assert payload["baseline_comparison"]["comparable"] is False
+    assert payload["baseline_comparison"]["notes"] == ["baseline_comparison_unavailable"]
     assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
     assert payload["validation_candidates"][0]["readiness_score"] == 48
     assert payload["current_year_snapshot"]["tax_year"] == 2026

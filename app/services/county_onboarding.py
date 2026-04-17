@@ -72,6 +72,16 @@ class OnboardingSummary:
 
 
 @dataclass(frozen=True)
+class OnboardingBaselineComparison:
+    baseline_tax_year: int | None
+    current_tax_year: int
+    comparable: bool
+    current_year_lagging: bool
+    lagging_signals: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class CountyOnboardingContract:
     county_id: str
     current_tax_year: int
@@ -82,6 +92,7 @@ class CountyOnboardingContract:
     current_year_snapshot: OnboardingReadinessSnapshot | None
     validation_year_snapshot: OnboardingReadinessSnapshot | None
     onboarding_summary: OnboardingSummary
+    baseline_comparison: OnboardingBaselineComparison
     phases: list[OnboardingPhase]
     recommended_actions: list[OnboardingAction]
 
@@ -151,6 +162,14 @@ class CountyOnboardingService:
             phases=phases,
         )
         onboarding_summary = self._build_onboarding_summary(phases)
+        baseline_comparison = self._build_baseline_comparison(
+            current_tax_year=current_year,
+            validation_tax_year=(
+                None if validation_candidate is None else validation_candidate.tax_year
+            ),
+            current_snapshot=current_snapshot,
+            validation_snapshot=validation_snapshot,
+        )
 
         return CountyOnboardingContract(
             county_id=county_id,
@@ -173,6 +192,7 @@ class CountyOnboardingService:
             current_year_snapshot=current_snapshot,
             validation_year_snapshot=validation_snapshot,
             onboarding_summary=onboarding_summary,
+            baseline_comparison=baseline_comparison,
             phases=phases,
             recommended_actions=recommended_actions,
         )
@@ -611,4 +631,61 @@ class CountyOnboardingService:
             blocking_phase_codes=blocking_phase_codes,
             next_phase_code=next_phase_code,
             next_blocking_phase_code=next_blocking_phase_code,
+        )
+
+    def _build_baseline_comparison(
+        self,
+        *,
+        current_tax_year: int,
+        validation_tax_year: int | None,
+        current_snapshot: OnboardingReadinessSnapshot | None,
+        validation_snapshot: OnboardingReadinessSnapshot | None,
+    ) -> OnboardingBaselineComparison:
+        if validation_tax_year is None or current_snapshot is None or validation_snapshot is None:
+            return OnboardingBaselineComparison(
+                baseline_tax_year=validation_tax_year,
+                current_tax_year=current_tax_year,
+                comparable=False,
+                current_year_lagging=False,
+                notes=["baseline_comparison_unavailable"],
+            )
+
+        lagging_signals: list[str] = []
+        if validation_snapshot.parcel_summary_ready and not current_snapshot.parcel_summary_ready:
+            lagging_signals.append("parcel_summary_ready")
+        if validation_snapshot.search_support_ready and not current_snapshot.search_support_ready:
+            lagging_signals.append("search_support_ready")
+        if validation_snapshot.feature_ready and not current_snapshot.feature_ready:
+            lagging_signals.append("feature_ready")
+        if validation_snapshot.comp_ready and not current_snapshot.comp_ready:
+            lagging_signals.append("comp_ready")
+        if validation_snapshot.quote_ready and not current_snapshot.quote_ready:
+            lagging_signals.append("quote_ready")
+
+        current_datasets = {dataset.dataset_type: dataset for dataset in current_snapshot.datasets}
+        validation_datasets = {
+            dataset.dataset_type: dataset for dataset in validation_snapshot.datasets
+        }
+        for dataset_type in REQUIRED_ONBOARDING_DATASETS:
+            baseline_dataset = validation_datasets.get(dataset_type)
+            current_dataset = current_datasets.get(dataset_type)
+            if baseline_dataset is None:
+                continue
+            if current_dataset is None:
+                lagging_signals.append(f"{dataset_type}:missing_from_current_year")
+                continue
+            if baseline_dataset.canonical_published and not current_dataset.canonical_published:
+                lagging_signals.append(f"{dataset_type}:canonical_publish")
+
+        notes = []
+        if not lagging_signals:
+            notes.append("current_year_matches_or_exceeds_validation_baseline")
+
+        return OnboardingBaselineComparison(
+            baseline_tax_year=validation_tax_year,
+            current_tax_year=current_tax_year,
+            comparable=True,
+            current_year_lagging=bool(lagging_signals),
+            lagging_signals=lagging_signals,
+            notes=notes,
         )

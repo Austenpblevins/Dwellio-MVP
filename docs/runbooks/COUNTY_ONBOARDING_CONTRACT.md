@@ -33,6 +33,7 @@ The report is machine-readable and is designed to answer:
 4. Are current gaps caused by source limits, missing prep work, or incomplete derived/read-model validation?
 5. What is the next recommended operator action for each pending or blocking phase?
 6. What is the overall onboarding posture: `ready`, `partial`, or `blocked`?
+7. How does the current year compare to the recommended validation baseline?
 
 ## Intended operator flow
 
@@ -44,6 +45,7 @@ The report is machine-readable and is designed to answer:
 6. If `quote_supportability_validation` is pending, compare the gap against the county capability matrix before calling it a regression.
 7. Prefer the `recommended_actions` list when present; it gives the safest next command or review step for each unresolved phase.
 8. Use `onboarding_summary` first for triage, then drill into the phase list and recommended actions.
+9. Use `baseline_comparison` to see whether the current year is still lagging the validation baseline on publish/search/quote signals.
 
 ## Important limitations
 

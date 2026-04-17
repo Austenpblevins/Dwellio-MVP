@@ -13,6 +13,7 @@ from app.services.admin_readiness import (
 from app.services.county_onboarding import (
     CountyOnboardingContract,
     OnboardingAction,
+    OnboardingBaselineComparison,
     OnboardingDatasetSnapshot,
     OnboardingPhase,
     OnboardingReadinessSnapshot,
@@ -360,6 +361,13 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
                     next_phase_code="dataset_prep_contract",
                     next_blocking_phase_code="dataset_prep_contract",
                 ),
+                baseline_comparison=OnboardingBaselineComparison(
+                    baseline_tax_year=2025,
+                    current_tax_year=2026,
+                    comparable=True,
+                    current_year_lagging=True,
+                    lagging_signals=["property_roll:canonical_publish"],
+                ),
                 capabilities=[],
                 validation_candidates=[
                     OnboardingValidationYear(
@@ -423,6 +431,7 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
     assert isinstance(contract, AdminCountyOnboardingContract)
     assert contract.validation_tax_year == 2025
     assert contract.onboarding_summary.overall_status == "blocked"
+    assert contract.baseline_comparison.current_year_lagging is True
     assert contract.validation_candidates[0].readiness_score == 42
     assert contract.current_year_snapshot is not None
     assert contract.current_year_snapshot.tax_year == 2026

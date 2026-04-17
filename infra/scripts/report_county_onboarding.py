@@ -72,6 +72,14 @@ def build_payload(
             "next_phase_code": contract.onboarding_summary.next_phase_code,
             "next_blocking_phase_code": contract.onboarding_summary.next_blocking_phase_code,
         },
+        "baseline_comparison": {
+            "baseline_tax_year": contract.baseline_comparison.baseline_tax_year,
+            "current_tax_year": contract.baseline_comparison.current_tax_year,
+            "comparable": contract.baseline_comparison.comparable,
+            "current_year_lagging": contract.baseline_comparison.current_year_lagging,
+            "lagging_signals": contract.baseline_comparison.lagging_signals,
+            "notes": contract.baseline_comparison.notes,
+        },
         "capabilities": [
             {
                 "capability_code": capability.capability_code,

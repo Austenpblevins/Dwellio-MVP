@@ -147,6 +147,10 @@ def test_build_contract_selects_repeatable_validation_year(monkeypatch) -> None:
     assert contract.onboarding_summary.done_phase_count == 5
     assert contract.onboarding_summary.pending_phase_count == 1
     assert contract.onboarding_summary.next_phase_code == "quote_supportability_validation"
+    assert contract.baseline_comparison.comparable is True
+    assert contract.baseline_comparison.current_year_lagging is True
+    assert "parcel_summary_ready" in contract.baseline_comparison.lagging_signals
+    assert "property_roll:canonical_publish" in contract.baseline_comparison.lagging_signals
     action_codes = [action.action_code for action in contract.recommended_actions]
     assert "review_quote_supportability" in action_codes
 
@@ -204,6 +208,9 @@ def test_build_contract_flags_missing_manual_prep(monkeypatch) -> None:
     assert "property_roll:manual_prep_required" in phases["dataset_prep_contract"].details
     assert contract.onboarding_summary.overall_status == "blocked"
     assert contract.onboarding_summary.next_blocking_phase_code == "validation_year_selection"
+    assert contract.baseline_comparison.comparable is True
+    assert contract.baseline_comparison.current_year_lagging is False
+    assert contract.baseline_comparison.notes == ["current_year_matches_or_exceeds_validation_baseline"]
     actions = {action.action_code: action for action in contract.recommended_actions}
     assert "review_validation_year_ranking" in actions
     assert "prepare_adapter_ready_files" in actions
