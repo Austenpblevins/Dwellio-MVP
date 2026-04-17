@@ -49,6 +49,7 @@ class OnboardingPhase:
     blocking: bool
     summary: str
     details: list[str] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -253,6 +254,10 @@ class CountyOnboardingService:
                 blocking=True,
                 summary="County capability matrix is missing.",
                 details=["Add explicit county capability entries before onboarding validation."],
+                success_criteria=[
+                    "County capability entries exist for the onboarding county.",
+                    "Operator-reviewed source limits are documented before validation starts.",
+                ],
             )
         return OnboardingPhase(
             phase_code="capability_review",
@@ -263,6 +268,10 @@ class CountyOnboardingService:
             details=[
                 f"{capability.capability_code}:{capability.status}"
                 for capability in capabilities
+            ],
+            success_criteria=[
+                "County capability entries exist for the onboarding county.",
+                "Operator-reviewed source limits are documented before validation starts.",
             ],
         )
 
@@ -277,6 +286,10 @@ class CountyOnboardingService:
                 status="blocked",
                 blocking=True,
                 summary="No candidate validation tax year was available.",
+                success_criteria=[
+                    "A repeatable prior-year QA baseline is selected.",
+                    "Validation-year caveats are explicit before onboarding proceeds.",
+                ],
             )
         if candidate.recommended_for_qa:
             return OnboardingPhase(
@@ -286,6 +299,10 @@ class CountyOnboardingService:
                 blocking=False,
                 summary=f"Use tax year {candidate.tax_year} as the repeatable onboarding QA baseline.",
                 details=list(candidate.caveats),
+                success_criteria=[
+                    "A repeatable prior-year QA baseline is selected.",
+                    "Validation-year caveats are explicit before onboarding proceeds.",
+                ],
             )
         return OnboardingPhase(
             phase_code="validation_year_selection",
@@ -297,6 +314,10 @@ class CountyOnboardingService:
                 "but it is not yet fully recommended for QA."
             ),
             details=list(candidate.caveats),
+            success_criteria=[
+                "A repeatable prior-year QA baseline is selected.",
+                "Validation-year caveats are explicit before onboarding proceeds.",
+            ],
         )
 
     def _build_prep_phase(
@@ -310,6 +331,10 @@ class CountyOnboardingService:
                 status="blocked",
                 blocking=True,
                 summary="Validation-year readiness data is missing.",
+                success_criteria=[
+                    "Required onboarding datasets have adapter-ready files.",
+                    "Prep manifests exist and validation passed for those files.",
+                ],
             )
 
         details: list[str] = []
@@ -341,6 +366,10 @@ class CountyOnboardingService:
                 blocking=False,
                 summary="Required onboarding datasets are already canonically published for the validation year.",
                 details=details,
+                success_criteria=[
+                    "Required onboarding datasets have adapter-ready files.",
+                    "Prep manifests exist and validation passed for those files.",
+                ],
             )
         summary = (
             "Adapter-ready files and prep manifests are still required before repeatable onboarding validation."
@@ -354,6 +383,10 @@ class CountyOnboardingService:
             blocking=True,
             summary=summary,
             details=details,
+            success_criteria=[
+                "Required onboarding datasets have adapter-ready files.",
+                "Prep manifests exist and validation passed for those files.",
+            ],
         )
 
     def _build_publish_phase(
@@ -367,6 +400,10 @@ class CountyOnboardingService:
                 status="blocked",
                 blocking=True,
                 summary="Validation-year readiness data is missing.",
+                success_criteria=[
+                    "Required onboarding datasets are canonically published.",
+                    "Validation-year imports are no longer draft-only or prep-only.",
+                ],
             )
 
         details = []
@@ -391,6 +428,10 @@ class CountyOnboardingService:
                 blocking=False,
                 summary="Required onboarding datasets are canonically published for the validation year.",
                 details=details,
+                success_criteria=[
+                    "Required onboarding datasets are canonically published.",
+                    "Validation-year imports are no longer draft-only or prep-only.",
+                ],
             )
         return OnboardingPhase(
             phase_code="canonical_publish_validation",
@@ -399,6 +440,10 @@ class CountyOnboardingService:
             blocking=True,
             summary="Canonical publish is still incomplete for the required onboarding datasets.",
             details=details,
+            success_criteria=[
+                "Required onboarding datasets are canonically published.",
+                "Validation-year imports are no longer draft-only or prep-only.",
+            ],
         )
 
     def _build_search_phase(
@@ -412,6 +457,10 @@ class CountyOnboardingService:
                 status="blocked",
                 blocking=True,
                 summary="Validation-year readiness data is missing.",
+                success_criteria=[
+                    "Parcel summary is ready for the validation year.",
+                    "Search/read-model support is ready for the validation year.",
+                ],
             )
         if readiness.derived.parcel_summary_ready and readiness.derived.search_support_ready:
             return OnboardingPhase(
@@ -423,6 +472,10 @@ class CountyOnboardingService:
                 details=[
                     "parcel_summary_ready",
                     "search_support_ready",
+                ],
+                success_criteria=[
+                    "Parcel summary is ready for the validation year.",
+                    "Search/read-model support is ready for the validation year.",
                 ],
             )
         details = []
@@ -437,6 +490,10 @@ class CountyOnboardingService:
             blocking=True,
             summary="Searchable/read-model validation is not ready yet for the onboarding baseline year.",
             details=details,
+            success_criteria=[
+                "Parcel summary is ready for the validation year.",
+                "Search/read-model support is ready for the validation year.",
+            ],
         )
 
     def _build_quote_phase(
@@ -451,6 +508,10 @@ class CountyOnboardingService:
                 status="blocked",
                 blocking=True,
                 summary="Validation-year readiness data is missing.",
+                success_criteria=[
+                    "Quote-supportable read models are ready or gaps are explained by county capability limits.",
+                    "Operators can distinguish expected source limits from onboarding defects.",
+                ],
             )
         if readiness.derived.quote_ready:
             return OnboardingPhase(
@@ -459,6 +520,10 @@ class CountyOnboardingService:
                 status="done",
                 blocking=False,
                 summary="Quote-supportable read models are ready for onboarding validation.",
+                success_criteria=[
+                    "Quote-supportable read models are ready or gaps are explained by county capability limits.",
+                    "Operators can distinguish expected source limits from onboarding defects.",
+                ],
             )
         limiting_capabilities = [
             capability.capability_code
@@ -477,6 +542,10 @@ class CountyOnboardingService:
                 "whether the gap is expected or a real onboarding defect."
             ),
             details=details,
+            success_criteria=[
+                "Quote-supportable read models are ready or gaps are explained by county capability limits.",
+                "Operators can distinguish expected source limits from onboarding defects.",
+            ],
         )
 
     def _dataset_by_type(

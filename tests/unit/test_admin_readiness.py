@@ -407,6 +407,7 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
                         blocking=False,
                         summary="Use tax year 2025 as the repeatable onboarding QA baseline.",
                         details=["comp_generation_not_ready"],
+                        success_criteria=["A repeatable prior-year QA baseline is selected."],
                     )
                 ],
                 recommended_actions=[
@@ -436,6 +437,7 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
     assert contract.current_year_snapshot is not None
     assert contract.current_year_snapshot.tax_year == 2026
     assert contract.phases[0].phase_code == "validation_year_selection"
+    assert contract.phases[0].success_criteria == ["A repeatable prior-year QA baseline is selected."]
     assert contract.recommended_actions[0].action_code == "prepare_adapter_ready_files"
 
 

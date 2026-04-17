@@ -34,6 +34,7 @@ The report is machine-readable and is designed to answer:
 5. What is the next recommended operator action for each pending or blocking phase?
 6. What is the overall onboarding posture: `ready`, `partial`, or `blocked`?
 7. How does the current year compare to the recommended validation baseline?
+8. What does “done” mean for each onboarding phase?
 
 ## Intended operator flow
 
@@ -46,6 +47,7 @@ The report is machine-readable and is designed to answer:
 7. Prefer the `recommended_actions` list when present; it gives the safest next command or review step for each unresolved phase.
 8. Use `onboarding_summary` first for triage, then drill into the phase list and recommended actions.
 9. Use `baseline_comparison` to see whether the current year is still lagging the validation baseline on publish/search/quote signals.
+10. Use each phase’s `success_criteria` to confirm that a phase is truly complete before moving on.
 
 ## Important limitations
 

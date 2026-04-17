@@ -148,6 +148,7 @@ def get_county_onboarding_contract(
                 blocking=phase.blocking,
                 summary=phase.summary,
                 details=list(phase.details),
+                success_criteria=list(phase.success_criteria),
             )
             for phase in contract.phases
         ],

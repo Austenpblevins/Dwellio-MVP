@@ -111,6 +111,7 @@ def build_payload(
                 "blocking": phase.blocking,
                 "summary": phase.summary,
                 "details": phase.details,
+                "success_criteria": phase.success_criteria,
             }
             for phase in contract.phases
         ],

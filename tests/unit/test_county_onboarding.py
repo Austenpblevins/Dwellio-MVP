@@ -137,6 +137,7 @@ def test_build_contract_selects_repeatable_validation_year(monkeypatch) -> None:
 
     phases = {phase.phase_code: phase for phase in contract.phases}
     assert phases["capability_review"].status == "done"
+    assert "County capability entries exist for the onboarding county." in phases["capability_review"].success_criteria
     assert phases["validation_year_selection"].status == "done"
     assert phases["dataset_prep_contract"].status == "done"
     assert phases["canonical_publish_validation"].status == "done"
@@ -203,6 +204,7 @@ def test_build_contract_flags_missing_manual_prep(monkeypatch) -> None:
 
     phases = {phase.phase_code: phase for phase in contract.phases}
     assert phases["validation_year_selection"].status == "pending"
+    assert "A repeatable prior-year QA baseline is selected." in phases["validation_year_selection"].success_criteria
     assert phases["dataset_prep_contract"].status == "pending"
     assert phases["dataset_prep_contract"].blocking is True
     assert "property_roll:manual_prep_required" in phases["dataset_prep_contract"].details

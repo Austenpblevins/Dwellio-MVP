@@ -230,6 +230,7 @@ class AdminCountyOnboardingPhase(DwellioBaseModel):
     blocking: bool
     summary: str
     details: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
 
 
 class AdminCountyOnboardingAction(DwellioBaseModel):
