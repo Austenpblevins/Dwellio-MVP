@@ -111,6 +111,7 @@ Expected behavior and risk:
 - Avoid interrupting the session once it starts.
 - This refresh updates search/read-model freshness only; it does not republish canonical parcel state or change instant-quote logic.
 - If a bulk property-roll publish fails after canonical publish, check admin import-batch detail for failed `search_refresh` or `tax_assignment_refresh` step runs before retrying the full pipeline.
+- Use the admin maintenance retry action first when canonical publish already succeeded and only the post-commit refresh path failed.
 
 Verify freshness afterward:
 

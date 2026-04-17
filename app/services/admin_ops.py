@@ -4,6 +4,7 @@ from typing import Any
 
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.db.connection import get_connection
+from app.ingestion.repository import IngestionRepository
 from app.ingestion.manual_backfill import register_manual_import
 from app.ingestion.service import IngestionLifecycleService
 from app.models.admin import (
@@ -45,11 +46,26 @@ class AdminOpsService:
                 dataset_type=dataset_type,
                 limit=limit,
             )
+            maintenance_by_batch = {
+                str(row["import_batch_id"]): self._summarize_post_commit_maintenance(
+                    connection=connection,
+                    import_batch_id=str(row["import_batch_id"]),
+                    dataset_type=row["dataset_type"],
+                    publish_state=row.get("publish_state"),
+                )
+                for row in rows
+            }
         return AdminImportBatchListResponse(
             county_id=county_id,
             tax_year=tax_year,
             dataset_type=dataset_type,
-            batches=[self._build_import_batch_summary(row) for row in rows],
+            batches=[
+                self._build_import_batch_summary(
+                    row,
+                    maintenance_summary=maintenance_by_batch.get(str(row["import_batch_id"])),
+                )
+                for row in rows
+            ],
         )
 
     def get_import_batch_detail(self, *, import_batch_id: str) -> AdminImportBatchDetail:
@@ -78,7 +94,16 @@ class AdminOpsService:
         config = load_county_adapter_config(batch_row["county_id"])
         dataset_config = config.dataset_configs.get(batch_row["dataset_type"])
 
-        summary = self._build_import_batch_summary(batch_row)
+        summary = self._build_import_batch_summary(
+            batch_row,
+            maintenance_summary=self._summarize_post_commit_maintenance(
+                connection=None,
+                import_batch_id=import_batch_id,
+                dataset_type=batch_row["dataset_type"],
+                publish_state=batch_row.get("publish_state"),
+                prefetched_step_runs=step_runs,
+            ),
+        )
         return AdminImportBatchDetail(
             batch=summary,
             inspection=AdminImportBatchInspection(
@@ -112,6 +137,7 @@ class AdminOpsService:
             actions=AdminImportBatchActions(
                 can_publish=summary.status in {"staged", "rolled_back"},
                 can_rollback=summary.publish_state == "published",
+                can_retry_maintenance=summary.maintenance_status in {"failed", "pending"},
                 manual_fallback_supported=bool(
                     dataset_config.manual_fallback_supported if dataset_config is not None else True
                 ),
@@ -357,6 +383,29 @@ class AdminOpsService:
             dataset_type=request.dataset_type,
             import_batch_id=import_batch_id,
             message="Rolled back the published canonical state for the selected import batch.",
+        )
+
+    def retry_import_batch_maintenance(
+        self,
+        *,
+        import_batch_id: str,
+        request: AdminImportBatchActionRequest,
+    ) -> AdminMutationResult:
+        result = IngestionLifecycleService().retry_post_commit_maintenance(
+            county_id=request.county_id,
+            tax_year=request.tax_year,
+            dataset_type=request.dataset_type,
+            import_batch_id=import_batch_id,
+        )
+        return AdminMutationResult(
+            action="retry_post_commit_maintenance",
+            county_id=request.county_id,
+            tax_year=request.tax_year,
+            dataset_type=request.dataset_type,
+            import_batch_id=import_batch_id,
+            job_run_id=result.job_run_id or None,
+            publish_version=result.publish_version,
+            message=result.message or "Retried post-commit maintenance for the selected import batch.",
         )
 
     def _fetch_import_batch_rows(
@@ -656,7 +705,12 @@ class AdminOpsService:
             details_json=dict(row.get("details_json") or {}),
         )
 
-    def _build_import_batch_summary(self, row: dict[str, Any]) -> AdminImportBatchSummary:
+    def _build_import_batch_summary(
+        self,
+        row: dict[str, Any],
+        *,
+        maintenance_summary: dict[str, Any] | None = None,
+    ) -> AdminImportBatchSummary:
         return AdminImportBatchSummary(
             import_batch_id=str(row["import_batch_id"]),
             county_id=row["county_id"],
@@ -680,6 +734,19 @@ class AdminOpsService:
             latest_job_started_at=row.get("latest_job_started_at"),
             latest_job_finished_at=row.get("latest_job_finished_at"),
             latest_job_error_message=row.get("latest_job_error_message"),
+            maintenance_status=(
+                None if maintenance_summary is None else maintenance_summary.get("status")
+            ),
+            maintenance_failed_step_name=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("failed_step_name")
+            ),
+            maintenance_last_finished_at=(
+                None
+                if maintenance_summary is None
+                else maintenance_summary.get("last_finished_at")
+            ),
             created_at=row.get("created_at"),
         )
 
@@ -725,3 +792,80 @@ class AdminOpsService:
             details_json=dict(row.get("details_json") or {}),
             created_at=row.get("created_at"),
         )
+
+    def _summarize_post_commit_maintenance(
+        self,
+        *,
+        connection: Any | None,
+        import_batch_id: str,
+        dataset_type: str,
+        publish_state: str | None,
+        prefetched_step_runs: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        if dataset_type != "property_roll" or publish_state != "published":
+            return None
+
+        if prefetched_step_runs is not None:
+            maintenance_steps = {"tax_assignment_refresh", "search_refresh"}
+            latest_by_name: dict[str, dict[str, Any]] = {}
+            for row in prefetched_step_runs:
+                step_name = row.get("step_name")
+                if step_name in maintenance_steps and step_name not in latest_by_name:
+                    latest_by_name[step_name] = row
+            if not latest_by_name:
+                return None
+            last_finished_at = max(
+                (
+                    row.get("finished_at") or row.get("started_at")
+                    for row in latest_by_name.values()
+                    if (row.get("finished_at") or row.get("started_at")) is not None
+                ),
+                default=None,
+            )
+            if latest_by_name.get("tax_assignment_refresh", {}).get("status") == "failed":
+                return {
+                    "status": "failed",
+                    "failed_step_name": "tax_assignment_refresh",
+                    "last_finished_at": last_finished_at,
+                }
+            if latest_by_name.get("search_refresh", {}).get("status") == "failed":
+                return {
+                    "status": "failed",
+                    "failed_step_name": "search_refresh",
+                    "last_finished_at": last_finished_at,
+                }
+            if any(
+                row.get("status") == "running"
+                for row in latest_by_name.values()
+            ):
+                return {
+                    "status": "running",
+                    "failed_step_name": None,
+                    "last_finished_at": last_finished_at,
+                }
+            if (
+                latest_by_name.get("tax_assignment_refresh", {}).get("status") == "succeeded"
+                and latest_by_name.get("search_refresh", {}).get("status") == "succeeded"
+            ):
+                return {
+                    "status": "succeeded",
+                    "failed_step_name": None,
+                    "last_finished_at": last_finished_at,
+                }
+            return {
+                "status": "pending",
+                "failed_step_name": None,
+                "last_finished_at": last_finished_at,
+            }
+
+        if connection is None:
+            return None
+        repository = IngestionRepository(connection)
+        summary = repository.summarize_post_commit_maintenance(import_batch_id=import_batch_id)
+        if summary.status == "not_applicable":
+            return None
+        return {
+            "status": summary.status,
+            "failed_step_name": summary.failed_step_name,
+            "last_finished_at": summary.last_finished_at,
+        }

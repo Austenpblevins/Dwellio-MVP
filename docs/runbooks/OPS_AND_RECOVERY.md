@@ -133,12 +133,14 @@ python3 -m app.jobs.cli job_rollback_publish --county-id harris --tax-year 2026 
 
 Admin rollback path:
 - `POST /admin/ops/import-batches/{import_batch_id}/rollback`
+- `POST /admin/ops/import-batches/{import_batch_id}/retry-maintenance`
 
 Recovery rules:
 - use rollback only for publish-state ingestion corrections
 - do not edit ordered migrations after they have been applied
 - rebuild search and quote-safe surfaces after corrected data is republished
 - if a bulk property-roll publish reaches canonical publish and then fails during post-commit maintenance, treat the batch as canonically published and inspect admin import-batch detail for failed `step_runs` before rerunning anything
+- if canonical publish already succeeded, prefer the maintenance retry action before rerunning the whole property-roll pipeline
 
 Post-rollback recovery:
 

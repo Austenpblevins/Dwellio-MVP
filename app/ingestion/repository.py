@@ -70,6 +70,15 @@ class IngestionStepRunRecord:
     details_json: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PostCommitMaintenanceSummary:
+    status: str
+    failed_step_name: str | None = None
+    error_message: str | None = None
+    last_finished_at: datetime | None = None
+    retryable: bool = False
+
+
 STAGING_TABLES: dict[str, tuple[str, str]] = {
     "property_roll": ("stg_county_property_raw", "stg_county_property_raw_id"),
     "tax_rates": ("stg_county_tax_rates_raw", "stg_county_tax_rates_raw_id"),
@@ -312,7 +321,28 @@ class IngestionRepository:
                         Jsonb(metadata_json),
                         job_run_id,
                     ),
-                )
+                    )
+
+    def fetch_import_batch_lifecycle_state(self, *, import_batch_id: str) -> dict[str, Any] | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  import_batch_id,
+                  county_id,
+                  tax_year,
+                  dataset_type,
+                  status,
+                  status_reason,
+                  publish_state,
+                  publish_version,
+                  source_system_id
+                FROM import_batches
+                WHERE import_batch_id = %s
+                """,
+                (import_batch_id,),
+            )
+            return cursor.fetchone()
 
     def create_ingestion_step_run(
         self,
@@ -442,6 +472,118 @@ class IngestionRepository:
             )
             for row in rows
         ]
+
+    def fetch_latest_ingestion_step_runs(
+        self,
+        *,
+        import_batch_id: str,
+        step_names: list[str] | None = None,
+    ) -> list[IngestionStepRunRecord]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT ON (step_name)
+                  step_run_id,
+                  import_batch_id,
+                  job_run_id,
+                  step_name,
+                  status,
+                  attempt_number,
+                  retry_of_step_run_id,
+                  started_at,
+                  finished_at,
+                  row_count,
+                  error_message,
+                  details_json
+                FROM ingestion_step_runs
+                WHERE import_batch_id = %s
+                  AND (
+                    %s::text[] IS NULL
+                    OR step_name = ANY(%s::text[])
+                  )
+                ORDER BY step_name, started_at DESC, step_run_id DESC
+                """,
+                (import_batch_id, step_names, step_names),
+            )
+            rows = cursor.fetchall()
+        return [
+            IngestionStepRunRecord(
+                step_run_id=str(row["step_run_id"]),
+                import_batch_id=str(row["import_batch_id"]),
+                job_run_id=None if row["job_run_id"] is None else str(row["job_run_id"]),
+                step_name=row["step_name"],
+                status=row["status"],
+                attempt_number=int(row["attempt_number"]),
+                retry_of_step_run_id=(
+                    None
+                    if row["retry_of_step_run_id"] is None
+                    else str(row["retry_of_step_run_id"])
+                ),
+                started_at=row.get("started_at"),
+                finished_at=row.get("finished_at"),
+                row_count=row.get("row_count"),
+                error_message=row.get("error_message"),
+                details_json=dict(row.get("details_json") or {}),
+            )
+            for row in rows
+        ]
+
+    def summarize_post_commit_maintenance(
+        self,
+        *,
+        import_batch_id: str,
+    ) -> PostCommitMaintenanceSummary:
+        step_order = ("tax_assignment_refresh", "search_refresh")
+        latest_runs = {
+            run.step_name: run
+            for run in self.fetch_latest_ingestion_step_runs(
+                import_batch_id=import_batch_id,
+                step_names=list(step_order),
+            )
+        }
+        if not latest_runs:
+            return PostCommitMaintenanceSummary(status="not_applicable")
+
+        last_finished_at = max(
+            (
+                run.finished_at or run.started_at
+                for run in latest_runs.values()
+                if (run.finished_at or run.started_at) is not None
+            ),
+            default=None,
+        )
+        for step_name in step_order:
+            run = latest_runs.get(step_name)
+            if run is not None and run.status == "failed":
+                return PostCommitMaintenanceSummary(
+                    status="failed",
+                    failed_step_name=step_name,
+                    error_message=run.error_message,
+                    last_finished_at=last_finished_at,
+                    retryable=True,
+                )
+        for step_name in step_order:
+            run = latest_runs.get(step_name)
+            if run is not None and run.status == "running":
+                return PostCommitMaintenanceSummary(
+                    status="running",
+                    failed_step_name=step_name,
+                    last_finished_at=last_finished_at,
+                )
+        if all(
+            latest_runs.get(step_name) is not None
+            and latest_runs[step_name].status == "succeeded"
+            for step_name in step_order
+        ):
+            return PostCommitMaintenanceSummary(
+                status="succeeded",
+                last_finished_at=last_finished_at,
+            )
+        return PostCommitMaintenanceSummary(
+            status="pending",
+            last_finished_at=last_finished_at,
+            retryable=True,
+        )
 
     def update_import_batch(
         self,

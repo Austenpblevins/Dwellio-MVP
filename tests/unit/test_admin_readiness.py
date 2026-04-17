@@ -213,6 +213,8 @@ class StubOperationalMetricsProvider:
                 freshness_status="fresh",
                 freshness_sla_days=30,
                 freshness_age_days=7,
+                maintenance_status="failed",
+                maintenance_failed_step_name="search_refresh",
             )
         if tax_year == 2025 and dataset_type == "deeds":
             return DatasetOperationalMetrics(
@@ -256,6 +258,9 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
     assert row.trend_delta == 10
     assert "manual_backfill_required" in row.blockers
     assert "instant_quote_public_support_thin" in row.blockers
+    assert row.datasets[0].maintenance_status == "failed"
+    assert row.datasets[0].maintenance_failed_step_name == "search_refresh"
+    assert "property_roll_maintenance_failed" in row.operational.alerts
     assert row.derived.instant_quote_asset_ready is True
     assert row.derived.instant_quote_tax_rate_basis_year == 2024
     assert row.derived.instant_quote_tax_rate_basis_fallback_applied is True

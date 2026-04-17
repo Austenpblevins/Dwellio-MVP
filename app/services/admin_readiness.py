@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.db.connection import get_connection
+from app.ingestion.repository import IngestionRepository
 from app.models.admin import (
     AdminCountyYearDatasetReadiness,
     AdminCountyYearDerivedReadiness,
@@ -29,6 +30,9 @@ class DatasetOperationalMetrics:
     stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression: bool = False
+    maintenance_status: str | None = None
+    maintenance_failed_step_name: str | None = None
+    maintenance_last_finished_at: datetime | None = None
 
 
 class AdminOperationalMetricsProvider:
@@ -75,6 +79,14 @@ class AdminOperationalMetricsProvider:
             freshness_age_days=freshness_age_days,
             freshness_sla_days=freshness_sla_days,
         )
+        maintenance_status, maintenance_failed_step_name, maintenance_last_finished_at = (
+            self._latest_maintenance_status(
+                connection,
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+            )
+        )
         return DatasetOperationalMetrics(
             latest_activity_at=latest_activity_at,
             freshness_status=freshness_status,
@@ -84,6 +96,9 @@ class AdminOperationalMetricsProvider:
             stale_running_job_count=stale_running_job_count,
             validation_error_count=validation_error_count,
             validation_regression=validation_regression,
+            maintenance_status=maintenance_status,
+            maintenance_failed_step_name=maintenance_failed_step_name,
+            maintenance_last_finished_at=maintenance_last_finished_at,
         )
 
     def _latest_activity_at(
@@ -226,6 +241,39 @@ class AdminOperationalMetricsProvider:
             )
             row = cursor.fetchone()
         return int(row["count"] if row is not None else 0)
+
+    def _latest_maintenance_status(
+        self,
+        connection: object,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+    ) -> tuple[str | None, str | None, datetime | None]:
+        if dataset_type != "property_roll":
+            return None, None, None
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT import_batch_id, publish_state
+                FROM import_batches
+                WHERE county_id = %s
+                  AND tax_year = %s
+                  AND dataset_type = %s
+                ORDER BY created_at DESC, import_batch_id DESC
+                LIMIT 1
+                """,
+                (county_id, tax_year, dataset_type),
+            )
+            row = cursor.fetchone()
+        if row is None or row["publish_state"] != "published":
+            return None, None, None
+        summary = IngestionRepository(connection).summarize_post_commit_maintenance(
+            import_batch_id=str(row["import_batch_id"])
+        )
+        if summary.status == "not_applicable":
+            return None, None, None
+        return summary.status, summary.failed_step_name, summary.last_finished_at
 
     def _freshness_sla_days(self, *, tax_year: int) -> int:
         current_year = self._now_fn().year
@@ -600,6 +648,10 @@ class AdminReadinessService:
             blockers.append("stale_running_jobs")
         if metrics.validation_regression:
             blockers.append("validation_regression")
+        if metrics.maintenance_status == "failed":
+            blockers.append("maintenance_retry_required")
+        if metrics.maintenance_status in {"pending", "running"}:
+            blockers.append("post_commit_maintenance_incomplete")
 
         return AdminCountyYearDatasetReadiness(
             dataset_type=dataset.dataset_type,
@@ -621,6 +673,9 @@ class AdminReadinessService:
             stale_running_job_count=metrics.stale_running_job_count,
             validation_error_count=metrics.validation_error_count,
             validation_regression=metrics.validation_regression,
+            maintenance_status=metrics.maintenance_status,
+            maintenance_failed_step_name=metrics.maintenance_failed_step_name,
+            maintenance_last_finished_at=metrics.maintenance_last_finished_at,
         )
 
     def _dataset_stage_status(self, dataset: DatasetYearReadiness) -> str:
@@ -788,6 +843,10 @@ class AdminReadinessService:
                 alerts.append(f"{dataset.dataset_type}_validation_errors")
             if dataset.validation_regression:
                 alerts.append(f"{dataset.dataset_type}_validation_regression")
+            if dataset.maintenance_status == "failed":
+                alerts.append(f"{dataset.dataset_type}_maintenance_failed")
+            if dataset.maintenance_status in {"pending", "running"}:
+                alerts.append(f"{dataset.dataset_type}_maintenance_incomplete")
         if not readiness.derived.parcel_summary_ready:
             alerts.append("parcel_summary_not_ready")
         if not readiness.derived.search_support_ready:

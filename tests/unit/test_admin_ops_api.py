@@ -64,15 +64,17 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
                     source_filename="harris_2025_property_roll.csv",
                     file_format="csv",
                     status="normalized",
-                    status_reason="published_to_canonical: property_roll publish succeeded.",
-                    publish_state="published",
-                    publish_version="v1",
-                    row_count=123,
-                    error_count=0,
-                    raw_file_count=1,
-                    validation_result_count=3,
-                    validation_error_count=0,
-                )
+                status_reason="published_to_canonical: property_roll publish succeeded.",
+                publish_state="published",
+                publish_version="v1",
+                row_count=123,
+                error_count=0,
+                maintenance_status="failed",
+                maintenance_failed_step_name="search_refresh",
+                raw_file_count=1,
+                validation_result_count=3,
+                validation_error_count=0,
+            )
             ],
         )
 
@@ -91,6 +93,7 @@ def test_admin_ops_import_batches_route_returns_internal_payload(monkeypatch) ->
     assert payload["batches"][0]["dataset_type"] == "property_roll"
     assert payload["batches"][0]["publish_state"] == "published"
     assert payload["batches"][0]["status_reason"] == "published_to_canonical: property_roll publish succeeded."
+    assert payload["batches"][0]["maintenance_status"] == "failed"
 
 
 def test_admin_manual_register_route_uses_existing_backfill_path(monkeypatch) -> None:
@@ -144,6 +147,8 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
                 source_system_code="HCAD_BULK",
                 status="normalized",
                 publish_state="published",
+                maintenance_status="failed",
+                maintenance_failed_step_name="search_refresh",
                 raw_file_count=1,
                 validation_result_count=1,
                 validation_error_count=0,
@@ -179,6 +184,7 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
             actions=AdminImportBatchActions(
                 can_publish=False,
                 can_rollback=True,
+                can_retry_maintenance=True,
                 manual_fallback_supported=True,
             ),
         )
@@ -195,6 +201,7 @@ def test_admin_import_batch_detail_route_returns_step_runs(monkeypatch) -> None:
     payload = response.json()
     assert payload["step_runs"][0]["step_name"] == "search_refresh"
     assert payload["step_runs"][0]["status"] == "failed"
+    assert payload["actions"]["can_retry_maintenance"] is True
 
 
 def test_admin_publish_route_returns_mutation_result(monkeypatch) -> None:
@@ -227,3 +234,35 @@ def test_admin_publish_route_returns_mutation_result(monkeypatch) -> None:
     payload = response.json()
     assert payload["action"] == "publish_import_batch"
     assert payload["job_run_id"] == "job-1"
+
+
+def test_admin_retry_maintenance_route_returns_mutation_result(monkeypatch) -> None:
+    def stub_retry(import_batch_id: str, request) -> AdminMutationResult:
+        assert import_batch_id == "batch-4"
+        assert request.county_id == "harris"
+        assert request.tax_year == 2026
+        assert request.dataset_type == "property_roll"
+        return AdminMutationResult(
+            action="retry_post_commit_maintenance",
+            county_id=request.county_id,
+            tax_year=request.tax_year,
+            dataset_type=request.dataset_type,
+            import_batch_id=import_batch_id,
+            job_run_id="job-2",
+            publish_version="publish-v3",
+            message="Retried post-commit maintenance for the selected import batch.",
+        )
+
+    monkeypatch.setattr("app.api.routes.admin.post_retry_import_batch_maintenance", stub_retry)
+
+    client = TestClient(app)
+    response = client.post(
+        "/admin/ops/import-batches/batch-4/retry-maintenance",
+        json={"county_id": "harris", "tax_year": 2026, "dataset_type": "property_roll"},
+        headers={"x-dwellio-admin-token": "dev-admin-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action"] == "retry_post_commit_maintenance"
+    assert payload["job_run_id"] == "job-2"

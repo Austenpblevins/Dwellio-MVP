@@ -15,6 +15,7 @@ from app.api.admin import (
     get_validation_results,
     post_manual_import_register,
     post_publish_import_batch,
+    post_retry_import_batch_maintenance,
     post_rollback_import_batch,
 )
 from app.api.cases import (
@@ -192,6 +193,17 @@ def rollback_import_batch_endpoint(
     request: AdminImportBatchActionRequest,
 ) -> AdminMutationResult:
     return post_rollback_import_batch(import_batch_id, request)
+
+
+@router.post(
+    "/admin/ops/import-batches/{import_batch_id}/retry-maintenance",
+    response_model=AdminMutationResult,
+)
+def retry_import_batch_maintenance_endpoint(
+    import_batch_id: str,
+    request: AdminImportBatchActionRequest,
+) -> AdminMutationResult:
+    return post_retry_import_batch_maintenance(import_batch_id, request)
 
 
 @router.get(

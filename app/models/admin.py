@@ -27,6 +27,9 @@ class AdminCountyYearDatasetReadiness(DwellioBaseModel):
     stale_running_job_count: int = 0
     validation_error_count: int = 0
     validation_regression: bool = False
+    maintenance_status: str | None = None
+    maintenance_failed_step_name: str | None = None
+    maintenance_last_finished_at: datetime | None = None
 
 
 class AdminCountyYearDerivedReadiness(DwellioBaseModel):
@@ -235,6 +238,9 @@ class AdminImportBatchSummary(DwellioBaseModel):
     latest_job_started_at: datetime | None = None
     latest_job_finished_at: datetime | None = None
     latest_job_error_message: str | None = None
+    maintenance_status: str | None = None
+    maintenance_failed_step_name: str | None = None
+    maintenance_last_finished_at: datetime | None = None
     created_at: datetime | None = None
 
 
@@ -345,6 +351,7 @@ class AdminImportBatchInspection(DwellioBaseModel):
 class AdminImportBatchActions(DwellioBaseModel):
     can_publish: bool
     can_rollback: bool
+    can_retry_maintenance: bool = False
     manual_fallback_supported: bool
     manual_fallback_message: str | None = None
 

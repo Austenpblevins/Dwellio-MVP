@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 PROPERTY_ROLL_NORMALIZE_CHUNK_SIZE = 2000
 PROPERTY_ROLL_BULK_NORMALIZE_CHUNK_SIZE = 50000
 PROPERTY_ROLL_DEFER_DERIVED_REFRESH_THRESHOLD = 50_000
+POST_COMMIT_MAINTENANCE_STEP_ORDER = ("tax_assignment_refresh", "search_refresh")
 
 
 @dataclass(frozen=True)
@@ -1434,6 +1435,249 @@ class IngestionLifecycleService:
                 },
             )
 
+    def retry_post_commit_maintenance(
+        self,
+        *,
+        county_id: str,
+        tax_year: int,
+        dataset_type: str,
+        import_batch_id: str | None = None,
+    ) -> PipelineStepResult:
+        self._require_existing_batch_id(
+            "job_retry_post_commit_maintenance",
+            import_batch_id=import_batch_id,
+        )
+        if dataset_type != "property_roll":
+            raise ValueError("Post-commit maintenance retry is only supported for property_roll.")
+
+        with get_connection() as connection:
+            repository = IngestionRepository(connection)
+            batch = repository.find_import_batch(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                import_batch_id=import_batch_id,
+            )
+            batch_state = repository.fetch_import_batch_lifecycle_state(
+                import_batch_id=batch.import_batch_id
+            )
+            if batch_state is None:
+                raise ValueError(f"Missing import batch {batch.import_batch_id}.")
+            if batch_state["publish_state"] != "published":
+                raise ValueError(
+                    "Post-commit maintenance retry requires a canonically published import batch."
+                )
+
+            maintenance_summary = repository.summarize_post_commit_maintenance(
+                import_batch_id=batch.import_batch_id
+            )
+            if maintenance_summary.status == "not_applicable":
+                raise ValueError("No post-commit maintenance is recorded for this import batch.")
+
+            latest_step_runs = {
+                run.step_name: run
+                for run in repository.fetch_latest_ingestion_step_runs(
+                    import_batch_id=batch.import_batch_id,
+                    step_names=list(POST_COMMIT_MAINTENANCE_STEP_ORDER),
+                )
+            }
+            steps_to_retry = self._determine_post_commit_retry_steps(latest_step_runs)
+            if not steps_to_retry:
+                return PipelineStepResult(
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    dataset_type=dataset_type,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    job_run_id="",
+                    row_count=0,
+                    publish_version=batch_state.get("publish_version"),
+                    status="succeeded",
+                    message="Post-commit maintenance is already complete for this import batch.",
+                )
+
+            job_run_id = repository.create_job_run(
+                county_id=county_id,
+                tax_year=tax_year,
+                job_name="job_normalize",
+                job_stage="maintenance_retry",
+                import_batch_id=batch.import_batch_id,
+                raw_file_id=batch.raw_file_id,
+                dry_run_flag=False,
+                metadata_json={
+                    "dataset_type": dataset_type,
+                    "maintenance_retry": True,
+                    "retry_steps": steps_to_retry,
+                },
+            )
+
+            created_step_run_ids: dict[str, str | None] = {}
+            for step_name in steps_to_retry:
+                prior_run = latest_step_runs.get(step_name)
+                created_step_run_ids[step_name] = (
+                    repository.create_ingestion_step_run(
+                        import_batch_id=batch.import_batch_id,
+                        job_run_id=job_run_id,
+                        step_name=step_name,
+                        attempt_number=(
+                            1 if prior_run is None else int(prior_run.attempt_number) + 1
+                        ),
+                        retry_of_step_run_id=(
+                            None if prior_run is None else prior_run.step_run_id
+                        ),
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_retry": True,
+                        },
+                    )
+                    if hasattr(repository, "create_ingestion_step_run")
+                    else None
+                )
+            self._finalize_connection(connection, dry_run=False)
+
+        completed_steps: list[str] = []
+        active_step_name = steps_to_retry[0]
+        try:
+            with get_connection() as retry_connection:
+                retry_repository = IngestionRepository(retry_connection)
+                for step_name in steps_to_retry:
+                    active_step_name = step_name
+                    if step_name == "tax_assignment_refresh":
+                        self._refresh_tax_assignments(
+                            repository=retry_repository,
+                            county_id=county_id,
+                            tax_year=tax_year,
+                            import_batch_id=batch.import_batch_id,
+                            job_run_id=job_run_id,
+                            source_system_id=batch.source_system_id,
+                            force=False,
+                        )
+                    elif step_name == "search_refresh":
+                        self._refresh_search_documents(
+                            repository=retry_repository,
+                            county_id=county_id,
+                            tax_year=tax_year,
+                        )
+                    self._complete_step_run(
+                        retry_repository,
+                        created_step_run_ids.get(step_name),
+                        status="succeeded",
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_retry": True,
+                            "maintenance_step": step_name,
+                        },
+                    )
+                    completed_steps.append(step_name)
+
+                retry_repository.insert_validation_results(
+                    job_run_id=job_run_id,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=[
+                        {
+                            "validation_code": "POST_COMMIT_MAINTENANCE_RETRY_OK",
+                            "message": "Retried post-commit maintenance successfully.",
+                            "severity": "info",
+                            "validation_scope": "publish",
+                            "entity_table": "search_documents",
+                            "details_json": {
+                                "dataset_type": dataset_type,
+                                "retry_steps": steps_to_retry,
+                            },
+                        }
+                    ],
+                )
+                retry_repository.complete_job_run(
+                    job_run_id,
+                    status="succeeded",
+                    row_count=len(completed_steps),
+                    publish_version=batch_state.get("publish_version"),
+                    metadata_json={
+                        "dataset_type": dataset_type,
+                        "maintenance_retry": True,
+                        "retry_steps": steps_to_retry,
+                        "completed_steps": completed_steps,
+                    },
+                )
+                self._finalize_connection(retry_connection, dry_run=False)
+            return PipelineStepResult(
+                county_id=county_id,
+                tax_year=tax_year,
+                dataset_type=dataset_type,
+                import_batch_id=batch.import_batch_id,
+                raw_file_id=batch.raw_file_id,
+                job_run_id=job_run_id,
+                row_count=len(completed_steps),
+                publish_version=batch_state.get("publish_version"),
+                status="succeeded",
+                message="Retried post-commit maintenance for the selected import batch.",
+            )
+        except Exception as exc:
+            with get_connection() as error_connection:
+                error_repository = IngestionRepository(error_connection)
+                if active_step_name == "search_refresh":
+                    self._complete_step_run(
+                        error_repository,
+                        created_step_run_ids.get("tax_assignment_refresh"),
+                        status="succeeded",
+                        details_json={
+                            "dataset_type": dataset_type,
+                            "maintenance_retry": True,
+                            "maintenance_step": "tax_assignment_refresh",
+                        },
+                    )
+                self._complete_step_run(
+                    error_repository,
+                    created_step_run_ids.get(active_step_name),
+                    status="failed",
+                    error_message=str(exc),
+                    details_json={
+                        "dataset_type": dataset_type,
+                        "maintenance_retry": True,
+                        "maintenance_step": active_step_name,
+                    },
+                )
+                error_repository.insert_validation_results(
+                    job_run_id=job_run_id,
+                    import_batch_id=batch.import_batch_id,
+                    raw_file_id=batch.raw_file_id,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                    findings=[
+                        {
+                            "validation_code": "POST_COMMIT_MAINTENANCE_RETRY_FAILED",
+                            "message": "Retried post-commit maintenance but a maintenance step failed.",
+                            "severity": "error",
+                            "validation_scope": "publish",
+                            "entity_table": "search_documents",
+                            "details_json": {
+                                "dataset_type": dataset_type,
+                                "retry_steps": steps_to_retry,
+                                "failed_step_name": active_step_name,
+                                "error_message": str(exc),
+                            },
+                        }
+                    ],
+                )
+                error_repository.complete_job_run(
+                    job_run_id,
+                    status="failed",
+                    row_count=len(completed_steps),
+                    error_message=str(exc),
+                    publish_version=batch_state.get("publish_version"),
+                    metadata_json={
+                        "dataset_type": dataset_type,
+                        "maintenance_retry": True,
+                        "retry_steps": steps_to_retry,
+                        "completed_steps": completed_steps,
+                    },
+                )
+                self._finalize_connection(error_connection, dry_run=False)
+            raise
+
     def run_dataset_lifecycle(
         self,
         *,
@@ -2047,3 +2291,15 @@ class IngestionLifecycleService:
             county_id=county_id,
             tax_year=tax_year,
         )
+
+    def _determine_post_commit_retry_steps(
+        self,
+        latest_step_runs: dict[str, Any],
+    ) -> list[str]:
+        tax_step = latest_step_runs.get("tax_assignment_refresh")
+        search_step = latest_step_runs.get("search_refresh")
+        if tax_step is None or tax_step.status in {"failed", "running"}:
+            return ["tax_assignment_refresh", "search_refresh"]
+        if search_step is None or search_step.status in {"failed", "running"}:
+            return ["search_refresh"]
+        return []
