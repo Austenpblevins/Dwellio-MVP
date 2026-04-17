@@ -1187,6 +1187,74 @@ def test_build_publish_control_findings_blocks_total_exemption_collapse() -> Non
     )
 
 
+def test_build_publish_control_findings_warns_on_partial_exemption_drop() -> None:
+    service = IngestionLifecycleService()
+
+    class StubRepository:
+        def summarize_property_roll_exemption_collapse(self, **kwargs) -> dict[str, int]:
+            return {
+                "affected_account_count": 20,
+                "existing_exemption_account_count": 20,
+                "normalized_exemption_account_count": 12,
+            }
+
+    findings = service._build_publish_control_findings(
+        repository=StubRepository(),  # type: ignore[arg-type]
+        county_id="fort_bend",
+        dataset_type="property_roll",
+        tax_year=2025,
+        normalized_records=[
+            {"parcel": {"account_number": str(i)}, "exemptions": [{"code": "HS"}]}
+            for i in range(12)
+        ],
+        rollback_manifest={"entries": [{"account_number": str(i)} for i in range(20)]},
+    )
+
+    warning = next(
+        finding
+        for finding in findings
+        if finding["validation_code"] == "PUBLISH_WARNING_EXEMPTION_DROP"
+    )
+    assert warning["severity"] == "warning"
+    assert warning["details_json"]["dropped_account_count"] == 8
+
+
+def test_persist_nonblocking_publish_control_findings_records_warnings_only() -> None:
+    service = IngestionLifecycleService()
+    inserted: list[dict[str, object]] = []
+
+    class StubRepository:
+        def insert_validation_results(self, **kwargs) -> None:
+            inserted.append(kwargs)
+
+    service._persist_nonblocking_publish_control_findings(
+        repository=StubRepository(),  # type: ignore[arg-type]
+        job_run_id="job-1",
+        batch=ImportBatchRecord(
+            import_batch_id="batch-1",
+            raw_file_id="raw-1",
+            source_system_id="source-1",
+            storage_path="harris/2025/property_roll/example.json",
+            original_filename="file.json",
+            file_kind="property_roll",
+            mime_type="application/json",
+            file_format="json",
+        ),
+        county_id="harris",
+        tax_year=2025,
+        findings=[
+            {"validation_code": "PUBLISH_CONTROLS_OK", "severity": "info"},
+            {"validation_code": "PUBLISH_WARNING_EXEMPTION_DROP", "severity": "warning"},
+            {"validation_code": "PUBLISH_BLOCKED_EXEMPTION_COLLAPSE", "severity": "error"},
+        ],
+    )
+
+    assert len(inserted) == 1
+    assert inserted[0]["findings"] == [
+        {"validation_code": "PUBLISH_WARNING_EXEMPTION_DROP", "severity": "warning"}
+    ]
+
+
 def test_mutation_jobs_require_import_batch_id() -> None:
     with pytest.raises(ValueError, match="job_load_staging requires import_batch_id"):
         job_load_staging.run(county_id="harris", tax_year=2025, dataset_type="property_roll")

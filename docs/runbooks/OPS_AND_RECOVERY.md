@@ -141,6 +141,7 @@ Recovery rules:
 - rebuild search and quote-safe surfaces after corrected data is republished
 - if a bulk property-roll publish reaches canonical publish and then fails during post-commit maintenance, treat the batch as canonically published and inspect admin import-batch detail for failed `step_runs` before rerunning anything
 - if canonical publish already succeeded, prefer the maintenance retry action before rerunning the whole property-roll pipeline
+- review publish-control warnings such as `PUBLISH_WARNING_EXEMPTION_DROP` before promoting a replayed property-roll batch; warnings are intentionally nonblocking but should be treated as operator review gates
 
 Post-rollback recovery:
 
