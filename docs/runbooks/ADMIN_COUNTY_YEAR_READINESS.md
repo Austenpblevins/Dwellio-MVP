@@ -96,6 +96,8 @@ python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years
 
 The KPI report now includes the county capability matrix so machine-readable reviews can distinguish source limitations from ingestion regressions without opening the admin page.
 
+The lower-level readiness/backfill planning report also includes the same capability matrix context so operators can compare county-year readiness against known source support before assuming a missing dataset signal is a defect.
+
 Ingestion-to-searchable smoke verification:
 
 ```bash
