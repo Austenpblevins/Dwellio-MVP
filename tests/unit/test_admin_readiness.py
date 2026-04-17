@@ -252,6 +252,12 @@ def test_admin_readiness_uses_prior_year_support_for_trend() -> None:
 
     assert dashboard.access_scope == "internal"
     assert dashboard.tax_years == [2025]
+    capability_statuses = {
+        capability.capability_code: capability.status for capability in dashboard.capabilities
+    }
+    assert capability_statuses["parcel_level_homestead"] == "supported"
+    assert capability_statuses["parcel_level_over65"] == "limited"
+    assert capability_statuses["search_refresh_runtime"] == "heavy"
     row = dashboard.readiness_rows[0]
     assert row.overall_status == "derived_ready"
     assert row.trend_label == "improving"

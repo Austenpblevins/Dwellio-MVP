@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from app.ingestion.source_registry import list_county_capability_entries
 from app.services.data_readiness import DataReadinessService
 
 
@@ -15,13 +16,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def build_payload(*, county_id: str, tax_years: list[int]) -> list[dict[str, object]]:
     service = DataReadinessService()
     payload = []
-    for tax_year in args.tax_years:
+    capabilities = [
+        {
+            "capability_code": capability.capability_code,
+            "label": capability.label,
+            "status": capability.status,
+            "source_datasets": capability.source_datasets,
+            "notes": capability.notes,
+            "metadata": capability.metadata,
+        }
+        for capability in list_county_capability_entries(county_id)
+    ]
+    for tax_year in tax_years:
         readiness = service.build_tax_year_readiness(
-            county_id=args.county_id,
+            county_id=county_id,
             tax_year=tax_year,
         )
         payload.append(
@@ -29,6 +40,7 @@ def main() -> None:
                 "county_id": readiness.county_id,
                 "tax_year": readiness.tax_year,
                 "tax_year_known": readiness.tax_year_known,
+                "capabilities": capabilities,
                 "datasets": [
                     {
                         "dataset_type": item.dataset_type,
@@ -75,6 +87,12 @@ def main() -> None:
                 },
             }
         )
+    return payload
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    payload = build_payload(county_id=args.county_id, tax_years=args.tax_years)
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 

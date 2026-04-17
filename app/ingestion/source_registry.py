@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.county_adapters.common.config_loader import (
     CountyAdapterConfig,
+    CountyCapabilityConfig,
     CountyDatasetConfig,
     load_county_adapter_config,
     resolve_dataset_year_support,
@@ -39,6 +41,17 @@ class SourceRegistryEntry:
     availability_notes: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class CountyCapabilityEntry:
+    county_id: str
+    capability_code: str
+    label: str
+    status: str
+    source_datasets: list[str] = field(default_factory=list)
+    notes: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 def get_source_registry_entry(
     *, county_id: str, dataset_type: str, tax_year: int | None = None
 ) -> SourceRegistryEntry:
@@ -47,6 +60,14 @@ def get_source_registry_entry(
     if dataset_config is None:
         raise ValueError(f"Missing dataset config for {county_id}/{dataset_type}.")
     return _build_entry(config=config, dataset_config=dataset_config, tax_year=tax_year)
+
+
+def get_county_capability_entry(*, county_id: str, capability_code: str) -> CountyCapabilityEntry:
+    config = load_county_adapter_config(county_id)
+    capability = config.capability_matrix.get(capability_code)
+    if capability is None:
+        raise ValueError(f"Missing capability config for {county_id}/{capability_code}.")
+    return _build_capability_entry(config=config, capability=capability)
 
 
 def list_source_registry_entries(
@@ -62,6 +83,16 @@ def list_source_registry_entries(
             entries.append(
                 _build_entry(config=config, dataset_config=dataset_config, tax_year=tax_year)
             )
+    return entries
+
+
+def list_county_capability_entries(county_id: str | None = None) -> list[CountyCapabilityEntry]:
+    county_ids = (county_id,) if county_id is not None else SUPPORTED_COUNTIES
+    entries: list[CountyCapabilityEntry] = []
+    for current_county_id in county_ids:
+        config = load_county_adapter_config(current_county_id)
+        for capability in config.capability_matrix.values():
+            entries.append(_build_capability_entry(config=config, capability=capability))
     return entries
 
 
@@ -114,4 +145,20 @@ def _build_entry(
         availability_notes=(
             list(year_support.availability_notes) if year_support is not None else []
         ),
+    )
+
+
+def _build_capability_entry(
+    *,
+    config: CountyAdapterConfig,
+    capability: CountyCapabilityConfig,
+) -> CountyCapabilityEntry:
+    return CountyCapabilityEntry(
+        county_id=config.county_id,
+        capability_code=capability.capability_code,
+        label=capability.label,
+        status=capability.status,
+        source_datasets=list(capability.source_datasets),
+        notes=capability.notes,
+        metadata=dict(capability.metadata),
     )

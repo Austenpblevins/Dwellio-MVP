@@ -12,6 +12,7 @@ For each county-year, the admin readiness API and page distinguish:
 
 - tax year seeded in `tax_years`
 - dataset availability expectations from county adapter config
+- county capability expectations from county adapter capability matrix
 - source data acquired as raw files
 - canonical publish progress from import batches
 - operational freshness and validation regression signals
@@ -34,6 +35,7 @@ This route is internal/admin-facing by contract. It exposes blockers and readine
 - `/admin/readiness?county=harris&years=2026,2025,2024`
 
 The page uses the internal readiness API and is intended for operator review.
+It can also surface the county capability matrix so operator expectations stay aligned with what each county source truly supports today.
 
 If the API is not reachable, set:
 
@@ -79,9 +81,10 @@ Derived/downstream blocker examples:
 
 1. Prefer a fuller prior year such as `2025` when `2026` is still sparse.
 2. Review dataset-level blockers first.
-3. Confirm `parcel_summary_view` and `search_documents` are ready before deeper QA.
-4. Treat feature/comp/quote readiness as downstream signals, not guarantees that public quote behavior is complete.
-5. Use the operational KPI section to decide whether the year is alertable even when canonical publish technically succeeded.
+3. Use the county capability matrix in the county adapter config to sanity-check whether a missing signal is truly expected, limited, or unsupported before treating it as a code bug.
+4. Confirm `parcel_summary_view` and `search_documents` are ready before deeper QA.
+5. Treat feature/comp/quote readiness as downstream signals, not guarantees that public quote behavior is complete.
+6. Use the operational KPI section to decide whether the year is alertable even when canonical publish technically succeeded.
 
 ## Operator CLI helpers
 
@@ -91,11 +94,17 @@ Machine-readable readiness KPI report:
 python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years 2025 2024 2023
 ```
 
+The KPI report now includes the county capability matrix so machine-readable reviews can distinguish source limitations from ingestion regressions without opening the admin page.
+
+The lower-level readiness/backfill planning report also includes the same capability matrix context so operators can compare county-year readiness against known source support before assuming a missing dataset signal is a defect.
+
 Ingestion-to-searchable smoke verification:
 
 ```bash
 python3 -m infra.scripts.verify_ingestion_to_searchable --county-id harris --tax-year 2025
 ```
+
+The smoke verification payload also includes a lightweight county capability snapshot so searchable failures can be interpreted against current source support expectations.
 
 ## Intentional limitations
 

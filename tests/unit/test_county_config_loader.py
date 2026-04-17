@@ -15,6 +15,9 @@ def test_load_harris_county_adapter_config() -> None:
     assert config.dataset_configs["property_roll"].source_name == "Harris CAD Property Roll"
     assert config.dataset_configs["property_roll"].access_method == "fixture_json"
     assert config.dataset_configs["deeds"].source_system_code == "DEED_FEED"
+    assert config.capability_matrix["parcel_level_homestead"].status == "supported"
+    assert config.capability_matrix["parcel_level_over65"].status == "limited"
+    assert config.capability_matrix["search_refresh_runtime"].status == "heavy"
     assert config.field_mappings["property_roll"].sections["parcel"].mode == "object"
 
 
@@ -31,5 +34,8 @@ def test_load_fort_bend_county_adapter_config() -> None:
     assert config.dataset_configs["property_roll"].access_method == "fixture_csv"
     assert config.dataset_configs["tax_rates"].access_method == "fixture_csv"
     assert config.dataset_configs["deeds"].access_method == "fixture_csv"
+    assert config.capability_matrix["parcel_level_over65"].status == "supported"
+    assert config.capability_matrix["parcel_level_freeze_signal"].status == "limited"
+    assert config.capability_matrix["historical_backfill_execution"].status == "manual_only"
     assert "CSV-backed" in config.dataset_configs["property_roll"].transformation_notes[0]
     assert config.field_mappings["property_roll"].mapping_version == 1

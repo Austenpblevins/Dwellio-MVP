@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 from app.db.connection import get_connection
 from app.ingestion.repository import IngestionRepository
+from app.ingestion.source_registry import list_county_capability_entries
 from app.models.admin import (
+    AdminCountyCapability,
     AdminCountyYearDatasetReadiness,
     AdminCountyYearDerivedReadiness,
     AdminCountyYearOperationalReadiness,
@@ -357,6 +359,17 @@ class AdminReadinessService:
         return AdminCountyYearReadinessDashboard(
             county_id=county_id,
             tax_years=normalized_years,
+            capabilities=[
+                AdminCountyCapability(
+                    capability_code=entry.capability_code,
+                    label=entry.label,
+                    status=entry.status,
+                    source_datasets=list(entry.source_datasets),
+                    notes=entry.notes,
+                    metadata=dict(entry.metadata),
+                )
+                for entry in list_county_capability_entries(county_id)
+            ],
             readiness_rows=rows,
             kpi_summary=self._build_kpi_summary(rows),
         )

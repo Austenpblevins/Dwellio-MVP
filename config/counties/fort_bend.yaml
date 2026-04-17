@@ -7,6 +7,45 @@ datasets:
   - deeds
 parser_module: app.county_adapters.fort_bend.parse
 notes: Config-driven Fort Bend metadata and field mapping authority for the Stage 5 fixture-backed property_roll workflow.
+capabilities:
+  parcel_level_homestead:
+    label: Parcel-level homestead signal
+    status: supported
+    source_datasets:
+      - property_roll
+    notes: Homestead exemptions are available at parcel level in the current Fort Bend property-roll pipeline.
+  parcel_level_over65:
+    label: Parcel-level over65 signal
+    status: supported
+    source_datasets:
+      - property_roll
+    notes: Fort Bend parcel-level over65 support is present through the current exemption normalization flow.
+  parcel_level_freeze_signal:
+    label: Parcel-level freeze signal
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Freeze-related indicators exist in exemption rollups, but qualifying-exemption consistency still requires operator review.
+  tax_rate_unit_coverage:
+    label: Tax-rate unit coverage
+    status: supported
+    source_datasets:
+      - tax_rates
+    notes: Fort Bend tax-rate ingestion supports current unit/rate coverage and downstream assignment hints.
+  historical_backfill_execution:
+    label: Historical backfill execution
+    status: manual_only
+    source_datasets:
+      - property_roll
+      - tax_rates
+      - deeds
+    notes: Prior-year Fort Bend execution still depends on prep-validated manifests and county-provided files rather than fully live acquisition.
+  search_refresh_runtime:
+    label: Search refresh runtime
+    status: standard
+    source_datasets:
+      - property_roll
+    notes: Fort Bend search refresh is still a maintenance step, but it has not shown the same heavy runtime profile as Harris.
 metadata:
   cad_short_name: FBCAD
   source_mode: config_driven

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.admin import (
+    AdminCountyCapability,
     AdminCountyYearDatasetReadiness,
     AdminCountyYearDerivedReadiness,
     AdminCountyYearOperationalReadiness,
@@ -13,6 +14,9 @@ from app.models.admin import (
     AdminImportBatchSummary,
     AdminValidationResultsResponse,
 )
+from app.ingestion.source_registry import CountyCapabilityEntry
+from app.services.data_readiness import CountyTaxYearReadiness, DatasetYearReadiness, TaxYearDerivedReadiness
+from infra.scripts.report_data_readiness import build_payload as build_data_readiness_payload
 from infra.scripts.report_readiness_metrics import build_payload as build_metrics_payload
 from infra.scripts.verify_ingestion_to_searchable import build_payload as build_smoke_payload
 
@@ -21,6 +25,22 @@ def _dashboard() -> AdminCountyYearReadinessDashboard:
     return AdminCountyYearReadinessDashboard(
         county_id="harris",
         tax_years=[2025],
+        capabilities=[
+            AdminCountyCapability(
+                capability_code="parcel_level_homestead",
+                label="Parcel-level Homestead",
+                status="supported",
+                source_datasets=["property_roll"],
+                notes="Available from current county source.",
+            ),
+            AdminCountyCapability(
+                capability_code="search_refresh_runtime",
+                label="Search Refresh Runtime",
+                status="heavy",
+                source_datasets=["property_roll"],
+                notes="Harris refresh remains operationally heavy.",
+            ),
+        ],
         readiness_rows=[
             AdminCountyYearReadiness(
                 county_id="harris",
@@ -135,6 +155,8 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
     payload = build_metrics_payload(county_id="harris", tax_years=[2025])
 
     assert payload["county_id"] == "harris"
+    assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
+    assert payload["capabilities"][1]["status"] == "heavy"
     assert payload["kpi_summary"]["healthy_year_count"] == 1
     assert payload["readiness_rows"][0]["operational"]["quality_status"] == "healthy"
     assert payload["readiness_rows"][0]["derived_monitoring"]["instant_quote_supportable_row_rate"] == 0.75
@@ -190,6 +212,79 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
         == 2
     )
     assert payload["readiness_rows"][0]["datasets"][0]["latest_import_batch_id"] == "batch-property"
+
+
+def test_report_data_readiness_includes_capabilities(monkeypatch) -> None:
+    class StubDataReadinessService:
+        def build_tax_year_readiness(self, *, county_id: str, tax_year: int) -> CountyTaxYearReadiness:
+            assert county_id == "harris"
+            assert tax_year == 2025
+            return CountyTaxYearReadiness(
+                county_id="harris",
+                tax_year=2025,
+                tax_year_known=True,
+                datasets=[
+                    DatasetYearReadiness(
+                        county_id="harris",
+                        tax_year=2025,
+                        dataset_type="property_roll",
+                        source_system_code="HCAD_BULK",
+                        access_method="live_file",
+                        availability_status="live_ready",
+                        raw_file_count=1,
+                        latest_import_batch_id="batch-property",
+                        latest_import_status="normalized",
+                        latest_publish_state="published",
+                        staged=True,
+                        canonical_published=True,
+                    )
+                ],
+                derived=TaxYearDerivedReadiness(
+                    parcel_summary_ready=True,
+                    parcel_year_trend_ready=False,
+                    neighborhood_stats_ready=False,
+                    neighborhood_year_trend_ready=False,
+                    search_support_ready=True,
+                    feature_ready=False,
+                    comp_ready=False,
+                    quote_ready=False,
+                    parcel_summary_row_count=100,
+                    search_document_row_count=100,
+                    parcel_feature_row_count=0,
+                    comp_pool_row_count=0,
+                    quote_row_count=0,
+                ),
+            )
+
+    monkeypatch.setattr("infra.scripts.report_data_readiness.DataReadinessService", StubDataReadinessService)
+    monkeypatch.setattr(
+        "infra.scripts.report_data_readiness.list_county_capability_entries",
+        lambda county_id: [
+            CountyCapabilityEntry(
+                county_id=county_id,
+                capability_code="parcel_level_homestead",
+                label="Parcel-level Homestead",
+                status="supported",
+                source_datasets=["property_roll"],
+                notes="Available from current county source.",
+            ),
+            CountyCapabilityEntry(
+                county_id=county_id,
+                capability_code="search_refresh_runtime",
+                label="Search Refresh Runtime",
+                status="heavy",
+                source_datasets=["property_roll"],
+                notes="Heavy operator workflow.",
+            ),
+        ],
+    )
+
+    payload = build_data_readiness_payload(county_id="harris", tax_years=[2025])
+
+    assert payload[0]["county_id"] == "harris"
+    assert payload[0]["capabilities"][0]["capability_code"] == "parcel_level_homestead"
+    assert payload[0]["capabilities"][1]["status"] == "heavy"
+    assert payload[0]["datasets"][0]["latest_import_batch_id"] == "batch-property"
 
 
 def test_verify_ingestion_to_searchable_reports_pass(monkeypatch) -> None:
@@ -259,5 +354,7 @@ def test_verify_ingestion_to_searchable_reports_pass(monkeypatch) -> None:
     )
 
     assert payload["passed"] is True
+    assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
+    assert payload["capabilities"][1]["status"] == "heavy"
     assert payload["quality_status"] == "healthy"
     assert payload["checks"][0]["detail"]["staging_row_count"] == 100

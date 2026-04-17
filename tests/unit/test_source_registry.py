@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from app.ingestion.source_registry import get_source_registry_entry, list_source_registry_entries
+from app.ingestion.source_registry import (
+    get_county_capability_entry,
+    get_source_registry_entry,
+    list_county_capability_entries,
+    list_source_registry_entries,
+)
 
 
 def test_get_harris_source_registry_entry() -> None:
@@ -50,3 +55,25 @@ def test_list_source_registry_entries_includes_active_fort_bend_dataset() -> Non
     assert fort_bend_entry.active_flag is True
     assert fort_bend_entry.access_method == "fixture_csv"
     assert fort_bend_entry.file_format == "csv"
+
+
+def test_get_harris_county_capability_entry() -> None:
+    entry = get_county_capability_entry(
+        county_id="harris",
+        capability_code="parcel_level_over65",
+    )
+
+    assert entry.label == "Parcel-level over65 signal"
+    assert entry.status == "limited"
+    assert entry.source_datasets == ["property_roll"]
+
+
+def test_list_county_capability_entries_includes_fort_bend_over65_support() -> None:
+    entries = {
+        (entry.county_id, entry.capability_code): entry
+        for entry in list_county_capability_entries()
+    }
+
+    assert ("harris", "search_refresh_runtime") in entries
+    assert ("fort_bend", "parcel_level_over65") in entries
+    assert entries[("fort_bend", "parcel_level_over65")].status == "supported"
