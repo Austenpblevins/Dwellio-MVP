@@ -16,6 +16,7 @@ from app.services.county_onboarding import (
     OnboardingDatasetSnapshot,
     OnboardingPhase,
     OnboardingReadinessSnapshot,
+    OnboardingSummary,
     OnboardingValidationYear,
 )
 from app.services.data_readiness import (
@@ -350,6 +351,15 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
                 current_tax_year=2026,
                 validation_tax_year=2025,
                 validation_recommended=True,
+                onboarding_summary=OnboardingSummary(
+                    overall_status="blocked",
+                    done_phase_count=1,
+                    pending_phase_count=1,
+                    blocked_phase_count=0,
+                    blocking_phase_codes=["dataset_prep_contract"],
+                    next_phase_code="dataset_prep_contract",
+                    next_blocking_phase_code="dataset_prep_contract",
+                ),
                 capabilities=[],
                 validation_candidates=[
                     OnboardingValidationYear(
@@ -412,6 +422,7 @@ def test_get_county_onboarding_contract_wraps_service(monkeypatch) -> None:
 
     assert isinstance(contract, AdminCountyOnboardingContract)
     assert contract.validation_tax_year == 2025
+    assert contract.onboarding_summary.overall_status == "blocked"
     assert contract.validation_candidates[0].readiness_score == 42
     assert contract.current_year_snapshot is not None
     assert contract.current_year_snapshot.tax_year == 2026

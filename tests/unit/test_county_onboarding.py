@@ -143,6 +143,10 @@ def test_build_contract_selects_repeatable_validation_year(monkeypatch) -> None:
     assert phases["searchable_validation"].status == "done"
     assert phases["quote_supportability_validation"].status == "pending"
     assert "capability_limit:parcel_level_freeze_signal" in phases["quote_supportability_validation"].details
+    assert contract.onboarding_summary.overall_status == "partial"
+    assert contract.onboarding_summary.done_phase_count == 5
+    assert contract.onboarding_summary.pending_phase_count == 1
+    assert contract.onboarding_summary.next_phase_code == "quote_supportability_validation"
     action_codes = [action.action_code for action in contract.recommended_actions]
     assert "review_quote_supportability" in action_codes
 
@@ -198,6 +202,8 @@ def test_build_contract_flags_missing_manual_prep(monkeypatch) -> None:
     assert phases["dataset_prep_contract"].status == "pending"
     assert phases["dataset_prep_contract"].blocking is True
     assert "property_roll:manual_prep_required" in phases["dataset_prep_contract"].details
+    assert contract.onboarding_summary.overall_status == "blocked"
+    assert contract.onboarding_summary.next_blocking_phase_code == "validation_year_selection"
     actions = {action.action_code: action for action in contract.recommended_actions}
     assert "review_validation_year_ranking" in actions
     assert "prepare_adapter_ready_files" in actions

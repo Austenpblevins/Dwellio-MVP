@@ -7,6 +7,7 @@ from app.services.county_onboarding import (
     OnboardingPhase,
     OnboardingReadinessSnapshot,
     OnboardingDatasetSnapshot,
+    OnboardingSummary,
     OnboardingValidationYear,
 )
 from infra.scripts.report_county_onboarding import build_payload
@@ -23,6 +24,15 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
                 current_tax_year=2026,
                 validation_tax_year=2025,
                 validation_recommended=True,
+                onboarding_summary=OnboardingSummary(
+                    overall_status="partial",
+                    done_phase_count=1,
+                    pending_phase_count=1,
+                    blocked_phase_count=0,
+                    blocking_phase_codes=[],
+                    next_phase_code="quote_supportability_validation",
+                    next_blocking_phase_code=None,
+                ),
                 capabilities=[
                     CountyCapabilityEntry(
                         county_id=county_id,
@@ -115,6 +125,8 @@ def test_report_county_onboarding_builds_machine_readable_contract(monkeypatch) 
 
     assert payload["validation_tax_year"] == 2025
     assert payload["validation_recommended"] is True
+    assert payload["onboarding_summary"]["overall_status"] == "partial"
+    assert payload["onboarding_summary"]["next_phase_code"] == "quote_supportability_validation"
     assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
     assert payload["validation_candidates"][0]["readiness_score"] == 48
     assert payload["current_year_snapshot"]["tax_year"] == 2026

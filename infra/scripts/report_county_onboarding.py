@@ -63,6 +63,15 @@ def build_payload(
         "current_tax_year": contract.current_tax_year,
         "validation_tax_year": contract.validation_tax_year,
         "validation_recommended": contract.validation_recommended,
+        "onboarding_summary": {
+            "overall_status": contract.onboarding_summary.overall_status,
+            "done_phase_count": contract.onboarding_summary.done_phase_count,
+            "pending_phase_count": contract.onboarding_summary.pending_phase_count,
+            "blocked_phase_count": contract.onboarding_summary.blocked_phase_count,
+            "blocking_phase_codes": contract.onboarding_summary.blocking_phase_codes,
+            "next_phase_code": contract.onboarding_summary.next_phase_code,
+            "next_blocking_phase_code": contract.onboarding_summary.next_blocking_phase_code,
+        },
         "capabilities": [
             {
                 "capability_code": capability.capability_code,

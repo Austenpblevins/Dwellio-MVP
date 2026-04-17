@@ -240,12 +240,23 @@ class AdminCountyOnboardingAction(DwellioBaseModel):
     command_hint: str | None = None
 
 
+class AdminCountyOnboardingSummary(DwellioBaseModel):
+    overall_status: str
+    done_phase_count: int
+    pending_phase_count: int
+    blocked_phase_count: int
+    blocking_phase_codes: list[str] = Field(default_factory=list)
+    next_phase_code: str | None = None
+    next_blocking_phase_code: str | None = None
+
+
 class AdminCountyOnboardingContract(DwellioBaseModel):
     access_scope: str = "internal"
     county_id: str
     current_tax_year: int
     validation_tax_year: int | None = None
     validation_recommended: bool = False
+    onboarding_summary: AdminCountyOnboardingSummary
     capabilities: list[AdminCountyCapability] = Field(default_factory=list)
     validation_candidates: list[AdminCountyOnboardingValidationYear] = Field(default_factory=list)
     current_year_snapshot: AdminCountyOnboardingReadinessSnapshot | None = None

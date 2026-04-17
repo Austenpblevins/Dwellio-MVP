@@ -61,6 +61,17 @@ class OnboardingAction:
 
 
 @dataclass(frozen=True)
+class OnboardingSummary:
+    overall_status: str
+    done_phase_count: int
+    pending_phase_count: int
+    blocked_phase_count: int
+    blocking_phase_codes: list[str] = field(default_factory=list)
+    next_phase_code: str | None = None
+    next_blocking_phase_code: str | None = None
+
+
+@dataclass(frozen=True)
 class CountyOnboardingContract:
     county_id: str
     current_tax_year: int
@@ -70,6 +81,7 @@ class CountyOnboardingContract:
     validation_candidates: list[OnboardingValidationYear]
     current_year_snapshot: OnboardingReadinessSnapshot | None
     validation_year_snapshot: OnboardingReadinessSnapshot | None
+    onboarding_summary: OnboardingSummary
     phases: list[OnboardingPhase]
     recommended_actions: list[OnboardingAction]
 
@@ -138,6 +150,7 @@ class CountyOnboardingService:
             ),
             phases=phases,
         )
+        onboarding_summary = self._build_onboarding_summary(phases)
 
         return CountyOnboardingContract(
             county_id=county_id,
@@ -159,6 +172,7 @@ class CountyOnboardingService:
             ],
             current_year_snapshot=current_snapshot,
             validation_year_snapshot=validation_snapshot,
+            onboarding_summary=onboarding_summary,
             phases=phases,
             recommended_actions=recommended_actions,
         )
@@ -556,3 +570,45 @@ class CountyOnboardingService:
                     )
                 )
         return actions
+
+    def _build_onboarding_summary(
+        self,
+        phases: list[OnboardingPhase],
+    ) -> OnboardingSummary:
+        done_phase_count = sum(1 for phase in phases if phase.status == "done")
+        pending_phase_count = sum(1 for phase in phases if phase.status == "pending")
+        blocked_phase_count = sum(1 for phase in phases if phase.status == "blocked")
+        blocking_phase_codes = [
+            phase.phase_code
+            for phase in phases
+            if phase.blocking and phase.status in {"pending", "blocked"}
+        ]
+        next_phase_code = next(
+            (phase.phase_code for phase in phases if phase.status != "done"),
+            None,
+        )
+        next_blocking_phase_code = next(
+            (
+                phase.phase_code
+                for phase in phases
+                if phase.blocking and phase.status in {"pending", "blocked"}
+            ),
+            None,
+        )
+        if blocked_phase_count > 0:
+            overall_status = "blocked"
+        elif pending_phase_count > 0 and blocking_phase_codes:
+            overall_status = "blocked"
+        elif pending_phase_count > 0:
+            overall_status = "partial"
+        else:
+            overall_status = "ready"
+        return OnboardingSummary(
+            overall_status=overall_status,
+            done_phase_count=done_phase_count,
+            pending_phase_count=pending_phase_count,
+            blocked_phase_count=blocked_phase_count,
+            blocking_phase_codes=blocking_phase_codes,
+            next_phase_code=next_phase_code,
+            next_blocking_phase_code=next_blocking_phase_code,
+        )
