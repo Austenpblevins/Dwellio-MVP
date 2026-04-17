@@ -105,6 +105,14 @@ def build_payload(
         "county_id": county_id,
         "tax_year": tax_year,
         "passed": not failures,
+        "capabilities": [
+            {
+                "capability_code": capability.capability_code,
+                "status": capability.status,
+                "source_datasets": capability.source_datasets,
+            }
+            for capability in dashboard.capabilities
+        ],
         "overall_status": row.overall_status,
         "quality_status": row.operational.quality_status,
         "quality_score": row.operational.quality_score,

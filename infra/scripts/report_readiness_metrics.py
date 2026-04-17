@@ -20,6 +20,17 @@ def build_payload(*, county_id: str, tax_years: list[int]) -> dict[str, object]:
     return {
         "county_id": dashboard.county_id,
         "tax_years": dashboard.tax_years,
+        "capabilities": [
+            {
+                "capability_code": capability.capability_code,
+                "label": capability.label,
+                "status": capability.status,
+                "source_datasets": capability.source_datasets,
+                "notes": capability.notes,
+                "metadata": capability.metadata,
+            }
+            for capability in dashboard.capabilities
+        ],
         "kpi_summary": dashboard.kpi_summary.model_dump(mode="json"),
         "readiness_rows": [
             {

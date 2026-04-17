@@ -94,11 +94,15 @@ Machine-readable readiness KPI report:
 python3 -m infra.scripts.report_readiness_metrics --county-id harris --tax-years 2025 2024 2023
 ```
 
+The KPI report now includes the county capability matrix so machine-readable reviews can distinguish source limitations from ingestion regressions without opening the admin page.
+
 Ingestion-to-searchable smoke verification:
 
 ```bash
 python3 -m infra.scripts.verify_ingestion_to_searchable --county-id harris --tax-year 2025
 ```
+
+The smoke verification payload also includes a lightweight county capability snapshot so searchable failures can be interpreted against current source support expectations.
 
 ## Intentional limitations
 

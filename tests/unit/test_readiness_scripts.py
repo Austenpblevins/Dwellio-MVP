@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.admin import (
+    AdminCountyCapability,
     AdminCountyYearDatasetReadiness,
     AdminCountyYearDerivedReadiness,
     AdminCountyYearOperationalReadiness,
@@ -21,6 +22,22 @@ def _dashboard() -> AdminCountyYearReadinessDashboard:
     return AdminCountyYearReadinessDashboard(
         county_id="harris",
         tax_years=[2025],
+        capabilities=[
+            AdminCountyCapability(
+                capability_code="parcel_level_homestead",
+                label="Parcel-level Homestead",
+                status="supported",
+                source_datasets=["property_roll"],
+                notes="Available from current county source.",
+            ),
+            AdminCountyCapability(
+                capability_code="search_refresh_runtime",
+                label="Search Refresh Runtime",
+                status="heavy",
+                source_datasets=["property_roll"],
+                notes="Harris refresh remains operationally heavy.",
+            ),
+        ],
         readiness_rows=[
             AdminCountyYearReadiness(
                 county_id="harris",
@@ -135,6 +152,8 @@ def test_report_readiness_metrics_builds_alertable_payload(monkeypatch) -> None:
     payload = build_metrics_payload(county_id="harris", tax_years=[2025])
 
     assert payload["county_id"] == "harris"
+    assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
+    assert payload["capabilities"][1]["status"] == "heavy"
     assert payload["kpi_summary"]["healthy_year_count"] == 1
     assert payload["readiness_rows"][0]["operational"]["quality_status"] == "healthy"
     assert payload["readiness_rows"][0]["derived_monitoring"]["instant_quote_supportable_row_rate"] == 0.75
@@ -257,5 +276,7 @@ def test_verify_ingestion_to_searchable_reports_pass(monkeypatch) -> None:
     )
 
     assert payload["passed"] is True
+    assert payload["capabilities"][0]["capability_code"] == "parcel_level_homestead"
+    assert payload["capabilities"][1]["status"] == "heavy"
     assert payload["quality_status"] == "healthy"
     assert payload["checks"][0]["detail"]["staging_row_count"] == 100
