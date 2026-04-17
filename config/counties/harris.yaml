@@ -7,6 +7,45 @@ datasets:
   - deeds
 parser_module: app.county_adapters.harris.parse
 notes: Stage 4 Harris metadata bootstrap. Detailed dataset registry and field mappings live under config/counties/harris/.
+capabilities:
+  parcel_level_homestead:
+    label: Parcel-level homestead signal
+    status: supported
+    source_datasets:
+      - property_roll
+    notes: Homestead exemptions are available at parcel level in the current Harris property-roll pipeline.
+  parcel_level_over65:
+    label: Parcel-level over65 signal
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Harris parcel-level senior/over65 completeness remains unresolved and should not be treated as fully authoritative.
+  parcel_level_freeze_signal:
+    label: Parcel-level freeze signal
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Freeze-related indicators exist in exemption rollups, but qualifying-exemption consistency still requires operator review.
+  tax_rate_unit_coverage:
+    label: Tax-rate unit coverage
+    status: supported
+    source_datasets:
+      - tax_rates
+    notes: Harris tax-rate ingestion supports rate-bearing units and explicit unit-only assignment hints.
+  historical_backfill_execution:
+    label: Historical backfill execution
+    status: manual_only
+    source_datasets:
+      - property_roll
+      - tax_rates
+      - deeds
+    notes: Prior-year Harris execution still depends on prep-validated manifests and county-provided files rather than fully live acquisition.
+  search_refresh_runtime:
+    label: Search refresh runtime
+    status: heavy
+    source_datasets:
+      - property_roll
+    notes: Harris post-commit search refresh is operationally heavy and should be treated as a deliberate maintenance step.
 metadata:
   cad_short_name: HCAD
   source_mode: config_driven

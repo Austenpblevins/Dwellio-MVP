@@ -37,6 +37,16 @@ class CountyDatasetConfig:
 
 
 @dataclass(frozen=True)
+class CountyCapabilityConfig:
+    capability_code: str
+    label: str
+    status: str
+    source_datasets: list[str] = field(default_factory=list)
+    notes: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class CountyDatasetYearSupport:
     dataset_type: str
     tax_year: int
@@ -105,6 +115,7 @@ class CountyAdapterConfig:
     notes: str
     metadata: dict[str, Any]
     dataset_configs: dict[str, CountyDatasetConfig] = field(default_factory=dict)
+    capability_matrix: dict[str, CountyCapabilityConfig] = field(default_factory=dict)
     field_mappings: dict[str, DatasetFieldMappingConfig] = field(default_factory=dict)
 
 
@@ -114,6 +125,7 @@ def load_county_adapter_config(county_id: str) -> CountyAdapterConfig:
     field_mapping_raw = _load_yaml(CONFIG_DIR / county_id / "field_mappings.yaml")
 
     dataset_configs = _build_dataset_configs(dataset_raw.get("datasets", {}))
+    capability_matrix = _build_capability_matrix(raw.get("capabilities", {}))
     field_mappings = _build_field_mappings(field_mapping_raw.get("datasets", {}))
     datasets = list(dataset_configs.keys()) or list(raw.get("datasets", []))
 
@@ -126,6 +138,7 @@ def load_county_adapter_config(county_id: str) -> CountyAdapterConfig:
         notes=raw.get("notes", ""),
         metadata=dict(raw.get("metadata", {})),
         dataset_configs=dataset_configs,
+        capability_matrix=capability_matrix,
         field_mappings=field_mappings,
     )
 
@@ -259,6 +272,23 @@ def _build_dataset_configs(raw_datasets: dict[str, Any]) -> dict[str, CountyData
             metadata=dict(raw_dataset.get("metadata", {})),
         )
     return dataset_configs
+
+
+def _build_capability_matrix(
+    raw_capabilities: dict[str, Any],
+) -> dict[str, CountyCapabilityConfig]:
+    capability_matrix: dict[str, CountyCapabilityConfig] = {}
+    for capability_code, raw_capability in raw_capabilities.items():
+        raw_capability = dict(raw_capability or {})
+        capability_matrix[capability_code] = CountyCapabilityConfig(
+            capability_code=capability_code,
+            label=raw_capability.get("label", capability_code.replace("_", " ").title()),
+            status=raw_capability.get("status", "unknown"),
+            source_datasets=list(raw_capability.get("source_datasets", [])),
+            notes=raw_capability.get("notes", ""),
+            metadata=dict(raw_capability.get("metadata", {})),
+        )
+    return capability_matrix
 
 
 def _build_field_mappings(raw_datasets: dict[str, Any]) -> dict[str, DatasetFieldMappingConfig]:
