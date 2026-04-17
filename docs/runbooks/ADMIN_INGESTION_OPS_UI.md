@@ -35,6 +35,7 @@ This internal-only surface gives operators one place to review ingestion status,
 1. Start in `/admin/ops` or `/admin/readiness` and choose the target county-year.
 2. Open `/admin/ops/jobs` to inspect recent import batches.
 3. Use the batch list summary to quickly spot long-running jobs, repeated maintenance retries, unusually slow maintenance steps, or warning-heavy replay candidates before drilling into a specific batch.
+   The list now also surfaces the latest publish-control finding code/message so replay-risk batches are easier to triage from the overview.
 4. Open a batch detail page to review validation findings, source files, and job runs.
    The validation summary now breaks out publish-control warning/error counts so replay-risk findings can be separated from general validation noise.
 5. Use the batch detail `step_runs` and `step_summary` to review durations, retries, and the latest status for each maintenance step.

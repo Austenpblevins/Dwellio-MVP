@@ -445,6 +445,9 @@ class AdminOpsService:
                     WHERE vr.severity = 'warning'
                       AND vr.validation_scope = 'publish_control'
                   ) AS publish_control_warning_count,
+                  latest_publish_control.validation_code AS latest_publish_control_code,
+                  latest_publish_control.severity AS latest_publish_control_severity,
+                  latest_publish_control.message AS latest_publish_control_message,
                   latest_job.job_name AS latest_job_name,
                   latest_job.job_stage AS latest_job_stage,
                   latest_job.status AS latest_job_status,
@@ -459,6 +462,17 @@ class AdminOpsService:
                   ON ss.source_system_id = ib.source_system_id
                 LEFT JOIN validation_results vr
                   ON vr.import_batch_id = ib.import_batch_id
+                LEFT JOIN LATERAL (
+                  SELECT
+                    vr_latest.validation_code,
+                    vr_latest.severity,
+                    vr_latest.message
+                  FROM validation_results vr_latest
+                  WHERE vr_latest.import_batch_id = ib.import_batch_id
+                    AND vr_latest.validation_scope = 'publish_control'
+                  ORDER BY vr_latest.created_at DESC, vr_latest.validation_result_id DESC
+                  LIMIT 1
+                ) latest_publish_control ON true
                 LEFT JOIN LATERAL (
                   SELECT
                     jr.job_name,
@@ -498,6 +512,9 @@ class AdminOpsService:
                   ib.row_count,
                   ib.error_count,
                   ib.created_at,
+                  latest_publish_control.validation_code,
+                  latest_publish_control.severity,
+                  latest_publish_control.message,
                   latest_job.job_name,
                   latest_job.job_stage,
                   latest_job.status,
@@ -778,6 +795,9 @@ class AdminOpsService:
             validation_error_count=int(row["validation_error_count"] or 0),
             validation_warning_count=int(row.get("validation_warning_count") or 0),
             publish_control_warning_count=int(row.get("publish_control_warning_count") or 0),
+            latest_publish_control_code=row.get("latest_publish_control_code"),
+            latest_publish_control_severity=row.get("latest_publish_control_severity"),
+            latest_publish_control_message=row.get("latest_publish_control_message"),
             latest_job_name=row.get("latest_job_name"),
             latest_job_stage=row.get("latest_job_stage"),
             latest_job_status=row.get("latest_job_status"),
