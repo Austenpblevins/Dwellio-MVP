@@ -1,5 +1,9 @@
 # Final Implementation Summary
 
+Historical note:
+- This file is a dated milestone snapshot, not the live implementation-status ledger.
+- For the current repository-wide implementation state, use `docs/architecture-state.md`.
+
 This document summarizes what is actually implemented in the current Dwellio repository branch family through Stage 16, including the public lead-funnel backend/frontend work and the release-hardening docs/tests.
 
 ## Implemented architecture

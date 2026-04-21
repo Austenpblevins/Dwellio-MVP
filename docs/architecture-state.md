@@ -1,314 +1,157 @@
-
 # Dwellio Architecture State
 
-This document tracks the **current implementation state of the Dwellio system**.
-It helps prevent duplicate work, architectural drift, and accidental rewrites of
-completed components when using Codex or collaborating with other developers.
-
-Codex should read this document before implementing new features.
-
----
-
-# 1. Purpose of This File
-
-This document records:
-
-• completed system components  
-• components currently in development  
-• components planned but not yet implemented  
-
-It acts as a **status ledger** for the architecture.
-
----
-
-# 2. System Status Legend
-
-Each component is assigned one of the following states:
-
-COMPLETE  
-IN_PROGRESS  
-PLANNED  
-NOT_STARTED
-
----
-
-# 3. Repository Infrastructure
-
-Repository Structure — COMPLETE
-
-Core folders exist:
-
-app/
-docs/
-sql/
-tests/
-
-Version Control Setup — COMPLETE
-
-Git repository initialized
-GitHub Desktop workflow configured
-
-Codex Integration Docs — COMPLETE
-
-codex-build-playbook.md
-codex-session-start.md
-codex-task-prompts.md
-codex-architecture-map.md
-
----
-
-# 4. Database Layer
-
-Migration Framework — COMPLETE
-
-Location
-
-app/db/migrations/
-
-Schema Definition — COMPLETE
-
-sql/dwellio_full_schema.sql
-
-Core Tables — COMPLETE
-
-parcels  
-parcel_improvements  
-parcel_assessments
-
-Sales Tables — COMPLETE
-
-parcel_sales  
-sales_reconstruction
-
-Neighborhood Analytics — COMPLETE
-
-neighborhood_stats  
-market_stats
-
-Comparable Sales — COMPLETE
-
-comp_candidates
-
-Valuation Runs — COMPLETE
-
-valuation_runs
-
-Savings Calculations — COMPLETE
-
-parcel_savings_estimates
-
-Decision Results — COMPLETE
-
-decision_tree_results
-
-Protest Tables — COMPLETE
-
-protest_recommendations  
-protest_cases  
-case_outcomes
-
-Read Models — COMPLETE
-
-v_search_read_model  
-v_quote_read_model
-
----
-
-# 5. Domain Model Layer
-
-Pydantic Models — IN_PROGRESS
-
-Location
-
-app/models/
-
-Models planned
-
-ParcelModel
-QuoteModel
-SavingsEstimateModel
-DecisionTreeResultModel
-LeadModel
-
----
-
-# 6. Domain Services
-
-Service Layer — PLANNED
-
-Location
-
-app/services/
-
-Services planned
-
-address_resolver
-comp_scoring
-market_model
-equity_model
-decision_tree
-arb_probability
-savings_engine
-explanation_builder
-packet_generator
-
----
-
-# 7. ETL Pipeline
-
-ETL Framework — PLANNED
-
-Location
-
-app/jobs/
-
-Jobs planned
-
-job_fetch_sources.py
-job_load_staging.py
-job_normalize.py
-job_geocode_repair.py
-job_sales_ingestion.py
-job_features.py
-job_comp_candidates.py
-job_score_models.py
-job_score_savings.py
-job_refresh_quote_cache.py
-job_packet_refresh.py
-
-Pipeline runner
-
-runner.py
-
----
-
-# 8. County Data Adapters
-
-County Adapter Framework — PLANNED
-
-Location
-
-app/county_adapters/
-
-Adapters planned
-
-harris/
-fort_bend/
-
-Responsibilities
-
-• ingest county appraisal roll files
-• normalize tax data
-• extract parcel identifiers
-• parse exemption data
-• load staging tables
-
----
-
-# 9. API Layer
-
-API Framework — PLANNED
-
-Location
-
-app/api/
-
-Public endpoints planned
-
-GET /search  
-GET /quote/{county}/{year}/{account}  
-GET /quote/{county}/{year}/{account}/explanation  
-POST /lead
-
-Internal endpoints
-
-cases
-admin
-
----
-
-# 10. Testing Layer
-
-Testing Framework — NOT_STARTED
-
-Location
-
-tests/
-
-Planned test types
-
-Unit tests
-
-address normalization
-comp scoring
-market model
-equity model
-decision tree
-savings engine
-
-Integration tests
-
-search endpoint
-quote endpoint
-lead submission
-
----
-
-# 11. Documentation Layer
-
-Source-of-Truth Docs — COMPLETE
-
-docs/source_of_truth/
-
-Architecture Docs — COMPLETE
-
-docs/architecture/
-
-Runbooks — COMPLETE
-
-docs/runbooks/
-
-Codex Control Docs — COMPLETE
-
-docs/
-
-codex-build-playbook.md
-codex-session-start.md
-codex-task-prompts.md
-codex-architecture-map.md
-
----
-
-# 12. Key System Constraints
-
-These constraints must remain true.
-
-1. Python-first backend architecture
-2. Parcel-year centric data model
-3. APIs read only from read-model views
-4. MLS data must remain restricted
-5. ETL jobs populate core tables
-6. Services compute valuation outputs
-
----
-
-# 13. How Codex Should Use This File
-
-Before implementing a task, Codex should:
-
-1. read this document
-2. verify component status
-3. avoid rebuilding completed components
-4. only implement components marked PLANNED or IN_PROGRESS
-
----
-
-# 14. Maintenance Instructions
-
-Whenever a component is implemented:
-
-Update its status in this document.
-
-Example
-
-Domain Services — COMPLETE
+This document records the current implementation state of the Dwellio repository.
+
+It is the single current implementation-status ledger for the repository and the authoritative status ledger for what is implemented, partially implemented, deferred, or superseded in code.
+It is not the primary source for intended architecture or product design.
+
+Design authority lives in:
+- `docs/source_of_truth/`
+- `docs/architecture/`
+- canonical schema and migration files
+
+## Document Metadata
+
+- Last verified: `2026-04-20`
+- Verified by: `Codex`
+- Verified against:
+  - latest migration: `0056_stage22_ingestion_step_runs.sql`
+  - public routes checked: `yes`
+  - admin routes checked: `yes`
+  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py`, `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py`, `tests/unit/test_case_admin_api.py` (reviewed)
+- Authority level: `Implementation status only`
+- Scope: `Repository reality, not launch readiness`
+
+## Status Legend
+
+- `Implemented`: code exists and is wired into the current repo shape
+- `Partial`: meaningful foundation exists, but the subsystem is not complete end-to-end
+- `Deferred`: intentionally not implemented yet
+- `Superseded`: older approach/doc path retained only for history and should not guide new work
+
+## How To Read This File
+
+- `Implemented` means the capability exists in code.
+- `Implemented` does not automatically mean production-ready, live-data complete, or launch-approved.
+- Every status claim in this document should point to concrete repo evidence.
+- If evidence is missing, the item should be marked `Partial` or `Deferred`.
+
+## Current Implementation State
+
+| subsystem | status | current reality | evidence |
+|---|---|---|---|
+| Backend/API framework | Implemented | FastAPI app wires public and admin routers into one canonical API surface. | `app/main.py`, `app/api/router.py` |
+| Public search | Implemented | Canonical public search and autocomplete routes are wired to public-safe search reads. | `app/api/routes/search.py`, `tests/integration/test_public_parcel_flows.py` |
+| Public parcel summary | Implemented | Parcel-year public summary route serves masked, public-safe parcel facts. | `app/api/routes/parcel.py`, `docs/public_parcel_summary_stage13.md` |
+| Public quote | Implemented | Read-model-backed quote and explanation routes are part of the canonical public flow. | `app/api/routes/quote.py`, `docs/final_implementation_summary.md` |
+| Instant quote service | Partial | Stage 17 adds a separate instant-quote route and cache-backed serving layer without replacing the refined quote path. | `app/api/routes/quote.py`, `app/services/instant_quote.py`, `docs/architecture/instant-quote-service-spec.md`, `tests/unit/test_stage17_instant_quote_migration_contract.py` |
+| Lead capture | Implemented | Canonical `POST /lead` persists lead rows plus attribution and parcel-year context. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, `docs/final_implementation_summary.md` |
+| Public web funnel | Partial | The web app supports search to parcel to quote-to-lead, but not full customer signup, agreements, or billing. | `apps/web/app/`, `docs/stage16_lead_funnel_frontend_ux.md` |
+| County ingestion framework | Implemented | Shared ingestion, import-batch, validation, lineage, publish/rollback, and job orchestration backbone exists. | `app/ingestion/service.py`, `app/jobs/cli.py`, `docs/ingestion_framework.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
+| Harris county support | Partial | Harris adapter, onboarding, and manual-prep path exist, but current workflow still includes fixture/manual-prep realities. | `app/county_adapters/harris/adapter.py`, `docs/harris_adapter.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
+| Fort Bend county support | Partial | Fort Bend adapter, onboarding, and manual-prep path exist, but current workflow still includes fixture/manual-prep realities. | `app/county_adapters/fort_bend/adapter.py`, `docs/fort_bend_adapter.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
+| County-year readiness/admin ops | Implemented | Readiness, onboarding, scalability review, source-file review, validation, publish, rollback, and inspection routes are wired. | `app/api/routes/admin.py`, `app/services/county_onboarding.py`, `docs/runbooks/COUNTY_ONBOARDING_CONTRACT.md`, `docs/runbooks/STAGE24_SCALABILITY_BOTTLENECK_REVIEW.md` |
+| Case workflow foundation | Partial | Internal case CRUD, notes, status history, and hearing-linked review exist, but not the full operator workbench. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `docs/stage14_protest_support_foundation.md` |
+| Evidence packet foundation | Partial | Internal packet review structures, packet items, and comp sets exist, but not final package generation. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `docs/stage14_protest_support_foundation.md` |
+| Evidence PDF generation | Deferred | Packet generation and PDF assembly are not implemented beyond scaffold/stub level. | `app/services/packet_generator.py`, `docs/final_implementation_summary.md` |
+| Filing automation | Deferred | No county submission adapter or end-to-end filing workflow is implemented yet. | `docs/final_implementation_summary.md`, absence of submission routes/services in `app/api/routes/` and `app/services/` |
+| Agreements/e-sign | Deferred | No implemented agreement packet, e-sign completion flow, or webhook-driven authorization workflow exists. | absence of agreement/esign routes/services, `docs/final_implementation_summary.md` |
+| Billing/payments | Deferred | No implemented Stripe/payment workflow exists in the active product path. | absence of billing/stripe routes/services, `docs/final_implementation_summary.md` |
+| Customer dashboard | Deferred | No customer case portal, notification center, or signed-document dashboard is implemented. | `apps/web/app/`, `docs/final_implementation_summary.md` |
+| Observability/reporting | Partial | Strong internal readiness, telemetry, runbooks, and reporting scripts exist, but centralized monitoring remains follow-on work. | `docs/architecture/testing-observability-security.md`, `infra/scripts/report_quote_quality_monitor.py`, `docs/runbooks/STAGE24_SCALABILITY_BOTTLENECK_REVIEW.md` |
+
+## Public Surface Inventory
+
+Current canonical public routes:
+- `GET /healthz`
+- `GET /search`
+- `GET /search/autocomplete`
+- `GET /parcel/{county_id}/{tax_year}/{account_number}`
+- `GET /quote/{county_id}/{tax_year}/{account_number}`
+- `GET /quote/{county_id}/{tax_year}/{account_number}/explanation`
+- `GET /quote/instant/{county_id}/{tax_year}/{account_number}`
+- `POST /lead`
+
+Notes:
+- public routes must stay read-model/public-safe
+- public routes must not expose restricted comps, debug fields, or internal workflow data
+
+## Internal Surface Inventory
+
+Current canonical internal/admin surfaces include:
+- county-year readiness
+- county onboarding contract
+- scalability review
+- search inspection
+- import-batch inspection
+- source-file and validation review
+- publish / rollback / retry-maintenance
+- case review routes
+- packet review routes
+
+Primary evidence:
+- `app/api/routes/admin.py`
+- admin pages in `apps/web/app/admin/`
+
+## Current Boundaries
+
+The following are intentionally true in the current repo state:
+
+- public APIs are read-model based
+- property scope is currently SFR-focused
+- county scope is currently Harris and Fort Bend
+- internal case/packet structures exist before full filing automation
+- packet foundation exists before packet PDF generation
+- lead capture exists before full customer onboarding
+- some county workflows remain fixture-backed or manual-prep dependent
+
+## Known Gaps
+
+The following are not yet implemented in the repository:
+
+- full compliance/legal operating workflow
+- service agreement generation and e-sign completion flow
+- billing/payment workflow
+- county protest submission automation
+- confirmation-proof capture workflow
+- customer portal and customer notifications
+- final evidence PDF/package generation
+- full production case workbench with all planned operator roles
+
+## Drift Risks
+
+This document will drift if:
+- routes change without updating the public/internal surface inventory
+- a subsystem is marked `Implemented` without code/test evidence
+- design intent from other docs is copied here as if it were implemented
+- stale milestone summaries are treated as current-reality status
+
+## Update Rules
+
+Update this file whenever a change does any of the following:
+- adds, removes, or materially changes a public route
+- adds, removes, or materially changes an admin route
+- changes current county/property support scope
+- moves a subsystem from `Partial` to `Implemented`
+- explicitly defers, supersedes, or replaces an existing subsystem
+- adds a major new workflow surface, job family, or operator capability
+
+Do not update this file for:
+- minor refactors that do not change repo-visible capability
+- speculative future design
+- roadmap-only ideas not yet evidenced in code
+
+## Verification Checklist
+
+Before marking any item `Implemented`, confirm at least one of:
+- route exists and is wired
+- service is used by a wired route/job
+- migration/schema support exists and is consumed
+- test coverage exists for the contract
+- runbook/doc accurately reflects the current workflow
+
+If those checks are not met, mark the item `Partial` or `Deferred`.
+
+## Change Log
+
+- `2026-04-20`: rebuilt the file as a repo-reality status ledger with evidence-backed subsystem rows, route inventories, and maintenance rules
