@@ -1,0 +1,94 @@
+{
+  "validated_against_stage1_baseline_artifact": "instant-quote-v5-stage1-guardrail-20260422.json",
+  "stage4_guardrail_exact_match": true,
+  "current_public_savings_model": "reduction_estimate_times_effective_tax_rate",
+  "tax_profile_version": "v5_summary_profile_v1",
+  "materialized_tax_profiles": [
+    {
+      "county_id": "harris",
+      "tax_year": 2026,
+      "row_count": 1171610,
+      "rows_with_assessment_basis_value": 1169515,
+      "rows_with_raw_exemption_codes": 827054,
+      "rows_with_normalized_exemption_codes": 827054,
+      "rows_with_complete_tax_unit_assignment": 1169635,
+      "rows_with_complete_tax_rate": 1169635,
+      "fallback_tax_profile_count": 1171610,
+      "missing_assessment_basis_warning_count": 1345,
+      "school_ceiling_amount_unavailable_count": 0,
+      "prior_year_assessment_basis_limited_rows": 78569,
+      "tax_profile_status_distribution": {
+        "opportunity_only": 239,
+        "supported_with_disclosure": 1169209,
+        "unsupported": 2162
+      },
+      "opportunity_vs_savings_state_distribution": {
+        "standard_quote": 1141808,
+        "total_exemption_low_cash": 27402,
+        "suppressed_data_quality": 2312,
+        "opportunity_only_tax_profile_incomplete": 88
+      },
+      "savings_limited_by_code_counts": {
+        "tax_rate_basis_fallback_applied": 1171610,
+        "prior_year_assessment_basis_fallback": 78569,
+        "missing_assessment_basis": 1345
+      },
+      "county_tax_capability_snapshot": {
+        "exemption_normalization_confidence": "limited",
+        "over65_reliability": "limited",
+        "disabled_reliability": "limited",
+        "disabled_veteran_reliability": "supported",
+        "freeze_reliability": "limited",
+        "tax_unit_assignment_reliability": "supported",
+        "tax_rate_reliability": "limited",
+        "school_ceiling_amount_available": false,
+        "local_option_policy_available": false,
+        "profile_support_level": "summary_only"
+      }
+    },
+    {
+      "county_id": "fort_bend",
+      "tax_year": 2026,
+      "row_count": 278427,
+      "rows_with_assessment_basis_value": 278427,
+      "rows_with_raw_exemption_codes": 210887,
+      "rows_with_normalized_exemption_codes": 210887,
+      "rows_with_complete_tax_unit_assignment": 277916,
+      "rows_with_complete_tax_rate": 277916,
+      "fallback_tax_profile_count": 278427,
+      "missing_assessment_basis_warning_count": 0,
+      "school_ceiling_amount_unavailable_count": 2885,
+      "prior_year_assessment_basis_limited_rows": 2,
+      "tax_profile_status_distribution": {
+        "constrained": 2480,
+        "opportunity_only": 1046,
+        "supported_with_disclosure": 273999,
+        "unsupported": 902
+      },
+      "opportunity_vs_savings_state_distribution": {
+        "standard_quote": 265921,
+        "total_exemption_low_cash": 8117,
+        "school_limited_non_school_possible": 2442,
+        "suppressed_data_quality": 1936,
+        "opportunity_only_tax_profile_incomplete": 11
+      },
+      "savings_limited_by_code_counts": {
+        "tax_rate_basis_fallback_applied": 278427,
+        "prior_year_assessment_basis_fallback": 2,
+        "school_ceiling_amount_unavailable": 2885
+      },
+      "county_tax_capability_snapshot": {
+        "exemption_normalization_confidence": "limited",
+        "over65_reliability": "limited",
+        "disabled_reliability": "supported",
+        "disabled_veteran_reliability": "supported",
+        "freeze_reliability": "limited",
+        "tax_unit_assignment_reliability": "supported",
+        "tax_rate_reliability": "limited",
+        "school_ceiling_amount_available": false,
+        "local_option_policy_available": false,
+        "profile_support_level": "summary_only"
+      }
+    }
+  ]
+}
