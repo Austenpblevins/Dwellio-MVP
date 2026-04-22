@@ -83,3 +83,9 @@ Recommendation:
 - accept the Stage 1 drift as corrected baseline behavior, not as a rollback-worthy Stage 1 logic regression
 - do not describe Stage 1 as purely metadata-only in rollout notes, because the refresh did change the live supportable cohort
 - use `instant-quote-v5-stage1-guardrail-20260422.json` as the new Stage 1 baseline artifact before any Stage 2 work begins
+
+Proposed acceptance decision:
+- Stage 1 did not introduce new public quote logic or new public savings math
+- the observed Harris and Fort Bend movement should be accepted as stale-cache correction under already-existing fallback behavior that became visible once the cache was refreshed
+- `instant-quote-v5-stage1-guardrail-20260422.json` should be treated as the accepted baseline handoff artifact for Stage 2
+- Stage 2 should not begin until PR `#45` explicitly accepts that corrected-baseline interpretation
