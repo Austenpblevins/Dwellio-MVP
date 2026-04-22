@@ -91,10 +91,13 @@ Security rules:
 Public smoke:
 
 ```bash
+curl http://localhost:8000/healthz
 curl 'http://localhost:8000/search?address=101%20Main'
+curl 'http://localhost:8000/search/autocomplete?query=101'
 curl 'http://localhost:8000/parcel/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001'
 curl 'http://localhost:8000/quote/harris/2026/1001001001001/explanation'
+curl 'http://localhost:8000/quote/instant/harris/2026/1001001001001'
 curl -X POST 'http://localhost:8000/lead' \
   -H 'content-type: application/json' \
   -d '{"county_id":"harris","tax_year":2026,"account_number":"1001001001001","email":"alex@example.com","anonymous_session_id":"anon-ops-1","funnel_stage":"quote_gate","utm_source":"ops_smoke","consent_to_contact":true}'
@@ -112,7 +115,7 @@ python3 -m infra.scripts.verify_ingestion_to_searchable --county-id harris --tax
 Automated smoke-oriented pytest commands:
 
 ```bash
-python3 -m pytest tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py tests/integration/test_stage16_lead_funnel_release_hardening.py
+DWELLIO_DATABASE_URL='postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev' python3 -m pytest tests/unit/test_health_api.py tests/unit/test_search_routes.py tests/unit/test_search_services.py tests/unit/test_quote_api.py tests/unit/test_lead_capture.py tests/integration/test_public_parcel_flows.py tests/integration/test_stage15_workflow_contracts.py tests/integration/test_stage16_lead_funnel_release_hardening.py
 python3 -m pytest tests/unit/test_case_admin_api.py tests/unit/test_stage11_migration_contract.py tests/unit/test_stage13_migration_contract.py tests/unit/test_stage14_migration_contract.py
 cd apps/web && npm run lint
 cd apps/web && npm run build

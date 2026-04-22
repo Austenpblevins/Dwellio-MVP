@@ -305,6 +305,9 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
     assert summary.owner_summary.privacy_mode == "masked_individual_name"
     assert summary.tax_summary is not None
     assert len(summary.tax_summary.component_breakdown) == 1
+    assert "assignment_method" not in summary.tax_summary.component_breakdown[0].model_dump()
+    assert "assignment_confidence" not in summary.tax_summary.component_breakdown[0].model_dump()
+    assert "assignment_reason_code" not in summary.tax_summary.component_breakdown[0].model_dump()
     assert "match_basis_json" not in summary.tax_summary.component_breakdown[0].model_dump()
     assert summary.caveats[0].code == "missing_geometry"
 

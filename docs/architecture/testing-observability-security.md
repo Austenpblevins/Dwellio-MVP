@@ -9,11 +9,15 @@ Migration contract coverage:
 - replay-safety checks for late-stage migrations such as `0040` and `0041`
 
 Public-flow coverage:
+- health route contract coverage including degraded mode
 - public search route contract and payload safety
+- public autocomplete route contract and payload safety
 - public parcel summary route contract and caveat handling
 - public quote and explanation route contracts
+- instant-quote success and intentional `501` contract handling
 - deterministic tax-year fallback behavior for parcel and quote read paths
 - public owner masking and leakage prevention
+- supported and unsupported lead behavior plus attribution/parcel-year context handling
 
 Internal-flow coverage:
 - admin readiness routes
@@ -29,12 +33,19 @@ Fixture-backed coverage:
 
 ## Smoke-test expectations
 
+The canonical public-route smoke matrix now lives in:
+
+- `docs/architecture/PUBLIC_ROUTE_SMOKE_TEST_MATRIX.md`
+
 Critical flows to smoke locally:
 - `GET /healthz`
 - `GET /search?address=...`
+- `GET /search/autocomplete?query=...`
 - `GET /parcel/{county_id}/{tax_year}/{account_number}`
 - `GET /quote/{county_id}/{tax_year}/{account_number}`
 - `GET /quote/{county_id}/{tax_year}/{account_number}/explanation`
+- `GET /quote/instant/{county_id}/{tax_year}/{account_number}`
+- `POST /lead`
 - `GET /admin/cases` with admin token
 - `GET /admin/packets` with admin token
 - one internal case create flow

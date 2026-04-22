@@ -271,6 +271,9 @@ def test_public_search_parcel_and_quote_flow(monkeypatch) -> None:
     assert "cad_owner_name" not in parcel_payload
     assert "owner_source_basis" not in parcel_payload
     assert "owner_confidence_score" not in parcel_payload
+    assert "assignment_method" not in parcel_payload["tax_summary"]["component_breakdown"][0]
+    assert "assignment_confidence" not in parcel_payload["tax_summary"]["component_breakdown"][0]
+    assert "assignment_reason_code" not in parcel_payload["tax_summary"]["component_breakdown"][0]
     assert "component_breakdown_json" not in parcel_payload
     assert "agent_remarks" not in parcel_payload
     assert "listing_history" not in parcel_payload

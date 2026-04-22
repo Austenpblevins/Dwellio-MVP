@@ -44,7 +44,8 @@ The public web app still uses the canonical public backend routes:
 - unsupported county: the parcel page explains county rollout limits and still allows email capture
 - unsupported property type: the parcel page explains the current SFR-only boundary and still allows email capture
 - missing quote-ready row: parcel facts remain available and the lead flow offers an email notification path instead of a dead end
-- missing API config or unreachable backend: public pages render an explicit configuration/reachability error instead of pretending the quote exists
+- prior-year fallback: parcel/quote surfaces must disclose the served year and fallback reason instead of pretending the result is current-year
+- system/config failure: public pages render an explicit configuration/reachability error instead of pretending the quote exists or translating the failure into an unsupported-demand state
 
 ## Known limitations
 

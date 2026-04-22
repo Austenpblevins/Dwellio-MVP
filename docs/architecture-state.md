@@ -12,13 +12,13 @@ Design authority lives in:
 
 ## Document Metadata
 
-- Last verified: `2026-04-20`
+- Last verified: `2026-04-22`
 - Verified by: `Codex`
 - Verified against:
   - latest migration: `0056_stage22_ingestion_step_runs.sql`
   - public routes checked: `yes`
   - admin routes checked: `yes`
-  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py`, `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py`, `tests/unit/test_case_admin_api.py` (reviewed)
+  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py` (executed), `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py`, `tests/unit/test_case_admin_api.py` (reviewed), `tests/unit/test_lead_capture.py` (executed), `tests/unit/test_quote_api.py` (executed), `tests/unit/test_search_services.py` (executed)
 - Authority level: `Implementation status only`
 - Scope: `Repository reality, not launch readiness`
 
@@ -42,7 +42,7 @@ Design authority lives in:
 |---|---|---|---|
 | Backend/API framework | Implemented | FastAPI app wires public and admin routers into one canonical API surface. | `app/main.py`, `app/api/router.py` |
 | Public search | Implemented | Canonical public search and autocomplete routes are wired to public-safe search reads. | `app/api/routes/search.py`, `tests/integration/test_public_parcel_flows.py` |
-| Public parcel summary | Implemented | Parcel-year public summary route serves masked, public-safe parcel facts. | `app/api/routes/parcel.py`, `docs/public_parcel_summary_stage13.md` |
+| Public parcel summary | Implemented | Parcel-year public summary route serves masked, public-safe parcel facts and excludes owner-source/debug tax-assignment internals from the public payload. | `app/api/routes/parcel.py`, `app/services/parcel_summary.py`, `docs/architecture/PUBLIC_ROUTE_AND_FUNNEL_CONTRACT.md` |
 | Public quote | Implemented | Read-model-backed quote and explanation routes are part of the canonical public flow. | `app/api/routes/quote.py`, `docs/final_implementation_summary.md` |
 | Instant quote service | Partial | Stage 17 adds a separate instant-quote route and cache-backed serving layer without replacing the refined quote path. | `app/api/routes/quote.py`, `app/services/instant_quote.py`, `docs/architecture/instant-quote-service-spec.md`, `tests/unit/test_stage17_instant_quote_migration_contract.py` |
 | Lead capture | Implemented | Canonical `POST /lead` persists lead rows plus attribution and parcel-year context. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, `docs/final_implementation_summary.md` |
@@ -75,6 +75,7 @@ Current canonical public routes:
 Notes:
 - public routes must stay read-model/public-safe
 - public routes must not expose restricted comps, debug fields, or internal workflow data
+- public parcel tax breakdown must not expose tax-assignment debug fields
 
 ## Internal Surface Inventory
 
@@ -154,4 +155,5 @@ If those checks are not met, mark the item `Partial` or `Deferred`.
 
 ## Change Log
 
+- `2026-04-22`: tightened the public parcel payload contract to exclude tax-assignment debug metadata and added repo-native Stage 2 / Stage 3 / Stage 5 contract docs
 - `2026-04-20`: rebuilt the file as a repo-reality status ledger with evidence-backed subsystem rows, route inventories, and maintenance rules

@@ -286,8 +286,11 @@ def test_lead_route_returns_structured_contract_response(monkeypatch) -> None:
 def test_canonical_public_routes_remain_registered() -> None:
     route_paths = {route.path for route in app.routes}
 
+    assert "/healthz" in route_paths
     assert "/search" in route_paths
+    assert "/search/autocomplete" in route_paths
+    assert "/parcel/{county_id}/{tax_year}/{account_number}" in route_paths
+    assert "/quote/instant/{county_id}/{tax_year}/{account_number}" in route_paths
     assert "/quote/{county_id}/{tax_year}/{account_number}" in route_paths
     assert "/quote/{county_id}/{tax_year}/{account_number}/explanation" in route_paths
     assert "/lead" in route_paths
-
