@@ -61,12 +61,39 @@ REFINED_REVIEW_CTA = (
 FallbackTier = Literal["segment_within_neighborhood", "neighborhood_only", "unsupported"]
 TaxLimitationOutcome = Literal["normal", "constrained", "suppressed"]
 
+AssessmentBasisSourceValueType = Literal[
+    "certified",
+    "appraised",
+    "assessed",
+    "market",
+    "notice",
+]
+
+AssessmentBasisQualityCode = Literal[
+    "current_year_authoritative",
+    "current_year_proxy",
+    "prior_year_fallback",
+    "missing",
+]
+
 
 def _shutdown_persistence_executor() -> None:
     _PERSISTENCE_EXECUTOR.shutdown(wait=False, cancel_futures=True)
 
 
 register_atexit(_shutdown_persistence_executor)
+
+
+def extract_assessment_basis_contract(subject_row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "assessment_basis_value": _as_float(subject_row.get("assessment_basis_value")),
+        "assessment_basis_source_value_type": subject_row.get(
+            "assessment_basis_source_value_type"
+        ),
+        "assessment_basis_source_year": _as_int(subject_row.get("assessment_basis_source_year")),
+        "assessment_basis_source_reason": subject_row.get("assessment_basis_source_reason"),
+        "assessment_basis_quality_code": subject_row.get("assessment_basis_quality_code"),
+    }
 
 
 @dataclass(frozen=True)
@@ -792,6 +819,58 @@ class InstantQuoteRefreshService:
                         COALESCE(pa.land_value, pa_prior.land_value) AS land_value,
                         COALESCE(pa.improvement_value, pa_prior.improvement_value) AS improvement_value,
                         COALESCE(pa.exemption_value_total, pa_prior.exemption_value_total) AS exemption_value_total,
+                        CASE
+                          WHEN NULLIF(pa.certified_value, 0) IS NOT NULL THEN 'certified'
+                          WHEN NULLIF(pa.appraised_value, 0) IS NOT NULL THEN 'appraised'
+                          WHEN NULLIF(pa.assessed_value, 0) IS NOT NULL THEN 'assessed'
+                          WHEN NULLIF(pa.market_value, 0) IS NOT NULL THEN 'market'
+                          WHEN NULLIF(pa.notice_value, 0) IS NOT NULL THEN 'notice'
+                          WHEN NULLIF(pa_prior.certified_value, 0) IS NOT NULL THEN 'certified'
+                          WHEN NULLIF(pa_prior.appraised_value, 0) IS NOT NULL THEN 'appraised'
+                          WHEN NULLIF(pa_prior.assessed_value, 0) IS NOT NULL THEN 'assessed'
+                          WHEN NULLIF(pa_prior.market_value, 0) IS NOT NULL THEN 'market'
+                          WHEN NULLIF(pa_prior.notice_value, 0) IS NOT NULL THEN 'notice'
+                          ELSE NULL
+                        END AS assessment_basis_source_value_type,
+                        CASE
+                          WHEN NULLIF(pa.certified_value, 0) IS NOT NULL THEN scope.tax_year
+                          WHEN NULLIF(pa.appraised_value, 0) IS NOT NULL THEN scope.tax_year
+                          WHEN NULLIF(pa.assessed_value, 0) IS NOT NULL THEN scope.tax_year
+                          WHEN NULLIF(pa.market_value, 0) IS NOT NULL THEN scope.tax_year
+                          WHEN NULLIF(pa.notice_value, 0) IS NOT NULL THEN scope.tax_year
+                          WHEN NULLIF(pa_prior.certified_value, 0) IS NOT NULL THEN scope.tax_year - 1
+                          WHEN NULLIF(pa_prior.appraised_value, 0) IS NOT NULL THEN scope.tax_year - 1
+                          WHEN NULLIF(pa_prior.assessed_value, 0) IS NOT NULL THEN scope.tax_year - 1
+                          WHEN NULLIF(pa_prior.market_value, 0) IS NOT NULL THEN scope.tax_year - 1
+                          WHEN NULLIF(pa_prior.notice_value, 0) IS NOT NULL THEN scope.tax_year - 1
+                          ELSE NULL
+                        END AS assessment_basis_source_year,
+                        CASE
+                          WHEN NULLIF(pa.certified_value, 0) IS NOT NULL THEN 'current_year_certified'
+                          WHEN NULLIF(pa.appraised_value, 0) IS NOT NULL THEN 'current_year_appraised'
+                          WHEN NULLIF(pa.assessed_value, 0) IS NOT NULL THEN 'current_year_assessed'
+                          WHEN NULLIF(pa.market_value, 0) IS NOT NULL THEN 'current_year_market'
+                          WHEN NULLIF(pa.notice_value, 0) IS NOT NULL THEN 'current_year_notice'
+                          WHEN NULLIF(pa_prior.certified_value, 0) IS NOT NULL THEN 'prior_year_certified_fallback'
+                          WHEN NULLIF(pa_prior.appraised_value, 0) IS NOT NULL THEN 'prior_year_appraised_fallback'
+                          WHEN NULLIF(pa_prior.assessed_value, 0) IS NOT NULL THEN 'prior_year_assessed_fallback'
+                          WHEN NULLIF(pa_prior.market_value, 0) IS NOT NULL THEN 'prior_year_market_fallback'
+                          WHEN NULLIF(pa_prior.notice_value, 0) IS NOT NULL THEN 'prior_year_notice_fallback'
+                          ELSE 'missing'
+                        END AS assessment_basis_source_reason,
+                        CASE
+                          WHEN NULLIF(pa.certified_value, 0) IS NOT NULL THEN 'current_year_authoritative'
+                          WHEN NULLIF(pa.appraised_value, 0) IS NOT NULL THEN 'current_year_authoritative'
+                          WHEN NULLIF(pa.assessed_value, 0) IS NOT NULL THEN 'current_year_authoritative'
+                          WHEN NULLIF(pa.market_value, 0) IS NOT NULL THEN 'current_year_proxy'
+                          WHEN NULLIF(pa.notice_value, 0) IS NOT NULL THEN 'current_year_proxy'
+                          WHEN NULLIF(pa_prior.certified_value, 0) IS NOT NULL THEN 'prior_year_fallback'
+                          WHEN NULLIF(pa_prior.appraised_value, 0) IS NOT NULL THEN 'prior_year_fallback'
+                          WHEN NULLIF(pa_prior.assessed_value, 0) IS NOT NULL THEN 'prior_year_fallback'
+                          WHEN NULLIF(pa_prior.market_value, 0) IS NOT NULL THEN 'prior_year_fallback'
+                          WHEN NULLIF(pa_prior.notice_value, 0) IS NOT NULL THEN 'prior_year_fallback'
+                          ELSE 'missing'
+                        END AS assessment_basis_quality_code,
                         COALESCE(pa.homestead_flag, pa_prior.homestead_flag) AS assessment_homestead_flag,
                         COALESCE(er.exemption_record_count, 0) AS exemption_record_count,
                         COALESCE(er.granted_exemption_amount_total, 0::numeric) AS granted_exemption_amount_total,
@@ -927,6 +1006,10 @@ class InstantQuoteRefreshService:
                         sb.market_value,
                         sb.notice_value
                       ) AS assessment_basis_value,
+                      sb.assessment_basis_source_value_type,
+                      sb.assessment_basis_source_year,
+                      sb.assessment_basis_source_reason,
+                      sb.assessment_basis_quality_code,
                       sb.effective_tax_rate,
                       sb.effective_tax_rate_source_method,
                       sb.effective_tax_rate_basis_year,
@@ -1146,6 +1229,10 @@ class InstantQuoteRefreshService:
                       land_value,
                       improvement_value,
                       assessment_basis_value,
+                      assessment_basis_source_value_type,
+                      assessment_basis_source_year,
+                      assessment_basis_source_reason,
+                      assessment_basis_quality_code,
                       effective_tax_rate,
                       effective_tax_rate_source_method,
                       effective_tax_rate_basis_year,
@@ -1190,6 +1277,10 @@ class InstantQuoteRefreshService:
                       land_value,
                       improvement_value,
                       assessment_basis_value,
+                      assessment_basis_source_value_type,
+                      assessment_basis_source_year,
+                      assessment_basis_source_reason,
+                      assessment_basis_quality_code,
                       effective_tax_rate,
                       effective_tax_rate_source_method,
                       effective_tax_rate_basis_year,
@@ -1232,6 +1323,10 @@ class InstantQuoteRefreshService:
                         land_value = EXCLUDED.land_value,
                         improvement_value = EXCLUDED.improvement_value,
                         assessment_basis_value = EXCLUDED.assessment_basis_value,
+                        assessment_basis_source_value_type = EXCLUDED.assessment_basis_source_value_type,
+                        assessment_basis_source_year = EXCLUDED.assessment_basis_source_year,
+                        assessment_basis_source_reason = EXCLUDED.assessment_basis_source_reason,
+                        assessment_basis_quality_code = EXCLUDED.assessment_basis_quality_code,
                         effective_tax_rate = EXCLUDED.effective_tax_rate,
                         effective_tax_rate_source_method = EXCLUDED.effective_tax_rate_source_method,
                         effective_tax_rate_basis_year = EXCLUDED.effective_tax_rate_basis_year,
@@ -1273,6 +1368,10 @@ class InstantQuoteRefreshService:
                       instant_quote_subject_cache.land_value,
                       instant_quote_subject_cache.improvement_value,
                       instant_quote_subject_cache.assessment_basis_value,
+                      instant_quote_subject_cache.assessment_basis_source_value_type,
+                      instant_quote_subject_cache.assessment_basis_source_year,
+                      instant_quote_subject_cache.assessment_basis_source_reason,
+                      instant_quote_subject_cache.assessment_basis_quality_code,
                       instant_quote_subject_cache.effective_tax_rate,
                       instant_quote_subject_cache.effective_tax_rate_source_method,
                       instant_quote_subject_cache.effective_tax_rate_basis_year,
@@ -1313,6 +1412,10 @@ class InstantQuoteRefreshService:
                       EXCLUDED.land_value,
                       EXCLUDED.improvement_value,
                       EXCLUDED.assessment_basis_value,
+                      EXCLUDED.assessment_basis_source_value_type,
+                      EXCLUDED.assessment_basis_source_year,
+                      EXCLUDED.assessment_basis_source_reason,
+                      EXCLUDED.assessment_basis_quality_code,
                       EXCLUDED.effective_tax_rate,
                       EXCLUDED.effective_tax_rate_source_method,
                       EXCLUDED.effective_tax_rate_basis_year,
@@ -2333,6 +2436,7 @@ class InstantQuoteService:
             "county_id": subject_row.get("county_id"),
             "tax_year": served_tax_year,
             "account_number": subject_row.get("account_number"),
+            **extract_assessment_basis_contract(subject_row),
         }
 
         blocker_code = subject_row.get("support_blocker_code")

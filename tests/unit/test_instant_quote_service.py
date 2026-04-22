@@ -19,6 +19,7 @@ from app.services.instant_quote import (
     choose_fallback,
     confidence_label_for_score,
     determine_tax_limitation_outcome,
+    extract_assessment_basis_contract,
     has_uncertain_tax_limitation_signal,
     is_material_homestead_cap_limited,
     score_confidence,
@@ -210,6 +211,26 @@ def test_assign_age_bucket_uses_canonical_ranges() -> None:
     assert assign_age_bucket(2018) == "2015_plus"
 
 
+def test_extract_assessment_basis_contract_coerces_typed_basis_metadata() -> None:
+    contract = extract_assessment_basis_contract(
+        {
+            "assessment_basis_value": "350000.5",
+            "assessment_basis_source_value_type": "certified",
+            "assessment_basis_source_year": "2025",
+            "assessment_basis_source_reason": "prior_year_certified_fallback",
+            "assessment_basis_quality_code": "prior_year_fallback",
+        }
+    )
+
+    assert contract == {
+        "assessment_basis_value": 350000.5,
+        "assessment_basis_source_value_type": "certified",
+        "assessment_basis_source_year": 2025,
+        "assessment_basis_source_reason": "prior_year_certified_fallback",
+        "assessment_basis_quality_code": "prior_year_fallback",
+    }
+
+
 def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:
     cursor = _RefreshCursor()
     monkeypatch.setattr(
@@ -297,6 +318,18 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
         for statement in cursor.statements
     )
     assert any(
+        "AS assessment_basis_source_value_type" in statement for statement in cursor.statements
+    )
+    assert any(
+        "AS assessment_basis_source_year" in statement for statement in cursor.statements
+    )
+    assert any(
+        "AS assessment_basis_source_reason" in statement for statement in cursor.statements
+    )
+    assert any(
+        "AS assessment_basis_quality_code" in statement for statement in cursor.statements
+    )
+    assert any(
         "COALESCE( NULLIF(pa.certified_value, 0), NULLIF(pa.appraised_value, 0), NULLIF(pa.assessed_value, 0), NULLIF(pa.market_value, 0), NULLIF(pa.notice_value, 0), 0 ) <= 0"
         in statement
         for statement in cursor.statements
@@ -311,6 +344,11 @@ def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) 
     )
     assert any(
         "prior_year_assessment_basis_fallback" in statement for statement in cursor.statements
+    )
+    assert any(
+        "assessment_basis_source_value_type" in statement
+        and "assessment_basis_quality_code" in statement
+        for statement in cursor.statements
     )
     assert any("basis_assignment_requirements AS (" in statement for statement in cursor.statements)
     assert any(
@@ -1337,6 +1375,93 @@ def test_instant_quote_service_adds_disclaimer_for_prior_year_assessment_basis_f
         "prior year's assessed basis as a fallback" in disclaimer
         for disclaimer in response.disclaimers
     )
+
+
+def test_instant_quote_service_public_payload_does_not_expose_stage1_basis_contract(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2026,
+        "account_number": "1001001001001",
+        "address": "101 Main St, Houston, TX 77002",
+        "neighborhood_code": "NBHD-1",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 2200.0,
+        "year_built": 2003,
+        "capped_value": None,
+        "notice_value": 360000.0,
+        "assessment_basis_value": 350000.0,
+        "assessment_basis_source_value_type": "certified",
+        "assessment_basis_source_year": 2026,
+        "assessment_basis_source_reason": "current_year_certified",
+        "assessment_basis_quality_code": "current_year_authoritative",
+        "effective_tax_rate": 0.021,
+        "effective_tax_rate_source_method": "manual",
+        "subject_assessed_psf": 159.09,
+        "size_bucket": "2000_2399",
+        "age_bucket": "1990_2004",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": False,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": [],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=35,
+        p10_assessed_psf=120,
+        p25_assessed_psf=130,
+        p50_assessed_psf=145,
+        p75_assessed_psf=155,
+        p90_assessed_psf=170,
+        mean_assessed_psf=146,
+        median_assessed_psf=145,
+        stddev_assessed_psf=11,
+        coefficient_of_variation=0.07,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+    segment = InstantQuoteStatsRow(
+        parcel_count=18,
+        p10_assessed_psf=125,
+        p25_assessed_psf=135,
+        p50_assessed_psf=140,
+        p75_assessed_psf=150,
+        p90_assessed_psf=160,
+        mean_assessed_psf=141,
+        median_assessed_psf=140,
+        stddev_assessed_psf=8,
+        coefficient_of_variation=0.05,
+        support_level="medium",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: segment)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2026,
+        account_number="1001001001001",
+    )
+    payload = response.model_dump()
+
+    assert response.supported is True
+    assert "assessment_basis_source_value_type" not in payload
+    assert "assessment_basis_source_year" not in payload
+    assert "assessment_basis_source_reason" not in payload
+    assert "assessment_basis_quality_code" not in payload
 
 
 def test_instant_quote_service_returns_unsupported_when_neighborhood_basis_is_missing(
