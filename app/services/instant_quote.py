@@ -40,7 +40,8 @@ _PERSISTENCE_EXECUTOR = ThreadPoolExecutor(
 )
 _PERSISTENCE_SLOTS = BoundedSemaphore(TELEMETRY_MAX_INFLIGHT_TASKS)
 
-QUOTE_VERSION = "stage17_instant_quote_v1"
+QUOTE_VERSION = "instant_quote_v5_stage0_baseline"
+CURRENT_PUBLIC_SAVINGS_MODEL = "reduction_estimate_times_effective_tax_rate"
 SUPPORTED_PROPERTY_TYPES = {"sfr"}
 SEGMENT_MIN_COUNT = 6
 NEIGHBORHOOD_MIN_COUNT = 20

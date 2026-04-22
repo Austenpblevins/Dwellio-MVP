@@ -9,8 +9,10 @@ from app.core.config import get_settings
 from app.county_adapters.common.config_loader import load_county_adapter_config
 from app.db.connection import get_connection
 from app.services.instant_quote import (
+    CURRENT_PUBLIC_SAVINGS_MODEL,
     EXTREME_SAVINGS_REVIEW_RATIO,
     InstantQuoteService,
+    QUOTE_VERSION,
 )
 from app.services.instant_quote_tax_completeness import (
     classify_instant_quote_tax_completeness,
@@ -40,6 +42,8 @@ class InstantQuoteValidationReport:
     instant_quote_supportable_rows: int
     supported_neighborhood_stats_rows: int
     supported_segment_stats_rows: int
+    quote_version: str = QUOTE_VERSION
+    current_public_savings_model: str = CURRENT_PUBLIC_SAVINGS_MODEL
     tax_rate_basis_year: int | None = None
     tax_rate_basis_reason: str | None = None
     tax_rate_basis_fallback_applied: bool = False
