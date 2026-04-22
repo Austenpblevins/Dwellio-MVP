@@ -60,6 +60,24 @@ REFINED_REVIEW_CTA = (
 
 FallbackTier = Literal["segment_within_neighborhood", "neighborhood_only", "unsupported"]
 TaxLimitationOutcome = Literal["normal", "constrained", "suppressed"]
+WarningActionClass = Literal["suppress", "constrain", "disclose", "QA_only"]
+WarningSeverity = Literal["low", "medium", "high"]
+OpportunityVsSavingsState = Literal[
+    "standard_quote",
+    "strong_opportunity_high_cash",
+    "strong_opportunity_low_cash",
+    "supported_opportunity_low_cash",
+    "opportunity_only_tax_profile_incomplete",
+    "school_limited_non_school_possible",
+    "near_total_exemption_low_cash",
+    "total_exemption_low_cash",
+    "tax_profile_low_quality",
+    "suppressed_data_quality",
+    "unsupported_value_signal",
+    "unsupported_property_type",
+    "no_opportunity_detected",
+    "manual_review_recommended",
+]
 
 AssessmentBasisSourceValueType = Literal[
     "certified",
@@ -75,6 +93,146 @@ AssessmentBasisQualityCode = Literal[
     "prior_year_fallback",
     "missing",
 ]
+
+LOW_CASH_SAVINGS_THRESHOLD = 250.0
+HIGH_CASH_SAVINGS_THRESHOLD = 1000.0
+STRONG_OPPORTUNITY_REDUCTION_RATIO = 0.10
+WARNING_ACTION_CLASS_ORDER: tuple[WarningActionClass, ...] = (
+    "suppress",
+    "constrain",
+    "disclose",
+    "QA_only",
+)
+WARNING_TAXONOMY_RULES: dict[str, dict[str, str | None]] = {
+    "unsupported_property_type": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "value_support",
+        "affected_unit_mask": "all",
+        "public_disclosure_code": "unsupported_property_type",
+        "qa_note": "Property type remains out of instant-quote scope.",
+    },
+    "missing_living_area": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "data_completeness",
+        "affected_unit_mask": "value_only",
+        "public_disclosure_code": "missing_living_area",
+        "qa_note": "Living area is required for PSF-based value support.",
+    },
+    "missing_assessment_basis": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "value_support",
+        "affected_unit_mask": "value_only",
+        "public_disclosure_code": "missing_assessment_basis",
+        "qa_note": "Preserve the explicit missing assessment basis blocker for investigation.",
+    },
+    "missing_neighborhood_code": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "value_support",
+        "affected_unit_mask": "value_only",
+        "public_disclosure_code": "missing_neighborhood_support",
+        "qa_note": "Neighborhood support remains unavailable for this parcel-year.",
+    },
+    "missing_effective_tax_rate": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "tax_rate",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": "missing_effective_tax_rate",
+        "qa_note": "Tax-rate support is incomplete for the selected basis year.",
+    },
+    "freeze_without_qualifying_exemption": {
+        "warning_action_class": "constrain",
+        "warning_severity": "high",
+        "affected_subsystem": "cap_limit",
+        "affected_unit_mask": "school_tax",
+        "public_disclosure_code": "tax_limitation_uncertain",
+        "qa_note": "Freeze signal exists without a matching qualifying exemption.",
+    },
+    "assessment_exemption_total_mismatch": {
+        "warning_action_class": "QA_only",
+        "warning_severity": "medium",
+        "affected_subsystem": "exemption_profile",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": None,
+        "qa_note": "Assessment and exemption totals disagree and need operator review.",
+    },
+    "missing_exemption_amount": {
+        "warning_action_class": "QA_only",
+        "warning_severity": "medium",
+        "affected_subsystem": "exemption_profile",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": None,
+        "qa_note": "Exemption amount detail is incomplete but not a direct public blocker.",
+    },
+    "homestead_flag_mismatch": {
+        "warning_action_class": "QA_only",
+        "warning_severity": "medium",
+        "affected_subsystem": "exemption_profile",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": None,
+        "qa_note": "Assessment and exemption layers disagree on homestead status.",
+    },
+    "prior_year_assessment_basis_fallback": {
+        "warning_action_class": "disclose",
+        "warning_severity": "medium",
+        "affected_subsystem": "value_support",
+        "affected_unit_mask": "value_only",
+        "public_disclosure_code": "prior_year_assessment_basis_fallback",
+        "qa_note": "Current-year assessed basis fell back to prior-year values.",
+    },
+    "prior_year_living_area_fallback": {
+        "warning_action_class": "disclose",
+        "warning_severity": "low",
+        "affected_subsystem": "data_completeness",
+        "affected_unit_mask": "value_only",
+        "public_disclosure_code": None,
+        "qa_note": "Living area was sourced from the prior year.",
+    },
+    "tax_rate_basis_fallback_applied": {
+        "warning_action_class": "constrain",
+        "warning_severity": "medium",
+        "affected_subsystem": "tax_rate",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": "tax_rate_basis_fallback_applied",
+        "qa_note": "Tax-rate basis fell back off the requested year.",
+    },
+    "tax_rate_basis_current_year_unofficial_or_proposed": {
+        "warning_action_class": "disclose",
+        "warning_severity": "medium",
+        "affected_subsystem": "tax_rate",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": "tax_rate_basis_current_year_unofficial_or_proposed",
+        "qa_note": "Current-year rates are not fully adopted yet.",
+    },
+    "low_confidence_refined_review": {
+        "warning_action_class": "suppress",
+        "warning_severity": "medium",
+        "affected_subsystem": "runtime_guardrail",
+        "affected_unit_mask": "all",
+        "public_disclosure_code": "low_confidence_refined_review",
+        "qa_note": "Confidence threshold suppressed the public quote.",
+    },
+    "tax_limitation_uncertain": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "cap_limit",
+        "affected_unit_mask": "tax_only",
+        "public_disclosure_code": "tax_limitation_uncertain",
+        "qa_note": "Runtime guardrail suppressed savings due to uncertain tax limitations.",
+    },
+    "implausible_savings_outlier": {
+        "warning_action_class": "suppress",
+        "warning_severity": "high",
+        "affected_subsystem": "runtime_guardrail",
+        "affected_unit_mask": "all",
+        "public_disclosure_code": "implausible_savings_outlier",
+        "qa_note": "Savings estimate exceeded the public-safe outlier threshold.",
+    },
+}
 
 
 def _shutdown_persistence_executor() -> None:
@@ -2461,6 +2619,14 @@ class InstantQuoteService:
                     "unsupported_reason": blocker_code,
                     "fallback_tier": "unsupported",
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason=str(blocker_code),
+                        reduction_estimate=None,
+                        savings_estimate=None,
+                        confidence_score=None,
+                        tax_limitation_outcome=None,
+                    ),
                 }
             )
             return response, telemetry
@@ -2498,6 +2664,14 @@ class InstantQuoteService:
                     "unsupported_reason": unsupported_reason,
                     "fallback_tier": "unsupported",
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason=unsupported_reason,
+                        reduction_estimate=None,
+                        savings_estimate=None,
+                        confidence_score=None,
+                        tax_limitation_outcome=None,
+                    ),
                 }
             )
             return response, telemetry
@@ -2523,6 +2697,14 @@ class InstantQuoteService:
                     "fallback_tier": "unsupported",
                     "neighborhood_sample_count": neighborhood_stats.parcel_count,
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason="thin_market_support",
+                        reduction_estimate=None,
+                        savings_estimate=None,
+                        confidence_score=None,
+                        tax_limitation_outcome=None,
+                    ),
                 }
             )
             return response, telemetry
@@ -2561,6 +2743,14 @@ class InstantQuoteService:
                     "segment_sample_count": segment_stats.parcel_count if segment_stats else 0,
                     "neighborhood_sample_count": neighborhood_stats.parcel_count,
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason="thin_market_support",
+                        reduction_estimate=None,
+                        savings_estimate=None,
+                        confidence_score=None,
+                        tax_limitation_outcome=None,
+                    ),
                 }
             )
             return response, telemetry
@@ -2604,6 +2794,14 @@ class InstantQuoteService:
                     "unsupported_reason": "thin_market_support",
                     "fallback_tier": "unsupported",
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason="thin_market_support",
+                        reduction_estimate=None,
+                        savings_estimate=None,
+                        confidence_score=None,
+                        tax_limitation_outcome=None,
+                    ),
                 }
             )
             return response, telemetry
@@ -2673,6 +2871,14 @@ class InstantQuoteService:
                     "reduction_estimate_raw": reduction_estimate,
                     "savings_estimate_raw": savings_estimate,
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason=unsupported_reason,
+                        reduction_estimate=reduction_estimate,
+                        savings_estimate=savings_estimate,
+                        confidence_score=confidence_score,
+                        tax_limitation_outcome=tax_limitation_outcome,
+                    ),
                 }
             )
             return response, telemetry
@@ -2716,6 +2922,14 @@ class InstantQuoteService:
                     "reduction_estimate_raw": reduction_estimate,
                     "savings_estimate_raw": savings_estimate,
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason="tax_limitation_uncertain",
+                        reduction_estimate=reduction_estimate,
+                        savings_estimate=savings_estimate,
+                        confidence_score=confidence_score,
+                        tax_limitation_outcome=tax_limitation_outcome,
+                    ),
                 }
             )
             return response, telemetry
@@ -2762,6 +2976,14 @@ class InstantQuoteService:
                     "reduction_estimate_raw": reduction_estimate,
                     "savings_estimate_raw": savings_estimate,
                     "explanation_payload": response.explanation.model_dump(),
+                    **build_internal_classification_payload(
+                        subject_row=subject_row,
+                        unsupported_reason="implausible_savings_outlier",
+                        reduction_estimate=reduction_estimate,
+                        savings_estimate=savings_estimate,
+                        confidence_score=confidence_score,
+                        tax_limitation_outcome=tax_limitation_outcome,
+                    ),
                 }
             )
             return response, telemetry
@@ -2869,6 +3091,14 @@ class InstantQuoteService:
                 "public_savings_range_high": estimate.savings_range_high,
                 "public_estimate_bucket": estimate.estimate_bucket,
                 "explanation_payload": response.explanation.model_dump(),
+                **build_internal_classification_payload(
+                    subject_row=subject_row,
+                    unsupported_reason=None,
+                    reduction_estimate=reduction_estimate,
+                    savings_estimate=savings_estimate,
+                    confidence_score=confidence_score,
+                    tax_limitation_outcome=tax_limitation_outcome,
+                ),
             }
         )
         return response, telemetry
@@ -2992,6 +3222,8 @@ class InstantQuoteService:
                 "fallback_tier": telemetry.get("fallback_tier"),
                 "unsupported_reason": response.unsupported_reason,
                 "confidence_label": telemetry.get("confidence_label"),
+                "opportunity_vs_savings_state": telemetry.get("opportunity_vs_savings_state"),
+                "dominant_warning_action_class": telemetry.get("dominant_warning_action_class"),
                 "latency_ms": telemetry.get("latency_ms"),
             },
         )
@@ -3036,12 +3268,17 @@ class InstantQuoteService:
                           segment_sample_count,
                           tax_rate_source_method,
                           fallback_tier,
+                          warning_action_classes,
+                          dominant_warning_action_class,
+                          warning_taxonomy_json,
+                          opportunity_vs_savings_state,
+                          product_state_reason_code,
                           unsupported_reason,
                           explanation_payload,
                           latency_ms
                         )
                         VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -3073,6 +3310,11 @@ class InstantQuoteService:
                             telemetry.get("segment_sample_count"),
                             telemetry.get("tax_rate_source_method"),
                             telemetry.get("fallback_tier"),
+                            telemetry.get("warning_action_classes") or [],
+                            telemetry.get("dominant_warning_action_class"),
+                            Jsonb(telemetry.get("warning_taxonomy_json") or []),
+                            telemetry.get("opportunity_vs_savings_state"),
+                            telemetry.get("product_state_reason_code"),
                             response_payload.get("unsupported_reason"),
                             Jsonb(telemetry.get("explanation_payload") or {}),
                             telemetry.get("latency_ms"),
@@ -3264,6 +3506,178 @@ def build_public_bullets(
     if tax_protection_limited:
         bullets.append(CONSTRAINED_SAVINGS_NOTE)
     return bullets
+
+
+def _warning_taxonomy_entry(warning_code: str) -> dict[str, str | None] | None:
+    rule = WARNING_TAXONOMY_RULES.get(warning_code)
+    if rule is None:
+        return None
+    return {
+        "warning_code": warning_code,
+        "warning_action_class": rule["warning_action_class"],
+        "warning_severity": rule["warning_severity"],
+        "affected_subsystem": rule["affected_subsystem"],
+        "affected_unit_mask": rule["affected_unit_mask"],
+        "public_disclosure_code": rule["public_disclosure_code"],
+        "qa_note": rule["qa_note"],
+    }
+
+
+def build_internal_warning_taxonomy(
+    *,
+    subject_row: dict[str, Any],
+    unsupported_reason: str | None = None,
+) -> list[dict[str, str | None]]:
+    ordered_codes: list[str] = []
+    blocker_code = str(subject_row.get("support_blocker_code") or "").strip()
+    if blocker_code:
+        ordered_codes.append(blocker_code)
+
+    for warning_code in subject_row.get("warning_codes") or []:
+        code = str(warning_code or "").strip()
+        if code:
+            ordered_codes.append(code)
+
+    if bool(subject_row.get("effective_tax_rate_basis_fallback_applied")):
+        ordered_codes.append("tax_rate_basis_fallback_applied")
+    if (
+        str(subject_row.get("effective_tax_rate_basis_status") or "")
+        == TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES
+    ):
+        ordered_codes.append("tax_rate_basis_current_year_unofficial_or_proposed")
+    if unsupported_reason:
+        ordered_codes.append(unsupported_reason)
+
+    entries: list[dict[str, str | None]] = []
+    seen_codes: set[str] = set()
+    for warning_code in ordered_codes:
+        if warning_code in seen_codes:
+            continue
+        seen_codes.add(warning_code)
+        entry = _warning_taxonomy_entry(warning_code)
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def summarize_warning_action_classes(
+    warning_taxonomy: list[dict[str, str | None]],
+) -> tuple[list[str], str | None]:
+    action_classes: list[str] = []
+    for action_class in WARNING_ACTION_CLASS_ORDER:
+        if any(entry.get("warning_action_class") == action_class for entry in warning_taxonomy):
+            action_classes.append(action_class)
+    dominant_action_class = action_classes[0] if action_classes else None
+    return action_classes, dominant_action_class
+
+
+def classify_opportunity_vs_savings_state(
+    *,
+    subject_row: dict[str, Any],
+    unsupported_reason: str | None,
+    reduction_estimate: float | None,
+    savings_estimate: float | None,
+    confidence_score: float | None,
+    tax_limitation_outcome: TaxLimitationOutcome | None,
+) -> tuple[OpportunityVsSavingsState, str]:
+    blocker_code = str(subject_row.get("support_blocker_code") or "").strip()
+    if blocker_code == "unsupported_property_type":
+        return ("unsupported_property_type", "support_blocker_unsupported_property_type")
+    if blocker_code:
+        return ("suppressed_data_quality", f"support_blocker_{blocker_code}")
+
+    if unsupported_reason == "instant_quote_not_ready":
+        return ("unsupported_value_signal", "unsupported_reason_instant_quote_not_ready")
+    if unsupported_reason == "thin_market_support":
+        return ("unsupported_value_signal", "unsupported_reason_thin_market_support")
+    if unsupported_reason == "low_confidence_refined_review":
+        return ("manual_review_recommended", "unsupported_reason_low_confidence_refined_review")
+    if unsupported_reason == "implausible_savings_outlier":
+        return ("manual_review_recommended", "unsupported_reason_implausible_savings_outlier")
+    if unsupported_reason == "tax_limitation_uncertain":
+        return ("opportunity_only_tax_profile_incomplete", "unsupported_reason_tax_limitation_uncertain")
+
+    reduction_estimate_value = max(reduction_estimate or 0.0, 0.0)
+    savings_estimate_value = max(savings_estimate or 0.0, 0.0)
+    basis_value = max(_as_float(subject_row.get("assessment_basis_value")) or 0.0, 0.0)
+    reduction_ratio = (
+        reduction_estimate_value / basis_value if basis_value > 0 and reduction_estimate_value > 0 else 0.0
+    )
+
+    if reduction_estimate_value <= 0:
+        return ("no_opportunity_detected", "reduction_estimate_zero")
+
+    if tax_limitation_outcome == "suppressed":
+        return ("opportunity_only_tax_profile_incomplete", "tax_limitation_suppressed")
+
+    if savings_estimate_value <= 0:
+        if bool(subject_row.get("disabled_veteran_flag")):
+            return ("total_exemption_low_cash", "disabled_veteran_low_cash")
+        if bool(subject_row.get("homestead_flag")) and bool(subject_row.get("freeze_flag")):
+            return ("school_limited_non_school_possible", "freeze_low_cash")
+        if reduction_ratio >= STRONG_OPPORTUNITY_REDUCTION_RATIO:
+            return ("strong_opportunity_low_cash", "strong_value_gap_low_cash")
+        return ("supported_opportunity_low_cash", "supported_value_gap_low_cash")
+
+    if tax_limitation_outcome == "constrained":
+        if bool(subject_row.get("freeze_flag")):
+            return ("school_limited_non_school_possible", "freeze_constrained")
+        if bool(subject_row.get("disabled_veteran_flag")):
+            return ("near_total_exemption_low_cash", "disabled_veteran_constrained")
+        if reduction_ratio >= STRONG_OPPORTUNITY_REDUCTION_RATIO:
+            return ("strong_opportunity_low_cash", "constrained_strong_value_gap")
+        return ("supported_opportunity_low_cash", "constrained_supported_value_gap")
+
+    if confidence_score is not None and confidence_score < 65:
+        return ("tax_profile_low_quality", "confidence_below_public_high_threshold")
+
+    if savings_estimate_value < LOW_CASH_SAVINGS_THRESHOLD:
+        if reduction_ratio >= STRONG_OPPORTUNITY_REDUCTION_RATIO:
+            return ("strong_opportunity_low_cash", "strong_value_gap_low_cash")
+        return ("supported_opportunity_low_cash", "supported_value_gap_low_cash")
+
+    if (
+        reduction_ratio >= STRONG_OPPORTUNITY_REDUCTION_RATIO
+        and savings_estimate_value >= HIGH_CASH_SAVINGS_THRESHOLD
+    ):
+        return ("strong_opportunity_high_cash", "strong_value_gap_high_cash")
+
+    return ("standard_quote", "public_safe_standard_quote")
+
+
+def build_internal_classification_payload(
+    *,
+    subject_row: dict[str, Any],
+    unsupported_reason: str | None,
+    reduction_estimate: float | None,
+    savings_estimate: float | None,
+    confidence_score: float | None,
+    tax_limitation_outcome: TaxLimitationOutcome | None,
+) -> dict[str, Any]:
+    warning_taxonomy = build_internal_warning_taxonomy(
+        subject_row=subject_row,
+        unsupported_reason=unsupported_reason,
+    )
+    warning_action_classes, dominant_warning_action_class = summarize_warning_action_classes(
+        warning_taxonomy
+    )
+    opportunity_vs_savings_state, product_state_reason_code = (
+        classify_opportunity_vs_savings_state(
+            subject_row=subject_row,
+            unsupported_reason=unsupported_reason,
+            reduction_estimate=reduction_estimate,
+            savings_estimate=savings_estimate,
+            confidence_score=confidence_score,
+            tax_limitation_outcome=tax_limitation_outcome,
+        )
+    )
+    return {
+        "warning_action_classes": warning_action_classes,
+        "dominant_warning_action_class": dominant_warning_action_class,
+        "warning_taxonomy_json": warning_taxonomy,
+        "opportunity_vs_savings_state": opportunity_vs_savings_state,
+        "product_state_reason_code": product_state_reason_code,
+    }
 
 
 def round_display_value(value: float) -> float:

@@ -15,7 +15,10 @@ from app.services.instant_quote import (
     assign_age_bucket,
     assign_size_bucket,
     build_public_estimate,
+    build_internal_classification_payload,
+    build_internal_warning_taxonomy,
     calculate_distribution_stats,
+    classify_opportunity_vs_savings_state,
     choose_fallback,
     confidence_label_for_score,
     determine_tax_limitation_outcome,
@@ -229,6 +232,83 @@ def test_extract_assessment_basis_contract_coerces_typed_basis_metadata() -> Non
         "assessment_basis_source_reason": "prior_year_certified_fallback",
         "assessment_basis_quality_code": "prior_year_fallback",
     }
+
+
+def test_build_internal_warning_taxonomy_maps_existing_warning_behavior() -> None:
+    warning_taxonomy = build_internal_warning_taxonomy(
+        subject_row={
+            "support_blocker_code": "missing_assessment_basis",
+            "warning_codes": [
+                "prior_year_assessment_basis_fallback",
+                "missing_exemption_amount",
+                "freeze_without_qualifying_exemption",
+            ],
+            "effective_tax_rate_basis_fallback_applied": True,
+            "effective_tax_rate_basis_status": (
+                TAX_RATE_BASIS_STATUS_CURRENT_YEAR_UNOFFICIAL_OR_PROPOSED_RATES
+            ),
+        },
+        unsupported_reason="tax_limitation_uncertain",
+    )
+
+    assert [entry["warning_code"] for entry in warning_taxonomy] == [
+        "missing_assessment_basis",
+        "prior_year_assessment_basis_fallback",
+        "missing_exemption_amount",
+        "freeze_without_qualifying_exemption",
+        "tax_rate_basis_fallback_applied",
+        "tax_rate_basis_current_year_unofficial_or_proposed",
+        "tax_limitation_uncertain",
+    ]
+    assert warning_taxonomy[0]["warning_action_class"] == "suppress"
+    assert warning_taxonomy[1]["warning_action_class"] == "disclose"
+    assert warning_taxonomy[2]["warning_action_class"] == "QA_only"
+    assert warning_taxonomy[3]["warning_action_class"] == "constrain"
+
+
+def test_classify_opportunity_vs_savings_state_marks_tax_uncertain_case_as_opportunity_only() -> None:
+    state, reason = classify_opportunity_vs_savings_state(
+        subject_row={
+            "support_blocker_code": None,
+            "assessment_basis_value": 350000.0,
+            "homestead_flag": True,
+            "freeze_flag": True,
+            "disabled_veteran_flag": False,
+        },
+        unsupported_reason="tax_limitation_uncertain",
+        reduction_estimate=42000.0,
+        savings_estimate=0.0,
+        confidence_score=82.0,
+        tax_limitation_outcome="suppressed",
+    )
+
+    assert state == "opportunity_only_tax_profile_incomplete"
+    assert reason == "unsupported_reason_tax_limitation_uncertain"
+
+
+def test_build_internal_classification_payload_keeps_low_cash_supported_state_internal() -> None:
+    payload = build_internal_classification_payload(
+        subject_row={
+            "support_blocker_code": None,
+            "assessment_basis_value": 350000.0,
+            "homestead_flag": True,
+            "freeze_flag": False,
+            "disabled_veteran_flag": False,
+            "warning_codes": ["prior_year_assessment_basis_fallback"],
+            "effective_tax_rate_basis_fallback_applied": True,
+            "effective_tax_rate_basis_status": TAX_RATE_BASIS_STATUS_PRIOR_YEAR_ADOPTED_RATES,
+        },
+        unsupported_reason=None,
+        reduction_estimate=45000.0,
+        savings_estimate=120.0,
+        confidence_score=82.0,
+        tax_limitation_outcome="normal",
+    )
+
+    assert payload["warning_action_classes"] == ["constrain", "disclose"]
+    assert payload["dominant_warning_action_class"] == "constrain"
+    assert payload["opportunity_vs_savings_state"] == "strong_opportunity_low_cash"
+    assert payload["product_state_reason_code"] == "strong_value_gap_low_cash"
 
 
 def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:
