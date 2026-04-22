@@ -131,9 +131,6 @@ class ParcelTaxRateComponent(DwellioBaseModel):
     rate_component: str | None = None
     rate_value: float | None = None
     rate_per_100: float | None = None
-    assignment_method: str | None = None
-    assignment_confidence: float | None = None
-    assignment_reason_code: str | None = None
     is_primary: bool | None = None
 
 

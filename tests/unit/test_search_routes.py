@@ -97,6 +97,21 @@ def test_public_search_route_keeps_public_safe_payload(monkeypatch) -> None:
     assert "matched_fields" not in payload["results"][0]
 
 
+def test_public_autocomplete_route_keeps_public_safe_payload(monkeypatch) -> None:
+    monkeypatch.setattr("app.api.search.AddressResolverService", StubAddressResolverService)
+
+    client = TestClient(app)
+    response = client.get("/search/autocomplete", params={"query": "101"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["suggestions"][0]["match_basis"] == "address_prefix"
+    assert payload["suggestions"][0]["confidence_label"] == "high"
+    assert "confidence_reasons" not in payload["suggestions"][0]
+    assert "score_components" not in payload["suggestions"][0]
+    assert "matched_fields" not in payload["suggestions"][0]
+
+
 def test_admin_search_inspect_route_returns_debug_fields(monkeypatch) -> None:
     monkeypatch.setattr("app.api.admin.AddressResolverService", StubAddressResolverService)
 

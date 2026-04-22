@@ -207,6 +207,22 @@ def test_quote_routes_map_missing_quote_rows_to_404(monkeypatch, path: str, expe
     assert response.json()["detail"] == expected_detail
 
 
+def test_instant_quote_route_maps_not_implemented_to_501(monkeypatch) -> None:
+    class UnsupportedInstantQuoteService:
+        def get_quote(
+            self, *, county_id: str, tax_year: int, account_number: str
+        ) -> InstantQuoteResponse:
+            raise NotImplementedError("instant quote not available")
+
+    monkeypatch.setattr("app.api.quote.InstantQuoteService", UnsupportedInstantQuoteService)
+
+    client = TestClient(app)
+    response = client.get("/quote/instant/harris/2026/1001001001001")
+
+    assert response.status_code == 501
+    assert response.json()["detail"] == "instant quote not available"
+
+
 def test_quote_read_service_raises_when_missing(monkeypatch) -> None:
     from tests.unit.test_search_services import connection_factory
 

@@ -71,28 +71,28 @@ Second wave once the first tranche stabilizes:
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S2-T1` | Finalize Harris/Fort Bend county-year onboarding checklist | `P0` | `Ready` | none | Each county-year has one operator-facing checklist covering raw files, prep, validation, publish, and rollback |
-| `S2-T2` | Define the raw -> ready -> register -> ingest workflow contract | `P0` | `Ready` | none | A non-engineer can follow the workflow without guessing file state, naming, or step order |
-| `S2-T3` | Clarify readiness dashboard status meanings | `P0` | `Ready` | none | Every readiness state clearly explains why a county-year is or is not quote-ready |
-| `S2-T4` | Document publish / rollback / retry-maintenance rules | `P0` | `Ready` | none | Operators know when to publish, roll back, retry, or escalate without developer intervention |
-| `S2-T5` | Create schema-drift, malformed-file, and historical-validation SOP | `P1` | `Ready` | none | There is a standard response for file-shape changes, malformed inputs, and suspicious year-over-year validation results |
+| `S2-T1` | Finalize Harris/Fort Bend county-year onboarding checklist | `P0` | `Done` | none | Each county-year has one operator-facing checklist covering raw files, prep, validation, publish, and rollback |
+| `S2-T2` | Define the raw -> ready -> register -> ingest workflow contract | `P0` | `Done` | none | A non-engineer can follow the workflow without guessing file state, naming, or step order |
+| `S2-T3` | Clarify readiness dashboard status meanings | `P0` | `Done` | none | Every readiness state clearly explains why a county-year is or is not quote-ready |
+| `S2-T4` | Document publish / rollback / retry-maintenance rules | `P0` | `Done` | none | Operators know when to publish, roll back, retry, or escalate without developer intervention |
+| `S2-T5` | Create schema-drift, malformed-file, and historical-validation SOP | `P1` | `Done` | none | There is a standard response for file-shape changes, malformed inputs, and suspicious year-over-year validation results |
 
 ### Stage 3 - Public read-model foundation hardening
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S3-T1` | Lock the canonical public route inventory | `P0` | `Ready` | none | There is one approved list of public routes and their intended public-safe purpose |
-| `S3-T2` | Run a public payload safety and owner-masking audit | `P0` | `Ready` | `S3-T1` | Each public route is checked for debug leakage, restricted data, raw comps, and masking mistakes |
-| `S3-T3` | Define unsupported-state and fallback contract | `P0` | `Blocked` | `S2-T3`, `S3-T1`, `S3-T2` | Unsupported county, unsupported property, missing readiness, and system-failure states are explicit and user-safe |
-| `S3-T4` | Define route smoke-test matrix | `P1` | `Blocked` | `S3-T1`, `S3-T3` | Every public route has a minimum smoke-test or contract-test expectation |
-| `S3-T5` | Define frontend-safe payload guarantees | `P1` | `Blocked` | `S3-T2`, `S3-T3` | Frontend consumers know which fields are stable, optional, derived, or never public |
+| `S3-T1` | Lock the canonical public route inventory | `P0` | `Done` | none | There is one approved list of public routes and their intended public-safe purpose |
+| `S3-T2` | Run a public payload safety and owner-masking audit | `P0` | `Done` | `S3-T1` | Each public route is checked for debug leakage, restricted data, raw comps, and masking mistakes |
+| `S3-T3` | Define unsupported-state and fallback contract | `P0` | `Done` | `S2-T3`, `S3-T1`, `S3-T2` | Unsupported county, unsupported property, missing readiness, and system-failure states are explicit and user-safe |
+| `S3-T4` | Define route smoke-test matrix | `P1` | `Done` | `S3-T1`, `S3-T3` | Every public route has a minimum smoke-test or contract-test expectation |
+| `S3-T5` | Define frontend-safe payload guarantees | `P1` | `Ready` | `S3-T2`, `S3-T3` | Frontend consumers know which fields are stable, optional, derived, or never public |
 
 ### Stage 4 - Instant quote serving maturity
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S4-T1` | Create instant-quote readiness checklist and supportability thresholds | `P0` | `Blocked` | `S2-T3`, `S3-T3` | Operators can tell whether a county-year is safe to serve for instant quote and why |
-| `S4-T2` | Lock tax-rate basis and basis-status policy | `P0` | `Blocked` | `S3-T3` | Same-year vs prior-year basis handling is documented for ops, product, QA, and customer-safe behavior |
+| `S4-T1` | Create instant-quote readiness checklist and supportability thresholds | `P0` | `Ready` | `S2-T3`, `S3-T3` | Operators can tell whether a county-year is safe to serve for instant quote and why |
+| `S4-T2` | Lock tax-rate basis and basis-status policy | `P0` | `Ready` | `S3-T3` | Same-year vs prior-year basis handling is documented for ops, product, QA, and customer-safe behavior |
 | `S4-T3` | Define refresh-run audit and quote-quality monitoring SOP | `P1` | `Blocked` | `S4-T1`, `S4-T2` | Refresh quality, stale data, bad estimates, and supportability drift can be reviewed and escalated consistently |
 | `S4-T4` | Finalize public-safe estimate copy set | `P1` | `Blocked` | `S4-T1`, `S4-T2` | Instant quote copy is useful for acquisition without implying final protest analysis or guaranteed outcomes |
 | `S4-T5` | Define instant-quote telemetry and suppression reporting requirements | `P1` | `Blocked` | `S4-T1`, `S4-T3` | Product and ops can monitor refresh health, supportability mix, suppressed outcomes, and quote drift |
@@ -101,9 +101,9 @@ Second wave once the first tranche stabilizes:
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S5-T1` | Define all funnel states | `P0` | `Ready` | none | Quote-ready, unsupported county, unsupported property, missing quote-ready row, and system/config failure each have a clear state definition |
+| `S5-T1` | Define all funnel states | `P0` | `Done` | none | Quote-ready, unsupported county, unsupported property, missing quote-ready row, and system/config failure each have a clear state definition |
 | `S5-T2` | Create UX copy matrix and CTA rules for each funnel state | `P0` | `Blocked` | `S3-T3`, `S4-T4`, `S5-T1` | Every funnel state has approved user messaging and CTA behavior |
-| `S5-T3` | Define duplicate-lead and parcel-year attribution rules | `P0` | `Blocked` | `S5-T1` | Repeat submissions, requested tax year, served tax year, county, and parcel context are handled consistently |
+| `S5-T3` | Define duplicate-lead and parcel-year attribution rules | `P0` | `Ready` | `S5-T1` | Repeat submissions, requested tax year, served tax year, county, and parcel context are handled consistently |
 | `S5-T4` | Define lead-event auditability and admin lead reporting requirements | `P1` | `Blocked` | `S5-T1`, `S5-T3` | Ops can reconstruct what the user saw and submitted and review lead volume and quality |
 | `S5-T5` | Define quote-ready vs unsupported-demand analytics | `P1` | `Blocked` | `S4-T1`, `S5-T1`, `S5-T3` | Reporting separates supported demand from interest in unsupported or unreachable cases |
 
@@ -111,7 +111,7 @@ Second wave once the first tranche stabilizes:
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S6-T1` | Define the represented-customer model and case-state machine | `P0` | `Blocked` | `S2-T3` | Lead, represented customer, and protest case are distinct and their allowed transitions are explicit |
+| `S6-T1` | Define the represented-customer model and case-state machine | `P0` | `Ready` | `S2-T3` | Lead, represented customer, and protest case are distinct and their allowed transitions are explicit |
 | `S6-T2` | Define operator case queues, assignment rules, and escalation views | `P0` | `Blocked` | `S6-T1` | Internal users can find, assign, and escalate cases without DB access |
 | `S6-T3` | Define case review statuses, override audit rules, and SLA visibility | `P0` | `Blocked` | `S6-T1` | Case review can distinguish weak, incomplete, do-not-pursue, and escalated states with auditable overrides |
 | `S6-T4` | Define lead -> represented customer -> case transition rules | `P0` | `Blocked` | `S5-T3`, `S6-T1` | Downstream agreement work does not need to invent customer/case transitions |
