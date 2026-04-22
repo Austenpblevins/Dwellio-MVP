@@ -21,6 +21,10 @@ from app.models.quote import (
     InstantQuoteResponse,
     InstantQuoteSubject,
 )
+from app.services.instant_quote_product_state_rollout import (
+    apply_public_product_state_rollout,
+    decide_public_product_state_rollout,
+)
 from app.services.instant_quote_shadow_savings import (
     build_shadow_savings_comparison,
     fetch_shadow_tax_profile,
@@ -2422,6 +2426,12 @@ class InstantQuoteService:
                     telemetry=telemetry,
                 )
             )
+            response, rollout_payload = self._apply_public_product_state_rollout(
+                response=response,
+                telemetry=telemetry,
+            )
+            telemetry.update(rollout_payload)
+            telemetry["explanation_payload"] = response.explanation.model_dump()
         latency_ms = int((perf_counter() - started_at) * 1000)
         telemetry["latency_ms"] = latency_ms
         self._emit_logs(response=response, telemetry=telemetry)
@@ -3235,6 +3245,7 @@ class InstantQuoteService:
                 "confidence_label": telemetry.get("confidence_label"),
                 "opportunity_vs_savings_state": telemetry.get("opportunity_vs_savings_state"),
                 "dominant_warning_action_class": telemetry.get("dominant_warning_action_class"),
+                "public_rollout_state": telemetry.get("public_rollout_state"),
                 "shadow_tax_profile_status": telemetry.get("shadow_tax_profile_status"),
                 "shadow_marginal_model_type": telemetry.get("shadow_marginal_model_type"),
                 "latency_ms": telemetry.get("latency_ms"),
@@ -3272,6 +3283,36 @@ class InstantQuoteService:
             "shadow_opportunity_vs_savings_state": payload["opportunity_vs_savings_state"],
             "shadow_limiting_reason_codes": payload["limiting_reason_codes"],
             "shadow_fallback_tax_profile_used_flag": payload["fallback_tax_profile_used_flag"],
+        }
+
+    def _apply_public_product_state_rollout(
+        self,
+        *,
+        response: InstantQuoteResponse,
+        telemetry: dict[str, Any],
+    ) -> tuple[InstantQuoteResponse, dict[str, Any]]:
+        rollout = decide_public_product_state_rollout(
+            response_supported=bool(response.supported),
+            unsupported_reason=response.unsupported_reason,
+            internal_opportunity_state=telemetry.get("opportunity_vs_savings_state"),
+            internal_product_state_reason_code=telemetry.get("product_state_reason_code"),
+            shadow_tax_profile_status=telemetry.get("shadow_tax_profile_status"),
+            shadow_opportunity_vs_savings_state=telemetry.get("shadow_opportunity_vs_savings_state"),
+            shadow_limiting_reason_codes=telemetry.get("shadow_limiting_reason_codes"),
+            shadow_savings_estimate_raw=telemetry.get("shadow_savings_estimate_raw"),
+            shadow_fallback_tax_profile_used_flag=telemetry.get(
+                "shadow_fallback_tax_profile_used_flag"
+            ),
+            refined_review_cta=REFINED_REVIEW_CTA,
+        )
+        updated_response = apply_public_product_state_rollout(
+            response=response,
+            rollout=rollout,
+        )
+        return updated_response, {
+            "public_rollout_state": rollout.public_rollout_state,
+            "public_rollout_reason_code": rollout.public_rollout_reason_code,
+            "public_rollout_applied_flag": rollout.applied_public_change,
         }
 
     def _persist_request_log_best_effort(
@@ -3319,6 +3360,9 @@ class InstantQuoteService:
                           warning_taxonomy_json,
                           opportunity_vs_savings_state,
                           product_state_reason_code,
+                          public_rollout_state,
+                          public_rollout_reason_code,
+                          public_rollout_applied_flag,
                           shadow_profile_version,
                           shadow_savings_estimate_raw,
                           shadow_savings_delta_raw,
@@ -3334,7 +3378,7 @@ class InstantQuoteService:
                           latency_ms
                         )
                         VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -3371,6 +3415,9 @@ class InstantQuoteService:
                             Jsonb(telemetry.get("warning_taxonomy_json") or []),
                             telemetry.get("opportunity_vs_savings_state"),
                             telemetry.get("product_state_reason_code"),
+                            telemetry.get("public_rollout_state"),
+                            telemetry.get("public_rollout_reason_code"),
+                            telemetry.get("public_rollout_applied_flag", False),
                             telemetry.get("shadow_profile_version"),
                             telemetry.get("shadow_savings_estimate_raw"),
                             telemetry.get("shadow_savings_delta_raw"),
