@@ -53,6 +53,12 @@ class _StubCursor:
     def execute(self, *_args, **_kwargs) -> None:
         return None
 
+    def fetchone(self) -> dict[str, object] | None:
+        return None
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return []
+
 
 class _StubConnection:
     def __enter__(self):
@@ -70,6 +76,25 @@ class _StubConnection:
 
 def _patch_request_connection(monkeypatch) -> None:
     monkeypatch.setattr("app.services.instant_quote.get_connection", lambda: _StubConnection())
+
+
+def _sample_shadow_profile(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "profile_version": "v5_summary_profile_v1",
+        "tax_profile_status": "constrained",
+        "tax_profile_quality_score": 58,
+        "marginal_model_type": "school_non_school_split",
+        "marginal_tax_rate_total": 0.021,
+        "marginal_tax_rate_non_school": 0.011,
+        "opportunity_vs_savings_state": "school_limited_non_school_possible",
+        "savings_limited_by_codes": ["school_ceiling_amount_unavailable"],
+        "fallback_tax_profile_used_flag": True,
+        "total_exemption_flag": False,
+        "near_total_exemption_flag": False,
+        "freeze_flag": True,
+    }
+    payload.update(overrides)
+    return payload
 
 
 class _RefreshCursor:
@@ -309,6 +334,123 @@ def test_build_internal_classification_payload_keeps_low_cash_supported_state_in
     assert payload["dominant_warning_action_class"] == "constrain"
     assert payload["opportunity_vs_savings_state"] == "strong_opportunity_low_cash"
     assert payload["product_state_reason_code"] == "strong_value_gap_low_cash"
+
+
+def test_build_shadow_savings_payload_uses_materialized_tax_profile(monkeypatch) -> None:
+    service = InstantQuoteService()
+    monkeypatch.setattr(
+        "app.services.instant_quote.fetch_shadow_tax_profile",
+        lambda *_args, **_kwargs: _sample_shadow_profile(),
+    )
+
+    payload = service._build_shadow_savings_payload(  # type: ignore[attr-defined]
+        connection=object(),
+        subject_row={
+            "parcel_id": uuid4(),
+            "county_id": "fort_bend",
+            "tax_year": 2026,
+        },
+        telemetry={
+            "reduction_estimate_raw": 50000.0,
+            "savings_estimate_raw": 1050.0,
+        },
+    )
+
+    assert payload["shadow_profile_version"] == "v5_summary_profile_v1"
+    assert payload["shadow_tax_profile_status"] == "constrained"
+    assert payload["shadow_marginal_model_type"] == "school_non_school_split"
+    assert payload["shadow_savings_estimate_raw"] == 550.0
+    assert payload["shadow_savings_delta_raw"] == -500.0
+    assert payload["shadow_opportunity_vs_savings_state"] == (
+        "school_limited_non_school_possible"
+    )
+    assert payload["shadow_limiting_reason_codes"] == ["school_ceiling_amount_unavailable"]
+    assert payload["shadow_fallback_tax_profile_used_flag"] is True
+
+
+def test_instant_quote_service_shadow_payload_does_not_change_public_response_shape(
+    monkeypatch,
+) -> None:
+    service = InstantQuoteService()
+    _patch_request_connection(monkeypatch)
+    subject_row = {
+        "parcel_id": uuid4(),
+        "county_id": "harris",
+        "tax_year": 2025,
+        "account_number": "1163480010045",
+        "address": "101 Main St, Houston, TX 77002",
+        "neighborhood_code": "2610.04",
+        "school_district_name": "Houston ISD",
+        "property_type_code": "sfr",
+        "property_class_code": "A1",
+        "living_area_sf": 1232.0,
+        "year_built": 1978,
+        "capped_value": None,
+        "notice_value": 112000.0,
+        "assessment_basis_value": 108129.0,
+        "effective_tax_rate": 0.0072096,
+        "effective_tax_rate_source_method": "component_rollup",
+        "subject_assessed_psf": 87.77,
+        "size_bucket": "lt_1400",
+        "age_bucket": "1970_1989",
+        "support_blocker_code": None,
+        "public_summary_ready_flag": True,
+        "homestead_flag": False,
+        "freeze_flag": False,
+        "over65_flag": False,
+        "disabled_flag": False,
+        "disabled_veteran_flag": False,
+        "warning_codes": [],
+    }
+    neighborhood = InstantQuoteStatsRow(
+        parcel_count=94,
+        p10_assessed_psf=70,
+        p25_assessed_psf=80,
+        p50_assessed_psf=85,
+        p75_assessed_psf=95,
+        p90_assessed_psf=110,
+        mean_assessed_psf=86,
+        median_assessed_psf=85,
+        stddev_assessed_psf=12,
+        coefficient_of_variation=0.12,
+        support_level="strong",
+        support_threshold_met=True,
+    )
+
+    monkeypatch.setattr(service, "_fetch_subject_row", lambda **_: subject_row)
+    monkeypatch.setattr(service, "_fetch_neighborhood_stats", lambda **_: neighborhood)
+    monkeypatch.setattr(service, "_fetch_segment_stats", lambda **_: None)
+    monkeypatch.setattr(service, "_enqueue_request_log_persistence", lambda **_: None)
+    monkeypatch.setattr(service, "_emit_logs", lambda **_: None)
+    monkeypatch.setattr(
+        service,
+        "_build_shadow_savings_payload",
+        lambda **_: {
+            "shadow_profile_version": "v5_summary_profile_v1",
+            "shadow_current_savings_estimate_raw": 0.0,
+            "shadow_savings_estimate_raw": None,
+            "shadow_savings_delta_raw": None,
+            "shadow_tax_profile_status": "opportunity_only",
+            "shadow_tax_profile_quality_score": 30,
+            "shadow_marginal_model_type": "opportunity_only_no_reliable_tax_profile",
+            "shadow_marginal_tax_rate_total": None,
+            "shadow_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "shadow_limiting_reason_codes": ["profile_support_level_summary_only"],
+            "shadow_fallback_tax_profile_used_flag": True,
+        },
+    )
+
+    response = service.get_quote(
+        county_id="harris",
+        tax_year=2025,
+        account_number="1163480010045",
+    )
+
+    payload = response.model_dump()
+    assert response.supported is True
+    assert "shadow_profile_version" not in payload
+    assert "shadow_savings_estimate_raw" not in payload
+    assert payload["estimate"]["savings_midpoint_display"] is not None
 
 
 def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:

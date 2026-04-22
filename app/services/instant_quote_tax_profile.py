@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.connection import get_connection
-from app.services.instant_quote import MATERIAL_CAP_GAP_RATIO
 from app.services.instant_quote_county_tax_capability import (
     InstantQuoteCountyTaxCapabilityService,
 )
 
 INSTANT_QUOTE_TAX_PROFILE_VERSION = "v5_summary_profile_v1"
+MATERIAL_CAP_GAP_RATIO = 0.03
 NEAR_TOTAL_EXEMPTION_RATIO = 0.10
 TOTAL_EXEMPTION_RATIO = 0.01
 

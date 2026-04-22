@@ -21,6 +21,10 @@ from app.models.quote import (
     InstantQuoteResponse,
     InstantQuoteSubject,
 )
+from app.services.instant_quote_shadow_savings import (
+    build_shadow_savings_comparison,
+    fetch_shadow_tax_profile,
+)
 from app.services.instant_quote_tax_rate_basis import (
     SelectedTaxRateBasis,
     SameYearTaxRateAdoptionStatus,
@@ -2411,6 +2415,13 @@ class InstantQuoteService:
                 subject_row=subject_row,
                 requested_tax_year=tax_year,
             )
+            telemetry.update(
+                self._build_shadow_savings_payload(
+                    connection=connection,
+                    subject_row=subject_row,
+                    telemetry=telemetry,
+                )
+            )
         latency_ms = int((perf_counter() - started_at) * 1000)
         telemetry["latency_ms"] = latency_ms
         self._emit_logs(response=response, telemetry=telemetry)
@@ -3224,9 +3235,44 @@ class InstantQuoteService:
                 "confidence_label": telemetry.get("confidence_label"),
                 "opportunity_vs_savings_state": telemetry.get("opportunity_vs_savings_state"),
                 "dominant_warning_action_class": telemetry.get("dominant_warning_action_class"),
+                "shadow_tax_profile_status": telemetry.get("shadow_tax_profile_status"),
+                "shadow_marginal_model_type": telemetry.get("shadow_marginal_model_type"),
                 "latency_ms": telemetry.get("latency_ms"),
             },
         )
+
+    def _build_shadow_savings_payload(
+        self,
+        *,
+        connection: object,
+        subject_row: dict[str, Any],
+        telemetry: dict[str, Any],
+    ) -> dict[str, Any]:
+        tax_profile = fetch_shadow_tax_profile(
+            connection,
+            parcel_id=subject_row.get("parcel_id"),
+            county_id=str(subject_row["county_id"]),
+            tax_year=int(subject_row["tax_year"]),
+        )
+        comparison = build_shadow_savings_comparison(
+            tax_profile=tax_profile,
+            reduction_estimate=telemetry.get("reduction_estimate_raw"),
+            current_savings_estimate=telemetry.get("savings_estimate_raw"),
+        )
+        payload = comparison.as_dict()
+        return {
+            "shadow_profile_version": payload["profile_version"],
+            "shadow_current_savings_estimate_raw": payload["current_savings_estimate_raw"],
+            "shadow_savings_estimate_raw": payload["shadow_savings_estimate_raw"],
+            "shadow_savings_delta_raw": payload["shadow_savings_delta_raw"],
+            "shadow_tax_profile_status": payload["tax_profile_status"],
+            "shadow_tax_profile_quality_score": payload["tax_profile_quality_score"],
+            "shadow_marginal_model_type": payload["marginal_model_type"],
+            "shadow_marginal_tax_rate_total": payload["marginal_tax_rate_total"],
+            "shadow_opportunity_vs_savings_state": payload["opportunity_vs_savings_state"],
+            "shadow_limiting_reason_codes": payload["limiting_reason_codes"],
+            "shadow_fallback_tax_profile_used_flag": payload["fallback_tax_profile_used_flag"],
+        }
 
     def _persist_request_log_best_effort(
         self,
@@ -3273,12 +3319,22 @@ class InstantQuoteService:
                           warning_taxonomy_json,
                           opportunity_vs_savings_state,
                           product_state_reason_code,
+                          shadow_profile_version,
+                          shadow_savings_estimate_raw,
+                          shadow_savings_delta_raw,
+                          shadow_tax_profile_status,
+                          shadow_tax_profile_quality_score,
+                          shadow_marginal_model_type,
+                          shadow_marginal_tax_rate_total,
+                          shadow_opportunity_vs_savings_state,
+                          shadow_limiting_reason_codes,
+                          shadow_fallback_tax_profile_used_flag,
                           unsupported_reason,
                           explanation_payload,
                           latency_ms
                         )
                         VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -3315,6 +3371,16 @@ class InstantQuoteService:
                             Jsonb(telemetry.get("warning_taxonomy_json") or []),
                             telemetry.get("opportunity_vs_savings_state"),
                             telemetry.get("product_state_reason_code"),
+                            telemetry.get("shadow_profile_version"),
+                            telemetry.get("shadow_savings_estimate_raw"),
+                            telemetry.get("shadow_savings_delta_raw"),
+                            telemetry.get("shadow_tax_profile_status"),
+                            telemetry.get("shadow_tax_profile_quality_score"),
+                            telemetry.get("shadow_marginal_model_type"),
+                            telemetry.get("shadow_marginal_tax_rate_total"),
+                            telemetry.get("shadow_opportunity_vs_savings_state"),
+                            telemetry.get("shadow_limiting_reason_codes") or [],
+                            telemetry.get("shadow_fallback_tax_profile_used_flag"),
                             response_payload.get("unsupported_reason"),
                             Jsonb(telemetry.get("explanation_payload") or {}),
                             telemetry.get("latency_ms"),
