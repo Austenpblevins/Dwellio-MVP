@@ -222,6 +222,8 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
         quote_service=StubQuoteService(),  # type: ignore[arg-type]
     ).build_report(county_id="harris", tax_year=2025)
 
+    assert report.quote_version == "instant_quote_v5_stage0_baseline"
+    assert report.current_public_savings_model == "reduction_estimate_times_effective_tax_rate"
     assert report.parcel_rows_with_living_area == 15
     assert report.parcel_rows_with_effective_tax_rate == 12
     assert report.subject_cache_row_count == 9

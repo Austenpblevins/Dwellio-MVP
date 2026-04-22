@@ -17,3 +17,8 @@ def test_settings_have_admin_token_default() -> None:
     settings = get_settings()
     assert isinstance(settings.admin_api_token, str)
     assert settings.admin_api_token != ""
+
+
+def test_settings_default_instant_quote_v5_flag_is_disabled() -> None:
+    settings = get_settings()
+    assert settings.instant_quote_v5_enabled is False
