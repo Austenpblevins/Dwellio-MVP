@@ -1,0 +1,344 @@
+{
+  "calibration_decisions": {
+    "additional_fort_bend_expansion": {
+      "decision": "do_not_expand_beyond_total_exemption_low_cash",
+      "high_opportunity_candidate_applied_count": 0,
+      "high_opportunity_candidate_changed_count": 0,
+      "reason": "school-limited and refined-review cohorts remain unsupported, and high_opportunity_low_cash showed no public estimate improvement in candidate runs.",
+      "refined_review_shadow_quoteable_count": 2
+    },
+    "harris_expansion": {
+      "decision": "remain_constrained",
+      "high_opportunity_candidate_applied_count": 0,
+      "high_opportunity_candidate_changed_count": 0,
+      "reason": "candidate high_opportunity rollout would apply a fallback-driven translated path without producing better public estimates, and opportunity-only rows remain too incomplete."
+    },
+    "keep_enabled_default_rollout_states": [
+      "total_exemption_low_cash"
+    ],
+    "near_total_exemption_low_cash": {
+      "decision": "keep_implemented_but_not_default_enabled",
+      "observed_rows": {
+        "fort_bend": 0,
+        "harris": 0
+      },
+      "reason": "no isolated 2026 live rows were observed in Harris or Fort Bend"
+    },
+    "school_limited_non_school_possible": {
+      "decision": "still_too_risky_for_public_flagged_rollout",
+      "reason": "rows remain unsupported with tax_limitation_uncertain and did not become safely quoteable."
+    },
+    "shadow_quoteable_public_refined_review": {
+      "decision": "still_too_risky_for_public_flagged_rollout",
+      "reason": "manual-review safeguards remain appropriate even when the shadow path shows analytical signal."
+    },
+    "stage8_code_calibration": [
+      "default rollout states reduced to total_exemption_low_cash",
+      "translation now requires stage8-calibrated state-to-limiting-code alignment",
+      "translation now refuses to raise public savings above the current public estimate"
+    ]
+  },
+  "candidate_expansion_review": {
+    "configuration": {
+      "county_ids": "harris,fort_bend",
+      "enabled": true,
+      "rollout_states": "total_exemption_low_cash,near_total_exemption_low_cash,high_opportunity_low_cash,opportunity_only_tax_profile_incomplete,school_limited_non_school_possible,shadow_quoteable_public_refined_review"
+    },
+    "summary": [
+      {
+        "cohorts": {
+          "high_opportunity_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "missing_assessment_basis_control": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 1
+          },
+          "opportunity_only_tax_profile_incomplete": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "school_limited_non_school_possible": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "shadow_quoteable_public_refined_review": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "total_exemption_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          }
+        },
+        "county_id": "harris",
+        "tax_year": 2026
+      },
+      {
+        "cohorts": {
+          "high_opportunity_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "opportunity_only_tax_profile_incomplete": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "school_limited_non_school_possible": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "shadow_quoteable_public_refined_review": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 2
+          },
+          "total_exemption_low_cash": {
+            "applied_accounts": [
+              {
+                "account_number": "3531-04-001-0410-914",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              },
+              {
+                "account_number": "5016-01-001-0170-914",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              },
+              {
+                "account_number": "6250-01-004-1600-907",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              }
+            ],
+            "applied_count": 3,
+            "changed_accounts": [
+              {
+                "account_number": "6250-01-004-1600-907",
+                "current_midpoint": 1050.0,
+                "flagged_midpoint": 0.0,
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              }
+            ],
+            "changed_count": 1,
+            "row_count": 3
+          }
+        },
+        "county_id": "fort_bend",
+        "tax_year": 2026
+      }
+    ]
+  },
+  "current_calibrated_rollout": {
+    "configuration": {
+      "county_ids": "fort_bend",
+      "enabled": true,
+      "rollout_states": "total_exemption_low_cash"
+    },
+    "summary": [
+      {
+        "cohorts": {
+          "high_opportunity_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "missing_assessment_basis_control": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 1
+          },
+          "opportunity_only_tax_profile_incomplete": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "school_limited_non_school_possible": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "shadow_quoteable_public_refined_review": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "total_exemption_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          }
+        },
+        "county_id": "harris",
+        "tax_year": 2026
+      },
+      {
+        "cohorts": {
+          "high_opportunity_low_cash": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "opportunity_only_tax_profile_incomplete": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 0
+          },
+          "school_limited_non_school_possible": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 3
+          },
+          "shadow_quoteable_public_refined_review": {
+            "applied_accounts": [],
+            "applied_count": 0,
+            "changed_accounts": [],
+            "changed_count": 0,
+            "row_count": 2
+          },
+          "total_exemption_low_cash": {
+            "applied_accounts": [
+              {
+                "account_number": "3531-04-001-0410-914",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              },
+              {
+                "account_number": "5016-01-001-0170-914",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              },
+              {
+                "account_number": "6250-01-004-1600-907",
+                "public_rollout_state": "total_exemption_low_cash",
+                "savings_translation_mode": "v5_shadow_tax_profile_rollout",
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              }
+            ],
+            "applied_count": 3,
+            "changed_accounts": [
+              {
+                "account_number": "6250-01-004-1600-907",
+                "current_midpoint": 1050.0,
+                "flagged_midpoint": 0.0,
+                "savings_translation_reason_code": "rollout_state_total_exemption_low_cash"
+              }
+            ],
+            "changed_count": 1,
+            "row_count": 3
+          }
+        },
+        "county_id": "fort_bend",
+        "tax_year": 2026
+      }
+    ]
+  },
+  "current_public_savings_model": "reduction_estimate_times_effective_tax_rate",
+  "reviewed_artifacts": {
+    "stage5": "docs/architecture/instant-quote-v5-stage5-shadow-comparison-20260422.json",
+    "stage6": "docs/architecture/instant-quote-v5-stage6-product-state-rollout-20260422.json",
+    "stage7": "docs/architecture/instant-quote-v5-stage7-flagged-savings-rollout-20260422.json"
+  },
+  "stage5_shadow_signals": [
+    {
+      "county_id": "harris",
+      "high_opportunity_low_cash_count": 0,
+      "max_abs_shadow_delta_raw": 0.0,
+      "mean_shadow_delta_raw": 0.0,
+      "public_unsupported_shadow_quoteable_count": 0,
+      "tax_year": 2026
+    },
+    {
+      "county_id": "fort_bend",
+      "high_opportunity_low_cash_count": 3,
+      "max_abs_shadow_delta_raw": 1072.7895362146855,
+      "mean_shadow_delta_raw": -11.174891002236308,
+      "public_unsupported_shadow_quoteable_count": 2,
+      "tax_year": 2026
+    }
+  ],
+  "stage6_target_shadow_state_counts": [
+    {
+      "county_id": "harris",
+      "target_shadow_state_counts": {
+        "near_total_exemption_low_cash": 0,
+        "opportunity_only_tax_profile_incomplete": 88,
+        "school_limited_non_school_possible": 0,
+        "total_exemption_low_cash": 27402
+      },
+      "tax_year": 2026
+    },
+    {
+      "county_id": "fort_bend",
+      "target_shadow_state_counts": {
+        "near_total_exemption_low_cash": 0,
+        "opportunity_only_tax_profile_incomplete": 11,
+        "school_limited_non_school_possible": 2442,
+        "total_exemption_low_cash": 8117
+      },
+      "tax_year": 2026
+    }
+  ],
+  "stage7_material_translation_rows": [
+    {
+      "account_number": "6250-01-004-1600-907",
+      "cohort": "total_exemption_low_cash",
+      "county_id": "fort_bend",
+      "current_midpoint": 1050.0,
+      "flagged_midpoint": 0.0
+    }
+  ]
+}

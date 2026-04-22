@@ -49,7 +49,7 @@ def test_stage7_rollout_keeps_default_path_when_flag_disabled(monkeypatch) -> No
     monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
     monkeypatch.setenv(
         "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
-        "total_exemption_low_cash,near_total_exemption_low_cash",
+        "total_exemption_low_cash",
     )
     monkeypatch.setenv("DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev")
     from app.core.config import get_settings
@@ -79,7 +79,7 @@ def test_stage7_rollout_applies_only_to_enabled_cohort(monkeypatch) -> None:
     monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
     monkeypatch.setenv(
         "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
-        "total_exemption_low_cash,near_total_exemption_low_cash",
+        "total_exemption_low_cash",
     )
     monkeypatch.setenv("DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev")
     from app.core.config import get_settings
@@ -130,7 +130,7 @@ def test_apply_savings_translation_rollout_replaces_public_estimate_when_enabled
     monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
     monkeypatch.setenv(
         "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
-        "total_exemption_low_cash,near_total_exemption_low_cash",
+        "total_exemption_low_cash",
     )
     monkeypatch.setenv("DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev")
     get_settings.cache_clear()
@@ -167,3 +167,102 @@ def test_apply_savings_translation_rollout_replaces_public_estimate_when_enabled
     assert updated.estimate is not None
     assert updated.estimate.savings_midpoint_display == 0.0
     assert any("summary tax profile" in text for text in updated.disclaimers)
+
+
+def test_stage8_rollout_blocks_non_calibrated_state_even_if_env_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
+    monkeypatch.setenv(
+        "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
+        "total_exemption_low_cash,high_opportunity_low_cash",
+    )
+    monkeypatch.setenv(
+        "DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
+    )
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        blocked = decide_savings_translation_rollout(
+            county_id="fort_bend",
+            response_supported=True,
+            unsupported_reason=None,
+            public_rollout_state="high_opportunity_low_cash",
+            current_savings_estimate_raw=225.0,
+            shadow_savings_estimate_raw=225.0,
+            shadow_tax_profile_status="supported_with_disclosure",
+            shadow_limiting_reason_codes=[
+                "profile_support_level_summary_only",
+                "tax_rate_basis_fallback_applied",
+            ],
+            shadow_fallback_tax_profile_used_flag=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert blocked.savings_translation_applied_flag is False
+    assert blocked.savings_translation_reason_code == "rollout_state_not_stage8_calibrated"
+
+
+def test_stage8_rollout_requires_limiting_evidence_for_enabled_state(monkeypatch) -> None:
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
+    monkeypatch.setenv(
+        "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
+        "total_exemption_low_cash,near_total_exemption_low_cash",
+    )
+    monkeypatch.setenv(
+        "DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
+    )
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        blocked = decide_savings_translation_rollout(
+            county_id="fort_bend",
+            response_supported=True,
+            unsupported_reason=None,
+            public_rollout_state="near_total_exemption_low_cash",
+            current_savings_estimate_raw=250.0,
+            shadow_savings_estimate_raw=100.0,
+            shadow_tax_profile_status="supported_with_disclosure",
+            shadow_limiting_reason_codes=["tax_rate_basis_fallback_applied"],
+            shadow_fallback_tax_profile_used_flag=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert blocked.savings_translation_applied_flag is False
+    assert blocked.savings_translation_reason_code == "rollout_state_limiting_evidence_missing"
+
+
+def test_stage8_rollout_never_raises_public_estimate(monkeypatch) -> None:
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
+    monkeypatch.setenv(
+        "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
+        "near_total_exemption_low_cash",
+    )
+    monkeypatch.setenv(
+        "DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
+    )
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        blocked = decide_savings_translation_rollout(
+            county_id="fort_bend",
+            response_supported=True,
+            unsupported_reason=None,
+            public_rollout_state="near_total_exemption_low_cash",
+            current_savings_estimate_raw=150.0,
+            shadow_savings_estimate_raw=175.0,
+            shadow_tax_profile_status="supported_with_disclosure",
+            shadow_limiting_reason_codes=["near_total_exemption_likely"],
+            shadow_fallback_tax_profile_used_flag=True,
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert blocked.savings_translation_applied_flag is False
+    assert blocked.savings_translation_reason_code == "shadow_exceeds_current_public_estimate"
