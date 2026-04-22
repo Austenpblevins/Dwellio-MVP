@@ -51,7 +51,7 @@ Its architecture is already stronger than a generic MVP plan in several importan
 The next challenge is not "how do we architect an MVP from scratch?"
 The challenge is now:
 
-> **How do we complete the missing business-critical layers - packet generation, agreements, billing, filing prep, submission/proof, customer access, and launch hardening - without weakening the strong architecture already in place?**
+> **How do we complete the missing business-critical layers - especially the advanced equity valuation engine, then packet generation, agreements, billing, filing prep, submission/proof, customer access, and launch hardening - without weakening the strong architecture already in place?**
 
 ### This roadmap is now explicitly a production-MVP launch roadmap
 
@@ -756,9 +756,86 @@ Dwellio gets a stable acquisition funnel that honestly matches what the product 
 
 ---
 
-# Stage 6 - Internal case workflow expansion
+# Stage 6 - Advanced equity valuation engine
+**Status:** major missing build item
+**Goal:** build the defendable protest-analysis engine that produces the core equity value conclusions Dwellio will rely on for case review, packet content, and filing decisions
+
+## Why this stage exists
+
+This is arguably the most important missing build item in the roadmap.
+The protest is based on the equity valuation analysis, not on packet rendering alone.
+If the advanced equity engine is not explicit, the roadmap overstates downstream stages and understates the actual core logic the business depends on.
+
+## Included
+
+- subject parcel feature normalization for protest use
+- equity comp candidate generation
+- comp eligibility and exclusion rules
+- comp ranking and scoring logic
+- adjustment logic for subject-to-comp differences
+- equity value conclusion logic
+- confidence and supportability scoring
+- savings-impact logic tied to equity conclusions
+- reviewer override and re-run interaction model
+- packet-ready valuation explanation outputs
+- Harris and Fort Bend validation on representative real or production-shaped sample data
+
+## Excluded
+
+- final packet artifact rendering
+- customer-facing portal work
+- statewide modeling expansion
+- pretending instant quote is the final protest engine
+
+## Deliverables
+
+- equity comp selection rules
+- comp ranking and scoring model
+- adjustment-engine design and implementation plan
+- equity value conclusion logic
+- confidence/supportability model
+- reviewer override workflow definition
+- packet-ready explanation output contract
+- validation set and evaluation approach for Harris and Fort Bend
+
+## Acceptance criteria
+
+- Dwellio can generate a defendable equity analysis for representative Harris and Fort Bend sample cases
+- comp selection, adjustments, and value conclusions are explainable and auditable
+- supportability/confidence is visible internally
+- reviewer overrides are explicit and do not silently mutate baseline model output
+- downstream case and packet workflows can consume the valuation output without inventing new logic
+- the stage is validated on realistic data, not just fixtures
+
+## Owner type
+
+- engineering
+- data/valuation
+- reviewer operations
+
+## Depends on
+
+- Stage 2
+
+## Can run in parallel with
+
+- Stage 4
+- Stage 5
+- Stage 7 design work
+
+## Launch-critical
+
+- yes
+
+## Business result
+
+Dwellio gets the actual protest-analysis engine that the rest of the internal workflow and final packet are built on.
+
+---
+
+# Stage 7 - Internal case workflow expansion
 **Status:** partial foundation already exists
-**Goal:** turn the current protest-case foundation into a usable internal operator workflow and define the represented-customer model before agreement implementation
+**Goal:** turn the current protest-case foundation into a usable internal operator workflow and define the represented-customer model around the new valuation engine before agreement implementation
 
 ## Why this stage exists
 
@@ -816,13 +893,14 @@ This stage expands that into a true operational workflow and prevents later agre
 
 - Stage 1
 - Stage 2
+- Stage 6
 
 ## Can run in parallel with
 
 - Stage 4
 - Stage 5
-- Stage 7
-- Stage 9 design work
+- Stage 8
+- Stage 10 design work
 
 ## Launch-critical
 
@@ -830,13 +908,13 @@ This stage expands that into a true operational workflow and prevents later agre
 
 ## Business result
 
-Dwellio can operate real internal case work instead of only proving the schema foundation exists.
+Dwellio can operate real internal case work around explicit valuation outputs instead of only proving the schema foundation exists.
 
 ---
 
-# Stage 7 - Evidence packet foundation completion
+# Stage 8 - Evidence packet foundation completion
 **Status:** partial foundation exists
-**Goal:** complete the packet review layer without pretending final packet generation already exists
+**Goal:** complete the packet review layer using the valuation engine outputs without pretending final packet generation already exists
 
 ## Why this stage exists
 
@@ -883,12 +961,13 @@ This stage finishes the internal preparation workflow before packet artifact gen
 ## Depends on
 
 - Stage 6
+- Stage 7
 
 ## Can run in parallel with
 
-- Stage 8 design work
-- Stage 9
-- Stage 11 design work
+- Stage 9 design work
+- Stage 10
+- Stage 12 design work
 
 ## Launch-critical
 
@@ -896,11 +975,11 @@ This stage finishes the internal preparation workflow before packet artifact gen
 
 ## Business result
 
-Dwellio gets a real internal evidence-preparation workflow without overstating current automation.
+Dwellio gets a real internal evidence-preparation workflow that is grounded in the actual valuation engine instead of assumptions.
 
 ---
 
-# Stage 8 - Final packet / PDF generator
+# Stage 9 - Final packet / PDF generator
 **Status:** deferred build
 **Goal:** build the first true business-usable generated evidence package
 
@@ -952,13 +1031,13 @@ This is one of the most important engineering gaps between internal support foun
 
 ## Depends on
 
-- Stage 7
+- Stage 8
 
 ## Can run in parallel with
 
-- Stage 9
-- Stage 10 design work
+- Stage 10
 - Stage 11 design work
+- Stage 12 design work
 
 ## Launch-critical
 
@@ -970,7 +1049,7 @@ This is the stage where Dwellio moves from "packet foundation exists" to "we can
 
 ---
 
-# Stage 9 - Agreements and representation workflow
+# Stage 10 - Agreements and representation workflow
 **Status:** deferred build
 **Goal:** create the actual legal/customer authorization layer required before a real protest-operation launch
 
@@ -1026,13 +1105,13 @@ Before Dwellio can represent customers at scale, it needs a complete representat
 ## Depends on
 
 - Stage 0
-- Stage 6
+- Stage 7
 
 ## Can run in parallel with
 
-- Stage 8
-- Stage 10
+- Stage 9
 - Stage 11
+- Stage 12
 
 ## Launch-critical
 
@@ -1044,7 +1123,7 @@ Dwellio gains the customer-authorization layer required for an actual operating 
 
 ---
 
-# Stage 10 - Billing and economic operations
+# Stage 11 - Billing and economic operations
 **Status:** deferred build
 **Goal:** build the actual billing layer after agreements, with the MVP billing model explicitly chosen before implementation is finalized
 
@@ -1097,12 +1176,12 @@ The fee model also affects agreement terms, customer messaging, receipts, financ
 
 ## Depends on
 
-- Stage 9
+- Stage 10
 
 ## Can run in parallel with
 
-- Stage 11
-- Stage 13 minimum customer-access planning
+- Stage 12
+- Stage 14 minimum customer-access planning
 
 ## Launch-critical
 
@@ -1114,7 +1193,7 @@ Dwellio becomes economically operable, not just technically impressive.
 
 ---
 
-# Stage 11 - Filing preparation and deadline-governance workflow
+# Stage 12 - Filing preparation and deadline-governance workflow
 **Status:** deferred build
 **Goal:** build deadline-aware filing preparation before building full submission automation
 
@@ -1174,14 +1253,14 @@ This roadmap treats filing preparation, deadline rules, already-filed checks, an
 
 ## Depends on
 
-- Stage 6
-- Stage 8
+- Stage 7
 - Stage 9
+- Stage 10
 
 ## Can run in parallel with
 
-- Stage 10
-- Stage 12 design work
+- Stage 11
+- Stage 13 design work
 
 ## Launch-critical
 
@@ -1193,7 +1272,7 @@ This stage removes the false assumption that filing automation is the next obvio
 
 ---
 
-# Stage 12 - County submission and confirmation-proof system
+# Stage 13 - County submission and confirmation-proof system
 **Status:** deferred build
 **Goal:** add county submission workflow only after filing prep, agreement, packet generation, and admin readiness are real
 
@@ -1245,14 +1324,14 @@ The workflow must support both county-specific automation and operator-assisted 
 
 ## Depends on
 
-- Stage 9
 - Stage 10
 - Stage 11
+- Stage 12
 
 ## Can run in parallel with
 
-- Stage 13 minimum customer-access planning
-- Stage 15 hardening design work
+- Stage 14 minimum customer-access planning
+- Stage 16 hardening design work
 
 ## Launch-critical
 
@@ -1264,7 +1343,7 @@ This is the first stage where Dwellio can credibly say it has a real filing syst
 
 ---
 
-# Stage 13 - Minimum viable customer access layer, then broader portal/notifications
+# Stage 14 - Minimum viable customer access layer, then broader portal/notifications
 **Status:** deferred build
 **Goal:** build the minimum customer-facing post-signup experience needed for launch without overbuilding a portal before internal workflows are real
 
@@ -1313,13 +1392,13 @@ A launchable MVP likely needs a minimum customer access layer before it needs a 
 
 ## Depends on
 
-- Stage 9
 - Stage 10
-- Stage 12 for submission visibility
+- Stage 11
+- Stage 13 for submission visibility
 
 ## Can run in parallel with
 
-- Stage 15 design work
+- Stage 16 design work
 
 ## Launch-critical
 
@@ -1331,7 +1410,7 @@ Dwellio becomes a business customers can interact with after signup, not just a 
 
 ---
 
-# Stage 14 - Controlled live pilot
+# Stage 15 - Controlled live pilot
 **Status:** launch-validation stage
 **Goal:** validate the real operating workflow on a controlled number of live represented cases before broad release
 
@@ -1382,15 +1461,15 @@ Dwellio needs a controlled pilot that proves the real workflow works across agre
 
 ## Depends on
 
-- Stage 9
 - Stage 10
 - Stage 11
 - Stage 12
 - Stage 13
+- Stage 14
 
 ## Can run in parallel with
 
-- Stage 15 final hardening activities that do not invalidate pilot behavior
+- Stage 16 final hardening activities that do not invalidate pilot behavior
 
 ## Launch-critical
 
@@ -1402,7 +1481,7 @@ Dwellio validates the real business workflow before making broad customer-facing
 
 ---
 
-# Stage 15 - Release hardening and launch readiness
+# Stage 16 - Release hardening and launch readiness
 **Status:** final cross-cutting launch stage
 **Goal:** make the whole system safe enough for real customers, real counties, and real operational use
 
@@ -1475,7 +1554,7 @@ It should occur after the core operating workflow exists and after a controlled 
 
 ## Depends on
 
-- Stage 14
+- Stage 15
 
 ## Can run in parallel with
 
@@ -1518,11 +1597,13 @@ Primary stages:
 - Stage 6
 - Stage 7
 - Stage 8
-- Stage 11
+- Stage 9
 - Stage 12
+- Stage 13
 
 Purpose:
 
+- build the core protest-analysis engine
 - turn internal foundations into a real reviewer/operator workflow
 - create packet artifacts
 - prepare and execute filing safely
@@ -1532,11 +1613,11 @@ Purpose:
 Primary stages:
 
 - Stage 0
-- Stage 9
 - Stage 10
-- Stage 13
+- Stage 11
 - Stage 14
 - Stage 15
+- Stage 16
 
 Purpose:
 
@@ -1551,9 +1632,9 @@ Once Stage 1 is complete and Stage 0 is defined enough to remove ambiguity:
 
 - Stage 2, Stage 3, and Stage 4 can overlap
 - Stage 5 can proceed once Stage 3 and Stage 4 are stable enough
-- Stage 6 and Stage 7 can proceed while Stage 9 design is being finalized
-- Stage 8, Stage 10, and Stage 11 can overlap after the Stage 6/7 model is stable
-- Stage 12 and Stage 13 should start only after earlier operating dependencies are clear
+- Stage 6 and Stage 7 can proceed while Stage 10 design is being finalized
+- Stage 8, Stage 9, and Stage 12 can overlap after the Stage 6/7 model is stable
+- Stage 13 and Stage 14 should start only after earlier operating dependencies are clear
 
 ---
 
@@ -1589,15 +1670,15 @@ Required:
 
 Required:
 
-- Stage 6, Stage 7, and Stage 8 complete
-- internal users can run case review and packet generation without DB access
+- Stage 6, Stage 7, Stage 8, and Stage 9 complete
+- internal users can run equity analysis, case review, and packet generation without DB access
 - packet artifacts are versioned, reviewable, and failure-aware
 
 ### Gate 5 - Representation, billing, and filing governance are ready
 
 Required:
 
-- Stage 9, Stage 10, and Stage 11 complete
+- Stage 10, Stage 11, and Stage 12 complete
 - represented-customer state is explicit
 - billing model is selected and implemented
 - filing-readiness and deadline governance are visible and auditable
@@ -1606,7 +1687,7 @@ Required:
 
 Required:
 
-- Stage 12 and Stage 13 complete
+- Stage 13 and Stage 14 complete
 - submissions are auditable and recoverable
 - confirmation proof is stored
 - customer access shows only safe, real workflow state
@@ -1615,7 +1696,7 @@ Required:
 
 Required:
 
-- Stage 14 and Stage 15 complete
+- Stage 15 and Stage 16 complete
 - controlled live pilot succeeds
 - rollback, recovery, alerting, and known limitations are documented
 - go/no-go launch rubric is satisfied
@@ -1626,14 +1707,15 @@ Required:
 
 The highest-value unresolved launch blockers remain:
 
-1. final packet/PDF generation
-2. agreements and representation workflow
-3. billing and economic operations
-4. deadline and filing-governance workflow
-5. county submission and confirmation-proof system
-6. minimum viable customer access layer
-7. release hardening, recovery, and launch governance
-8. controlled live pilot execution
+1. advanced equity valuation engine
+2. final packet/PDF generation
+3. agreements and representation workflow
+4. billing and economic operations
+5. deadline and filing-governance workflow
+6. county submission and confirmation-proof system
+7. minimum viable customer access layer
+8. release hardening, recovery, and launch governance
+9. controlled live pilot execution
 
 If these are not completed, Dwellio may be an advanced repo, but it is not yet a full business-ready protest platform.
 
@@ -1649,16 +1731,17 @@ This is the corrected order from the current repo state:
 4. Stage 3 - Public read-model foundation hardening
 5. Stage 4 - Instant quote serving maturity
 6. Stage 5 - Public quote-to-lead funnel hardening
-7. Stage 6 - Internal case workflow expansion
-8. Stage 7 - Evidence packet foundation completion
-9. Stage 8 - Final packet / PDF generator
-10. Stage 9 - Agreements and representation workflow
-11. Stage 10 - Billing and economic operations
-12. Stage 11 - Filing preparation and deadline-governance workflow
-13. Stage 12 - County submission and confirmation-proof system
-14. Stage 13 - Minimum viable customer access layer, then broader portal/notifications
-15. Stage 14 - Controlled live pilot
-16. Stage 15 - Release hardening and launch readiness
+7. Stage 6 - Advanced equity valuation engine
+8. Stage 7 - Internal case workflow expansion
+9. Stage 8 - Evidence packet foundation completion
+10. Stage 9 - Final packet / PDF generator
+11. Stage 10 - Agreements and representation workflow
+12. Stage 11 - Billing and economic operations
+13. Stage 12 - Filing preparation and deadline-governance workflow
+14. Stage 13 - County submission and confirmation-proof system
+15. Stage 14 - Minimum viable customer access layer, then broader portal/notifications
+16. Stage 15 - Controlled live pilot
+17. Stage 16 - Release hardening and launch readiness
 
 Use the parallel work tracks to compress schedule, but do not violate the dependency rules.
 
@@ -1671,6 +1754,7 @@ Avoid these mistakes:
 - do not reopen backend stack debates unless there is a true reason
 - do not rewrite current public routes into a new generic `/api/v1/...` family without a real migration plan
 - do not describe lead capture as full onboarding
+- do not treat instant quote or packet rendering as substitutes for the advanced equity valuation engine
 - do not describe packet foundation as completed packet generation
 - do not assume county filing automation is already part of the current MVP
 - do not let stale milestone docs override actual route/service reality
@@ -1713,6 +1797,6 @@ It is already a structured FastAPI/Postgres/read-model platform with real county
 That is good news.
 
 The remaining work is not about reinventing the stack.
-It is about completing the missing launch-critical layers - packet generation, agreements, billing, filing prep, submission/proof, customer access, pilot validation, and release hardening - without weakening the strong architecture already in place.
+It is about completing the missing launch-critical layers - especially the advanced equity valuation engine, then packet generation, agreements, billing, filing prep, submission/proof, customer access, pilot validation, and release hardening - without weakening the strong architecture already in place.
 
 This roadmap is the planning document for doing exactly that.

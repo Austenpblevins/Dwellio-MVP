@@ -107,99 +107,110 @@ Second wave once the first tranche stabilizes:
 | `S5-T4` | Define lead-event auditability and admin lead reporting requirements | `P1` | `Blocked` | `S5-T1`, `S5-T3` | Ops can reconstruct what the user saw and submitted and review lead volume and quality |
 | `S5-T5` | Define quote-ready vs unsupported-demand analytics | `P1` | `Blocked` | `S4-T1`, `S5-T1`, `S5-T3` | Reporting separates supported demand from interest in unsupported or unreachable cases |
 
-### Stage 6 - Internal case workflow expansion
+### Stage 6 - Advanced equity valuation engine
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S6-T1` | Define the represented-customer model and case-state machine | `P0` | `Ready` | `S2-T3` | Lead, represented customer, and protest case are distinct and their allowed transitions are explicit |
-| `S6-T2` | Define operator case queues, assignment rules, and escalation views | `P0` | `Blocked` | `S6-T1` | Internal users can find, assign, and escalate cases without DB access |
-| `S6-T3` | Define case review statuses, override audit rules, and SLA visibility | `P0` | `Blocked` | `S6-T1` | Case review can distinguish weak, incomplete, do-not-pursue, and escalated states with auditable overrides |
-| `S6-T4` | Define lead -> represented customer -> case transition rules | `P0` | `Blocked` | `S5-T3`, `S6-T1` | Downstream agreement work does not need to invent customer/case transitions |
-| `S6-T5` | Define hearing hooks, deadline visibility, and parcel-year lineage rules | `P1` | `Blocked` | `S6-T2`, `S6-T3` | Hearing-related workflow hooks and deadline visibility exist without breaking lineage or status history |
+| `S6-T1` | Define subject-feature normalization and equity comp candidate rules | `P0` | `Blocked` | `S2-T3` | Subject parcel inputs and initial comp candidate generation rules are explicit for protest use |
+| `S6-T2` | Implement comp eligibility, exclusion, ranking, and scoring logic | `P0` | `Blocked` | `S6-T1` | Comp selection is defendable, auditable, and not dependent on hidden reviewer intuition |
+| `S6-T3` | Implement adjustment logic and equity value conclusion rules | `P0` | `Blocked` | `S6-T2` | Subject-to-comp adjustments and final equity conclusions are explicit and reviewable |
+| `S6-T4` | Implement confidence/supportability scoring and savings-impact logic | `P0` | `Blocked` | `S6-T3` | Internal users can see whether an equity conclusion is strong enough to support downstream protest work |
+| `S6-T5` | Implement reviewer override and re-run workflow | `P0` | `Blocked` | `S6-T3`, `S6-T4` | Reviewer overrides are auditable and do not silently replace baseline model output |
+| `S6-T6` | Validate the equity engine on representative Harris and Fort Bend sample data | `P0` | `Blocked` | `S6-T4`, `S6-T5` | The engine produces production-credible results on realistic county data, not just fixtures |
 
-### Stage 7 - Evidence packet foundation completion
-
-| ID | Ticket | Priority | Status | Depends on | Done when |
-|---|---|---|---|---|---|
-| `S7-T1` | Define packet readiness state machine | `P0` | `Blocked` | `S6-T2`, `S6-T3` | Packet readiness is tracked independently from case status with explicit internal-only states |
-| `S7-T2` | Define reviewer QA checklist and packet-item editing rules | `P0` | `Blocked` | `S7-T1` | Reviewers have standard rules for packet edits, comp-set edits, and narrative QA |
-| `S7-T3` | Define packet completeness rules and lineage audit requirements | `P0` | `Blocked` | `S7-T1` | Packet contents can be tied back to case, valuation run, and reviewer actions |
-| `S7-T4` | Define packet queue and detail-view workflow improvements | `P1` | `Blocked` | `S7-T1`, `S7-T2` | Packet reviewers can find, inspect, and advance packet work consistently |
-
-### Stage 8 - Final packet / PDF generator
+### Stage 7 - Internal case workflow expansion
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S8-T1` | Design packet rendering and template architecture | `P0` | `Blocked` | `S7-T2`, `S7-T3` | There is an approved rendering approach for HTML/PDF artifacts that matches reviewed packet structures |
-| `S8-T2` | Implement packet generation service and artifact-state model | `P0` | `Blocked` | `S8-T1` | Real cases can generate non-stub packet artifacts with explicit draft/generated/approved/failed states |
-| `S8-T3` | Implement packet versioning, storage, and regeneration audit | `P0` | `Blocked` | `S8-T2` | Packet versions are stored, retrievable, and auditable through regeneration events |
-| `S8-T4` | Implement packet preview, approval, and failure-handling workflow | `P0` | `Blocked` | `S8-T2`, `S8-T3` | Reviewers can preview, approve, retry, and diagnose generation failures without manual DB work |
+| `S7-T1` | Define the represented-customer model and case-state machine | `P0` | `Blocked` | `S2-T3`, `S6-T6` | Lead, represented customer, and protest case are distinct and their allowed transitions are explicit |
+| `S7-T2` | Define operator case queues, assignment rules, and escalation views | `P0` | `Blocked` | `S7-T1` | Internal users can find, assign, and escalate cases without DB access |
+| `S7-T3` | Define case review statuses, override audit rules, and SLA visibility | `P0` | `Blocked` | `S7-T1` | Case review can distinguish weak, incomplete, do-not-pursue, and escalated states with auditable overrides |
+| `S7-T4` | Define lead -> represented customer -> case transition rules | `P0` | `Blocked` | `S5-T3`, `S7-T1` | Downstream agreement work does not need to invent customer/case transitions |
+| `S7-T5` | Define hearing hooks, deadline visibility, and parcel-year lineage rules | `P1` | `Blocked` | `S7-T2`, `S7-T3` | Hearing-related workflow hooks and deadline visibility exist without breaking lineage or status history |
 
-### Stage 9 - Agreements and representation workflow
-
-| ID | Ticket | Priority | Status | Depends on | Done when |
-|---|---|---|---|---|---|
-| `S9-T1` | Implement agreement package model and represented-status transitions | `P0` | `Blocked` | `S6-T1`, `S6-T4` | The agreement package and represented-status transitions match the Stage 0 operating model |
-| `S9-T2` | Implement e-sign provider flow and webhook handling | `P0` | `Blocked` | `S9-T1` | Agreements can be sent, completed, and reconciled without silent failures |
-| `S9-T3` | Implement signed-document storage, versioning, and retrieval | `P0` | `Blocked` | `S9-T1`, `S9-T2` | Signed documents are versioned, retrievable, and attached to the correct represented customer and case |
-| `S9-T4` | Implement admin agreement visibility plus resend/failure workflows | `P1` | `Blocked` | `S9-T2`, `S9-T3` | Admin can see current agreement status and recover from send, sign, or webhook failures |
-| `S9-T5` | Implement cannot-advance-without-authorization gates | `P0` | `Blocked` | `S9-T3`, `S9-T4` | Leads and cases cannot proceed into represented workflows without completed authorization |
-
-### Stage 10 - Billing and economic operations
+### Stage 8 - Evidence packet foundation completion
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S10-T1` | Codify the MVP billing rules in system behavior | `P0` | `Blocked` | `S9-T1` | The product and admin workflow use the contingency fee formula and invoicing timing approved in Stage 0 |
-| `S10-T2` | Implement payment authorization and billing state machine | `P0` | `Blocked` | `S9-T2`, `S10-T1` | Billing status is explicit and does not corrupt case or agreement state |
-| `S10-T3` | Implement invoice, receipt, and reconciliation flows | `P0` | `Blocked` | `S10-T2` | Finance/admin can issue invoices, store receipts, and reconcile case outcomes to billing events |
-| `S10-T4` | Implement admin billing views plus failure/retry/refund workflows | `P1` | `Blocked` | `S10-T2`, `S10-T3` | Billing failures are visible and recoverable without breaking represented-customer workflows |
+| `S8-T1` | Define packet readiness state machine | `P0` | `Blocked` | `S7-T2`, `S7-T3`, `S6-T6` | Packet readiness is tracked independently from case status with explicit internal-only states |
+| `S8-T2` | Define reviewer QA checklist and packet-item editing rules | `P0` | `Blocked` | `S8-T1` | Reviewers have standard rules for packet edits, comp-set edits, and narrative QA |
+| `S8-T3` | Define packet completeness rules and lineage audit requirements | `P0` | `Blocked` | `S8-T1` | Packet contents can be tied back to case, valuation run, and reviewer actions |
+| `S8-T4` | Define packet queue and detail-view workflow improvements | `P1` | `Blocked` | `S8-T1`, `S8-T2` | Packet reviewers can find, inspect, and advance packet work consistently |
 
-### Stage 11 - Filing preparation and deadline-governance workflow
-
-| ID | Ticket | Priority | Status | Depends on | Done when |
-|---|---|---|---|---|---|
-| `S11-T1` | Implement filing-readiness checklist and county requirement model | `P0` | `Blocked` | `S8-T4`, `S9-T5` | County-specific prerequisites are visible before any submission attempt |
-| `S11-T2` | Implement notice-date, deadline, duplicate, already-filed, and agent-conflict rules | `P0` | `Blocked` | `S6-T5`, `S9-T5` | Filing-prep logic prevents duplicate, conflicted, or late-case handling from being implicit |
-| `S11-T3` | Implement filing-attempt logging and confirmation-proof schema | `P0` | `Blocked` | `S11-T1`, `S11-T2` | Filing attempts and proof requirements are recorded before full submission automation starts |
-| `S11-T4` | Implement manual filing workflow and operator prep queue | `P1` | `Blocked` | `S11-T1`, `S11-T2` | There is a real manual fallback path for filing prep and operator handling |
-| `S11-T5` | Implement filing-ready gating in admin workflow | `P0` | `Blocked` | `S11-T1`, `S11-T2`, `S11-T3` | Admin cannot mark a case filing-ready without satisfying the required prerequisites |
-
-### Stage 12 - County submission and confirmation-proof system
+### Stage 9 - Final packet / PDF generator
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S12-T1` | Implement Harris submission workflow | `P0` | `Blocked` | `S10-T3`, `S11-T5` | Harris cases can be submitted through the approved workflow with auditable outcomes |
-| `S12-T2` | Implement Fort Bend submission workflow | `P0` | `Blocked` | `S10-T3`, `S11-T5` | Fort Bend cases can be submitted through the approved workflow with auditable outcomes |
-| `S12-T3` | Implement submission failure queue, retry rules, and duplicate prevention | `P0` | `Blocked` | `S12-T1`, `S12-T2` | Failed submissions are visible, recoverable, and protected against duplicate filing |
-| `S12-T4` | Implement confirmation-proof capture, storage, and audit trail | `P0` | `Blocked` | `S11-T3`, `S12-T1`, `S12-T2` | Every submission has traceable proof storage and audit history |
+| `S9-T1` | Design packet rendering and template architecture | `P0` | `Blocked` | `S8-T2`, `S8-T3` | There is an approved rendering approach for HTML/PDF artifacts that matches reviewed packet structures |
+| `S9-T2` | Implement packet generation service and artifact-state model | `P0` | `Blocked` | `S9-T1` | Real cases can generate non-stub packet artifacts with explicit draft/generated/approved/failed states |
+| `S9-T3` | Implement packet versioning, storage, and regeneration audit | `P0` | `Blocked` | `S9-T2` | Packet versions are stored, retrievable, and auditable through regeneration events |
+| `S9-T4` | Implement packet preview, approval, and failure-handling workflow | `P0` | `Blocked` | `S9-T2`, `S9-T3` | Reviewers can preview, approve, retry, and diagnose generation failures without manual DB work |
 
-### Stage 13 - Minimum viable customer access layer
-
-| ID | Ticket | Priority | Status | Depends on | Done when |
-|---|---|---|---|---|---|
-| `S13-T1` | Implement customer auth/account foundation | `P0` | `Blocked` | `S9-T3` | Represented customers can safely access a customer account without exposing internal-only data |
-| `S13-T2` | Implement signed-document access and customer-safe major-status timeline | `P0` | `Blocked` | `S13-T1`, `S9-T3`, `S10-T3` | Customers can view their signed documents and major case states in a safe, accurate way |
-| `S13-T3` | Implement major-event notifications and support-escalation surface | `P1` | `Blocked` | `S13-T1`, `S13-T2` | Customer notifications reflect real backend state and provide a clear support path |
-| `S13-T4` | Implement submission-visibility mapping for customer-safe states | `P1` | `Blocked` | `S12-T4`, `S13-T2` | Submission confirmations appear only when they are actually available and customer-safe |
-
-### Stage 14 - Controlled live pilot
+### Stage 10 - Agreements and representation workflow
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S14-T1` | Define pilot cohort, success criteria, and fallback policy | `P0` | `Blocked` | `S12-T4`, `S13-T2` | Pilot scope, success criteria, and fallback rules are approved before live-case execution begins |
-| `S14-T2` | Run the live-case checklist across pilot cases | `P0` | `Blocked` | `S14-T1` | Pilot cases complete the real operational checklist across agreements, packeting, filing prep, submission, and support |
-| `S14-T3` | Operate pilot issue log and remediation workflow | `P0` | `Blocked` | `S14-T2` | Every pilot failure is logged, triaged, and assigned to remediation or explicit deferral |
-| `S14-T4` | Publish pilot closeout and go/no-go recommendation | `P0` | `Blocked` | `S14-T3` | Pilot outcomes are summarized and unresolved risks are explicit before broad launch |
+| `S10-T1` | Implement agreement package model and represented-status transitions | `P0` | `Blocked` | `S7-T1`, `S7-T4` | The agreement package and represented-status transitions match the Stage 0 operating model |
+| `S10-T2` | Implement e-sign provider flow and webhook handling | `P0` | `Blocked` | `S10-T1` | Agreements can be sent, completed, and reconciled without silent failures |
+| `S10-T3` | Implement signed-document storage, versioning, and retrieval | `P0` | `Blocked` | `S10-T1`, `S10-T2` | Signed documents are versioned, retrievable, and attached to the correct represented customer and case |
+| `S10-T4` | Implement admin agreement visibility plus resend/failure workflows | `P1` | `Blocked` | `S10-T2`, `S10-T3` | Admin can see current agreement status and recover from send, sign, or webhook failures |
+| `S10-T5` | Implement cannot-advance-without-authorization gates | `P0` | `Blocked` | `S10-T3`, `S10-T4` | Leads and cases cannot proceed into represented workflows without completed authorization |
 
-### Stage 15 - Release hardening and launch readiness
+### Stage 11 - Billing and economic operations
 
 | ID | Ticket | Priority | Status | Depends on | Done when |
 |---|---|---|---|---|---|
-| `S15-T1` | Build the launch checklist and environment-readiness checklist | `P0` | `Blocked` | `S14-T4` | There is one checklist covering environment readiness, launch prerequisites, and remaining safety checks |
-| `S15-T2` | Implement the regression, smoke, and contract-test plan | `P0` | `Blocked` | `S14-T4` | Required subsystems are tested at their actual maturity level with no hidden developer-only assumptions |
-| `S15-T3` | Complete backup/restore and rollback drill with evidence | `P0` | `Blocked` | `S14-T4` | Backup, restore, and rollback have been rehearsed and evidenced |
-| `S15-T4` | Complete alerting, secret/config, audit-log, and RBAC review | `P0` | `Blocked` | `S14-T4` | Alert ownership, secret handling, audit logging, and access controls are reviewed and tightened for launch |
-| `S15-T5` | Publish known-limitations register and final go/no-go rubric | `P0` | `Blocked` | `S15-T1`, `S15-T2`, `S15-T3`, `S15-T4` | No customer-facing promise exceeds actual system behavior and the launch decision is explicit |
+| `S11-T1` | Codify the MVP billing rules in system behavior | `P0` | `Blocked` | `S10-T1` | The product and admin workflow use the contingency fee formula and invoicing timing approved in Stage 0 |
+| `S11-T2` | Implement payment authorization and billing state machine | `P0` | `Blocked` | `S10-T2`, `S11-T1` | Billing status is explicit and does not corrupt case or agreement state |
+| `S11-T3` | Implement invoice, receipt, and reconciliation flows | `P0` | `Blocked` | `S11-T2` | Finance/admin can issue invoices, store receipts, and reconcile case outcomes to billing events |
+| `S11-T4` | Implement admin billing views plus failure/retry/refund workflows | `P1` | `Blocked` | `S11-T2`, `S11-T3` | Billing failures are visible and recoverable without breaking represented-customer workflows |
+
+### Stage 12 - Filing preparation and deadline-governance workflow
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `S12-T1` | Implement filing-readiness checklist and county requirement model | `P0` | `Blocked` | `S9-T4`, `S10-T5` | County-specific prerequisites are visible before any submission attempt |
+| `S12-T2` | Implement notice-date, deadline, duplicate, already-filed, and agent-conflict rules | `P0` | `Blocked` | `S7-T5`, `S10-T5` | Filing-prep logic prevents duplicate, conflicted, or late-case handling from being implicit |
+| `S12-T3` | Implement filing-attempt logging and confirmation-proof schema | `P0` | `Blocked` | `S12-T1`, `S12-T2` | Filing attempts and proof requirements are recorded before full submission automation starts |
+| `S12-T4` | Implement manual filing workflow and operator prep queue | `P1` | `Blocked` | `S12-T1`, `S12-T2` | There is a real manual fallback path for filing prep and operator handling |
+| `S12-T5` | Implement filing-ready gating in admin workflow | `P0` | `Blocked` | `S12-T1`, `S12-T2`, `S12-T3` | Admin cannot mark a case filing-ready without satisfying the required prerequisites |
+
+### Stage 13 - County submission and confirmation-proof system
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `S13-T1` | Implement Harris submission workflow | `P0` | `Blocked` | `S11-T3`, `S12-T5` | Harris cases can be submitted through the approved workflow with auditable outcomes |
+| `S13-T2` | Implement Fort Bend submission workflow | `P0` | `Blocked` | `S11-T3`, `S12-T5` | Fort Bend cases can be submitted through the approved workflow with auditable outcomes |
+| `S13-T3` | Implement submission failure queue, retry rules, and duplicate prevention | `P0` | `Blocked` | `S13-T1`, `S13-T2` | Failed submissions are visible, recoverable, and protected against duplicate filing |
+| `S13-T4` | Implement confirmation-proof capture, storage, and audit trail | `P0` | `Blocked` | `S12-T3`, `S13-T1`, `S13-T2` | Every submission has traceable proof storage and audit history |
+
+### Stage 14 - Minimum viable customer access layer
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `S14-T1` | Implement customer auth/account foundation | `P0` | `Blocked` | `S10-T3` | Represented customers can safely access a customer account without exposing internal-only data |
+| `S14-T2` | Implement signed-document access and customer-safe major-status timeline | `P0` | `Blocked` | `S14-T1`, `S10-T3`, `S11-T3` | Customers can view their signed documents and major case states in a safe, accurate way |
+| `S14-T3` | Implement major-event notifications and support-escalation surface | `P1` | `Blocked` | `S14-T1`, `S14-T2` | Customer notifications reflect real backend state and provide a clear support path |
+| `S14-T4` | Implement submission-visibility mapping for customer-safe states | `P1` | `Blocked` | `S13-T4`, `S14-T2` | Submission confirmations appear only when they are actually available and customer-safe |
+
+### Stage 15 - Controlled live pilot
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `S15-T1` | Define pilot cohort, success criteria, and fallback policy | `P0` | `Blocked` | `S13-T4`, `S14-T2` | Pilot scope, success criteria, and fallback rules are approved before live-case execution begins |
+| `S15-T2` | Run the live-case checklist across pilot cases | `P0` | `Blocked` | `S15-T1` | Pilot cases complete the real operational checklist across agreements, packeting, filing prep, submission, and support |
+| `S15-T3` | Operate pilot issue log and remediation workflow | `P0` | `Blocked` | `S15-T2` | Every pilot failure is logged, triaged, and assigned to remediation or explicit deferral |
+| `S15-T4` | Publish pilot closeout and go/no-go recommendation | `P0` | `Blocked` | `S15-T3` | Pilot outcomes are summarized and unresolved risks are explicit before broad launch |
+
+### Stage 16 - Release hardening and launch readiness
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `S16-T1` | Build the launch checklist and environment-readiness checklist | `P0` | `Blocked` | `S15-T4` | There is one checklist covering environment readiness, launch prerequisites, and remaining safety checks |
+| `S16-T2` | Implement the regression, smoke, and contract-test plan | `P0` | `Blocked` | `S15-T4` | Required subsystems are tested at their actual maturity level with no hidden developer-only assumptions |
+| `S16-T3` | Complete backup/restore and rollback drill with evidence | `P0` | `Blocked` | `S15-T4` | Backup, restore, and rollback have been rehearsed and evidenced |
+| `S16-T4` | Complete alerting, secret/config, audit-log, and RBAC review | `P0` | `Blocked` | `S15-T4` | Alert ownership, secret handling, audit logging, and access controls are reviewed and tightened for launch |
+| `S16-T5` | Publish known-limitations register and final go/no-go rubric | `P0` | `Blocked` | `S16-T1`, `S16-T2`, `S16-T3`, `S16-T4` | No customer-facing promise exceeds actual system behavior and the launch decision is explicit |
 
 ## Cross-Stage Critical Path
 
@@ -209,16 +220,17 @@ This is the highest-signal dependency spine:
 2. `S3-T1` -> `S3-T3`
 3. `S4-T1` -> `S4-T3`
 4. `S5-T1` -> `S5-T3`
-5. `S6-T1` -> `S6-T4`
-6. `S7-T1` -> `S7-T3`
-7. `S8-T1` -> `S8-T4`
-8. `S9-T1` -> `S9-T5`
-9. `S10-T1` -> `S10-T3`
-10. `S11-T1` -> `S11-T5`
-11. `S12-T1` -> `S12-T4`
-12. `S13-T1` -> `S13-T2`
-13. `S14-T1` -> `S14-T4`
-14. `S15-T1` -> `S15-T5`
+5. `S6-T1` -> `S6-T6`
+6. `S7-T1` -> `S7-T4`
+7. `S8-T1` -> `S8-T3`
+8. `S9-T1` -> `S9-T4`
+9. `S10-T1` -> `S10-T5`
+10. `S11-T1` -> `S11-T3`
+11. `S12-T1` -> `S12-T5`
+12. `S13-T1` -> `S13-T4`
+13. `S14-T1` -> `S14-T2`
+14. `S15-T1` -> `S15-T4`
+15. `S16-T1` -> `S16-T5`
 
 ## Launch Blockers
 
@@ -226,13 +238,14 @@ This is the highest-signal dependency spine:
 
 | blocker | stage/tickets |
 |---|---|
-| Final packet generation and artifact approvals | `S8-T1` to `S8-T4` |
-| Agreements, e-sign, signed-doc storage, and authorization gates | `S9-T1` to `S9-T5` |
-| Billing state machine, invoices, receipts, and reconciliation | `S10-T1` to `S10-T4` |
-| Filing-readiness, deadline, duplicate, and conflict logic | `S11-T1` to `S11-T5` |
-| Harris and Fort Bend submission workflows plus proof capture | `S12-T1` to `S12-T4` |
-| Customer account access, signed-doc visibility, and major status timeline | `S13-T1` to `S13-T4` |
-| Launch hardening, regression coverage, rollback evidence, alerting, and RBAC review | `S15-T1` to `S15-T5` |
+| Advanced equity valuation engine | `S6-T1` to `S6-T6` |
+| Final packet generation and artifact approvals | `S9-T1` to `S9-T4` |
+| Agreements, e-sign, signed-doc storage, and authorization gates | `S10-T1` to `S10-T5` |
+| Billing state machine, invoices, receipts, and reconciliation | `S11-T1` to `S11-T4` |
+| Filing-readiness, deadline, duplicate, and conflict logic | `S12-T1` to `S12-T5` |
+| Harris and Fort Bend submission workflows plus proof capture | `S13-T1` to `S13-T4` |
+| Customer account access, signed-doc visibility, and major status timeline | `S14-T1` to `S14-T4` |
+| Launch hardening, regression coverage, rollback evidence, alerting, and RBAC review | `S16-T1` to `S16-T5` |
 
 ### Non-Code Blockers
 
