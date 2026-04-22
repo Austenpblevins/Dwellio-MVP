@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from app.core.config import get_settings
 from app.models.quote import InstantQuoteResponse
 
+CALIBRATED_ROLLOUT_LIMITING_CODES: dict[str, frozenset[str]] = {
+    "total_exemption_low_cash": frozenset({"total_exemption_likely"}),
+    "near_total_exemption_low_cash": frozenset({"near_total_exemption_likely"}),
+}
+
 
 @dataclass(frozen=True)
 class SavingsTranslationRolloutDecision:
@@ -69,6 +74,23 @@ def decide_savings_translation_rollout(
             selected_public_savings_estimate_raw=current_savings_value,
         )
 
+    required_limiting_codes = CALIBRATED_ROLLOUT_LIMITING_CODES.get(rollout_state)
+    if required_limiting_codes is None:
+        return SavingsTranslationRolloutDecision(
+            savings_translation_mode="current_public_formula",
+            savings_translation_reason_code="rollout_state_not_stage8_calibrated",
+            savings_translation_applied_flag=False,
+            selected_public_savings_estimate_raw=current_savings_value,
+        )
+
+    if not required_limiting_codes.intersection(limiting_reason_codes):
+        return SavingsTranslationRolloutDecision(
+            savings_translation_mode="current_public_formula",
+            savings_translation_reason_code="rollout_state_limiting_evidence_missing",
+            savings_translation_applied_flag=False,
+            selected_public_savings_estimate_raw=current_savings_value,
+        )
+
     if shadow_savings_value is None:
         return SavingsTranslationRolloutDecision(
             savings_translation_mode="current_public_formula",
@@ -81,6 +103,14 @@ def decide_savings_translation_rollout(
         return SavingsTranslationRolloutDecision(
             savings_translation_mode="current_public_formula",
             savings_translation_reason_code="shadow_tax_profile_not_quoteable",
+            savings_translation_applied_flag=False,
+            selected_public_savings_estimate_raw=current_savings_value,
+        )
+
+    if current_savings_value is not None and shadow_savings_value > current_savings_value:
+        return SavingsTranslationRolloutDecision(
+            savings_translation_mode="current_public_formula",
+            savings_translation_reason_code="shadow_exceeds_current_public_estimate",
             savings_translation_applied_flag=False,
             selected_public_savings_estimate_raw=current_savings_value,
         )

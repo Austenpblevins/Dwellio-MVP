@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         alias="DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS",
     )
     instant_quote_v5_savings_translation_rollout_states: str = Field(
-        default="total_exemption_low_cash,near_total_exemption_low_cash",
+        default="total_exemption_low_cash",
         alias="DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
     )
     instant_quote_denominator_shift_alert_threshold: float = Field(

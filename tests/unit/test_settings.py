@@ -27,3 +27,8 @@ def test_settings_default_instant_quote_v5_flag_is_disabled() -> None:
 def test_settings_default_stage7_savings_translation_flag_is_disabled() -> None:
     settings = get_settings()
     assert settings.instant_quote_v5_savings_translation_enabled is False
+
+
+def test_settings_default_stage8_rollout_states_are_total_exemption_only() -> None:
+    settings = get_settings()
+    assert settings.instant_quote_v5_savings_translation_rollout_states == "total_exemption_low_cash"
