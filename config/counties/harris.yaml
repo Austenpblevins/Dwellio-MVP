@@ -26,6 +26,56 @@ capabilities:
     source_datasets:
       - property_roll
     notes: Freeze-related indicators exist in exemption rollups, but qualifying-exemption consistency still requires operator review.
+  instant_quote_exemption_normalization_confidence:
+    label: Instant quote exemption normalization confidence
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Harris exemption normalization remains usable for summary-stage support, but missing exemption amounts are still common and senior completeness remains unresolved.
+  instant_quote_over65_reliability:
+    label: Instant quote over65 reliability
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Harris over65 completeness is still unresolved and must remain an explicit county limitation.
+  instant_quote_disabled_reliability:
+    label: Instant quote disabled reliability
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Harris disabled-person mappings exist, but observed current-year signal remains sparse enough that the flag should stay limited.
+  instant_quote_disabled_veteran_reliability:
+    label: Instant quote disabled veteran reliability
+    status: supported
+    source_datasets:
+      - property_roll
+    notes: Harris disabled-veteran mappings are strong enough to preserve the total-exemption signal as a supported internal indicator.
+  instant_quote_freeze_reliability:
+    label: Instant quote freeze reliability
+    status: limited
+    source_datasets:
+      - property_roll
+    notes: Harris freeze truth should stay limited until qualifying-exemption consistency and explicit current-year freeze rows are stronger.
+  instant_quote_school_ceiling_amount_available:
+    label: Instant quote school ceiling amount availability
+    status: unsupported
+    source_datasets:
+      - property_roll
+      - tax_rates
+    notes: Exact school ceiling amount or binding truth is not materialized for Harris and must not be implied.
+  instant_quote_local_option_policy_available:
+    label: Instant quote local-option policy availability
+    status: unsupported
+    source_datasets:
+      - tax_rates
+    notes: Harris local-option percentage policy truth is not materialized in the current instant-quote stack.
+  instant_quote_profile_support_level:
+    label: Instant quote profile support level
+    status: summary_only
+    source_datasets:
+      - property_roll
+      - tax_rates
+    notes: Harris Stage 3 supports county-level summary capability only; parcel-level tax profile materialization is still deferred.
   tax_rate_unit_coverage:
     label: Tax-rate unit coverage
     status: supported

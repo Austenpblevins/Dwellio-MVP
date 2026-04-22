@@ -55,6 +55,25 @@ class StubCursor:
                 {"blocker_code": "missing_effective_tax_rate", "count": 8},
                 {"blocker_code": "supportable", "count": 4},
             ]
+        elif "FROM instant_quote_county_tax_capability" in sql:
+            self._rows = [
+                {
+                    "county_id": "harris",
+                    "tax_year": 2025,
+                    "exemption_normalization_confidence": "limited",
+                    "over65_reliability": "limited",
+                    "disabled_reliability": "limited",
+                    "disabled_veteran_reliability": "supported",
+                    "freeze_reliability": "limited",
+                    "tax_unit_assignment_reliability": "supported",
+                    "tax_rate_reliability": "limited",
+                    "school_ceiling_amount_available": False,
+                    "unit_exemption_policy_available": False,
+                    "local_option_policy_available": False,
+                    "profile_support_level": "summary_only",
+                    "notes": "County capability snapshot present for validation.",
+                }
+            ]
         elif "prior_total_count_all_sfr_flagged" in sql:
             self._rows = [
                 {
@@ -224,6 +243,8 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
 
     assert report.quote_version == "instant_quote_v5_stage0_baseline"
     assert report.current_public_savings_model == "reduction_estimate_times_effective_tax_rate"
+    assert report.county_tax_capability["over65_reliability"] == "limited"
+    assert report.county_tax_capability["profile_support_level"] == "summary_only"
     assert report.parcel_rows_with_living_area == 15
     assert report.parcel_rows_with_effective_tax_rate == 12
     assert report.subject_cache_row_count == 9
