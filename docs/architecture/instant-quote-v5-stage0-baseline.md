@@ -59,6 +59,40 @@ Recorded values there:
 
 Those values are useful as the last repo-recorded baseline, but they do not replace a fresh isolated-DB validation run for V5 Stage 0.
 
+## Fresh isolated-DB validation
+
+Fresh Stage 0 validation was rerun on April 22, 2026 against the isolated Stage 21 database:
+
+- host: `localhost`
+- port: `55442`
+- database: `stage21_dev`
+- user: `stage21_admin`
+
+Durable JSON capture:
+
+- [instant-quote-v5-stage0-baseline-20260422.json](/Users/nblevins/Desktop/dwellio/docs/architecture/instant-quote-v5-stage0-baseline-20260422.json:1)
+
+Fresh results compared with the repo-recorded reference:
+
+- Harris 2026:
+  fresh support rate `0.9976579117176111` vs reference `0.9980317582` (`-0.0003738464823889176`)
+  fresh zero-share `0.44` vs reference `0.44` (`0.0`)
+  fresh blockers `supportable=1168860, missing_living_area=900, missing_assessment_basis=1783, missing_effective_tax_rate=61`
+  reference blockers `supportable=1169298, missing_living_area=900, missing_assessment_basis=1345, missing_effective_tax_rate=61`
+  observed shift: `438` rows moved from `supportable` to `missing_assessment_basis`
+
+- Fort Bend 2026:
+  fresh support rate `0.9930394681550281` vs reference `0.9930394682` (effectively unchanged)
+  fresh zero-share `0.5208333333333334` vs reference `0.5306122449` (`-0.00977891156666666`)
+  fresh blockers `supportable=276489, missing_living_area=1452, missing_assessment_basis=2, missing_effective_tax_rate=484`
+  reference blockers `supportable=276489, missing_living_area=1452, missing_assessment_basis=2, missing_effective_tax_rate=484`
+
+Stage 0 completion interpretation:
+
+- The isolated-DB baseline script ran successfully for both counties.
+- Fresh baseline results are now recorded durably in-repo.
+- Harris shows a small support-rate regression driven by higher `missing_assessment_basis` blockers, which should be treated as a follow-up caveat for later stages, not as a reason to fake Stage 0 completion.
+
 ## Fresh baseline command
 
 Run this against an isolated Stage 21 database, not the protected baseline DB:
