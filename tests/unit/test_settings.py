@@ -22,3 +22,8 @@ def test_settings_have_admin_token_default() -> None:
 def test_settings_default_instant_quote_v5_flag_is_disabled() -> None:
     settings = get_settings()
     assert settings.instant_quote_v5_enabled is False
+
+
+def test_settings_default_stage7_savings_translation_flag_is_disabled() -> None:
+    settings = get_settings()
+    assert settings.instant_quote_v5_savings_translation_enabled is False
