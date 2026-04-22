@@ -74,6 +74,29 @@ class StubCursor:
                     "notes": "County capability snapshot present for validation.",
                 }
             ]
+        elif "FROM instant_quote_tax_profile" in sql and "GROUP BY profile_version" in sql:
+            self._rows = [
+                {
+                    "profile_version": "v5_summary_profile_v1",
+                    "row_count": 9,
+                    "source_data_cutoff_at": None,
+                    "rows_with_assessment_basis_value": 7,
+                    "rows_with_raw_exemption_codes": 6,
+                    "rows_with_normalized_exemption_codes": 7,
+                    "rows_with_complete_tax_unit_assignment": 5,
+                    "rows_with_complete_tax_rate": 4,
+                    "fallback_tax_profile_count": 5,
+                    "missing_assessment_basis_warning_count": 2,
+                    "over65_reliability_limited_count": 1,
+                    "school_ceiling_amount_unavailable_count": 0,
+                }
+            ]
+        elif "FROM instant_quote_tax_profile" in sql and "GROUP BY tax_profile_status" in sql:
+            self._rows = [
+                {"tax_profile_status": "supported_with_disclosure", "count": 4},
+                {"tax_profile_status": "unsupported", "count": 3},
+                {"tax_profile_status": "constrained", "count": 2},
+            ]
         elif "prior_total_count_all_sfr_flagged" in sql:
             self._rows = [
                 {
@@ -245,6 +268,15 @@ def test_instant_quote_validation_report_summarizes_counts_and_examples(monkeypa
     assert report.current_public_savings_model == "reduction_estimate_times_effective_tax_rate"
     assert report.county_tax_capability["over65_reliability"] == "limited"
     assert report.county_tax_capability["profile_support_level"] == "summary_only"
+    assert report.tax_profile["profile_version"] == "v5_summary_profile_v1"
+    assert report.tax_profile["row_count"] == 9
+    assert report.tax_profile["rows_with_complete_tax_rate"] == 4
+    assert report.tax_profile["missing_assessment_basis_warning_count"] == 2
+    assert report.tax_profile["status_distribution"] == {
+        "supported_with_disclosure": 4,
+        "unsupported": 3,
+        "constrained": 2,
+    }
     assert report.parcel_rows_with_living_area == 15
     assert report.parcel_rows_with_effective_tax_rate == 12
     assert report.subject_cache_row_count == 9

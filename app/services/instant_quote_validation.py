@@ -45,6 +45,7 @@ class InstantQuoteValidationReport:
     quote_version: str = QUOTE_VERSION
     current_public_savings_model: str = CURRENT_PUBLIC_SAVINGS_MODEL
     county_tax_capability: dict[str, Any] = field(default_factory=dict)
+    tax_profile: dict[str, Any] = field(default_factory=dict)
     tax_rate_basis_year: int | None = None
     tax_rate_basis_reason: str | None = None
     tax_rate_basis_fallback_applied: bool = False
@@ -203,6 +204,11 @@ class InstantQuoteValidationService:
                     tax_year=tax_year,
                 )
                 county_tax_capability = self._county_tax_capability(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                tax_profile = self._tax_profile_summary(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
@@ -633,6 +639,7 @@ class InstantQuoteValidationService:
             county_id=county_id,
             tax_year=tax_year,
             county_tax_capability=county_tax_capability,
+            tax_profile=tax_profile,
             tax_rate_basis_year=(
                 None
                 if latest_refresh_run is None
@@ -871,6 +878,82 @@ class InstantQuoteValidationService:
         )
         row = cursor.fetchone()
         return {} if row is None else dict(row)
+
+    def _tax_profile_summary(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT
+              profile_version,
+              COUNT(*)::integer AS row_count,
+              MAX(source_data_cutoff_at) AS source_data_cutoff_at,
+              COUNT(*) FILTER (
+                WHERE assessment_basis_value IS NOT NULL
+                  AND assessment_basis_value > 0
+              )::integer AS rows_with_assessment_basis_value,
+              COUNT(*) FILTER (
+                WHERE cardinality(raw_exemption_codes) > 0
+              )::integer AS rows_with_raw_exemption_codes,
+              COUNT(*) FILTER (
+                WHERE cardinality(normalized_exemption_codes) > 0
+              )::integer AS rows_with_normalized_exemption_codes,
+              COUNT(*) FILTER (
+                WHERE tax_unit_assignment_complete_flag
+              )::integer AS rows_with_complete_tax_unit_assignment,
+              COUNT(*) FILTER (
+                WHERE tax_rate_complete_flag
+              )::integer AS rows_with_complete_tax_rate,
+              COUNT(*) FILTER (
+                WHERE fallback_tax_profile_used_flag
+              )::integer AS fallback_tax_profile_count,
+              COUNT(*) FILTER (
+                WHERE 'missing_assessment_basis' = ANY(profile_warning_codes)
+              )::integer AS missing_assessment_basis_warning_count,
+              COUNT(*) FILTER (
+                WHERE over65_flag IS TRUE
+                  AND 'over65_reliability_limited' = ANY(profile_warning_codes)
+              )::integer AS over65_reliability_limited_count,
+              COUNT(*) FILTER (
+                WHERE freeze_flag IS TRUE
+                  AND 'school_ceiling_amount_unavailable' = ANY(profile_warning_codes)
+              )::integer AS school_ceiling_amount_unavailable_count
+            FROM instant_quote_tax_profile
+            WHERE county_id = %s
+              AND tax_year = %s
+            GROUP BY profile_version
+            ORDER BY row_count DESC, profile_version DESC
+            LIMIT 1
+            """,
+            (county_id, tax_year),
+        )
+        summary_row = cursor.fetchone()
+        if summary_row is None:
+            return {}
+
+        cursor.execute(
+            """
+            SELECT
+              tax_profile_status,
+              COUNT(*)::integer AS count
+            FROM instant_quote_tax_profile
+            WHERE county_id = %s
+              AND tax_year = %s
+              AND profile_version = %s
+            GROUP BY tax_profile_status
+            ORDER BY count DESC, tax_profile_status ASC
+            """,
+            (county_id, tax_year, summary_row["profile_version"]),
+        )
+        payload = dict(summary_row)
+        payload["status_distribution"] = {
+            str(row["tax_profile_status"]): int(row["count"]) for row in cursor.fetchall()
+        }
+        return payload
 
     def _count(self, cursor: Any, sql: str, params: tuple[object, ...]) -> int:
         cursor.execute(sql, params)
