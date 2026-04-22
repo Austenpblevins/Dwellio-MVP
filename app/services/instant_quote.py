@@ -25,6 +25,10 @@ from app.services.instant_quote_product_state_rollout import (
     apply_public_product_state_rollout,
     decide_public_product_state_rollout,
 )
+from app.services.instant_quote_savings_translation_rollout import (
+    apply_savings_translation_rollout,
+    decide_savings_translation_rollout,
+)
 from app.services.instant_quote_shadow_savings import (
     build_shadow_savings_comparison,
     fetch_shadow_tax_profile,
@@ -2431,6 +2435,11 @@ class InstantQuoteService:
                 telemetry=telemetry,
             )
             telemetry.update(rollout_payload)
+            response, translation_payload = self._apply_savings_translation_rollout(
+                response=response,
+                telemetry=telemetry,
+            )
+            telemetry.update(translation_payload)
             telemetry["explanation_payload"] = response.explanation.model_dump()
         latency_ms = int((perf_counter() - started_at) * 1000)
         telemetry["latency_ms"] = latency_ms
@@ -3246,6 +3255,7 @@ class InstantQuoteService:
                 "opportunity_vs_savings_state": telemetry.get("opportunity_vs_savings_state"),
                 "dominant_warning_action_class": telemetry.get("dominant_warning_action_class"),
                 "public_rollout_state": telemetry.get("public_rollout_state"),
+                "savings_translation_mode": telemetry.get("savings_translation_mode"),
                 "shadow_tax_profile_status": telemetry.get("shadow_tax_profile_status"),
                 "shadow_marginal_model_type": telemetry.get("shadow_marginal_model_type"),
                 "latency_ms": telemetry.get("latency_ms"),
@@ -3315,6 +3325,67 @@ class InstantQuoteService:
             "public_rollout_applied_flag": rollout.applied_public_change,
         }
 
+    def _apply_savings_translation_rollout(
+        self,
+        *,
+        response: InstantQuoteResponse,
+        telemetry: dict[str, Any],
+    ) -> tuple[InstantQuoteResponse, dict[str, Any]]:
+        decision = decide_savings_translation_rollout(
+            county_id=response.county_id,
+            response_supported=bool(response.supported),
+            unsupported_reason=response.unsupported_reason,
+            public_rollout_state=telemetry.get("public_rollout_state"),
+            current_savings_estimate_raw=telemetry.get("savings_estimate_raw"),
+            shadow_savings_estimate_raw=telemetry.get("shadow_savings_estimate_raw"),
+            shadow_tax_profile_status=telemetry.get("shadow_tax_profile_status"),
+            shadow_limiting_reason_codes=telemetry.get("shadow_limiting_reason_codes"),
+            shadow_fallback_tax_profile_used_flag=telemetry.get(
+                "shadow_fallback_tax_profile_used_flag"
+            ),
+        )
+        updated_response = response
+        if (
+            decision.savings_translation_applied_flag
+            and response.estimate is not None
+            and response.estimate.estimate_strength_label is not None
+            and decision.selected_public_savings_estimate_raw is not None
+        ):
+            translated_estimate = build_public_estimate(
+                savings_estimate=decision.selected_public_savings_estimate_raw,
+                confidence_label=response.estimate.estimate_strength_label,
+                tax_protection_limited=response.estimate.tax_protection_limited,
+            )
+            if response.estimate.tax_protection_note is not None:
+                translated_estimate = translated_estimate.model_copy(
+                    update={"tax_protection_note": response.estimate.tax_protection_note}
+                )
+            updated_response = apply_savings_translation_rollout(
+                response=response,
+                translated_estimate=translated_estimate,
+                decision=decision,
+            )
+
+        updated_estimate = updated_response.estimate
+        return updated_response, {
+            "savings_translation_mode": decision.savings_translation_mode,
+            "savings_translation_reason_code": decision.savings_translation_reason_code,
+            "savings_translation_applied_flag": decision.savings_translation_applied_flag,
+            "selected_public_savings_estimate_raw": decision.selected_public_savings_estimate_raw,
+            "savings_estimate_display": (
+                updated_estimate.savings_midpoint_display if updated_estimate is not None else None
+            ),
+            "public_savings_range_low": (
+                updated_estimate.savings_range_low if updated_estimate is not None else None
+            ),
+            "public_savings_range_high": (
+                updated_estimate.savings_range_high if updated_estimate is not None else None
+            ),
+            "public_estimate_bucket": (
+                updated_estimate.estimate_bucket if updated_estimate is not None else None
+            ),
+        }
+
     def _persist_request_log_best_effort(
         self,
         *,
@@ -3363,6 +3434,10 @@ class InstantQuoteService:
                           public_rollout_state,
                           public_rollout_reason_code,
                           public_rollout_applied_flag,
+                          savings_translation_mode,
+                          savings_translation_reason_code,
+                          savings_translation_applied_flag,
+                          selected_public_savings_estimate_raw,
                           shadow_profile_version,
                           shadow_savings_estimate_raw,
                           shadow_savings_delta_raw,
@@ -3378,7 +3453,7 @@ class InstantQuoteService:
                           latency_ms
                         )
                         VALUES (
-                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -3418,6 +3493,10 @@ class InstantQuoteService:
                             telemetry.get("public_rollout_state"),
                             telemetry.get("public_rollout_reason_code"),
                             telemetry.get("public_rollout_applied_flag", False),
+                            telemetry.get("savings_translation_mode"),
+                            telemetry.get("savings_translation_reason_code"),
+                            telemetry.get("savings_translation_applied_flag", False),
+                            telemetry.get("selected_public_savings_estimate_raw"),
                             telemetry.get("shadow_profile_version"),
                             telemetry.get("shadow_savings_estimate_raw"),
                             telemetry.get("shadow_savings_delta_raw"),

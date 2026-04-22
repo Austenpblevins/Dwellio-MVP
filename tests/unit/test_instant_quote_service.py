@@ -558,6 +558,86 @@ def test_apply_public_product_state_rollout_keeps_missing_assessment_basis_expli
     assert updated.explanation.summary == response.explanation.summary
 
 
+def test_apply_savings_translation_rollout_only_changes_enabled_total_exemption_cohort(
+    monkeypatch,
+) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ENABLED", "true")
+    monkeypatch.setenv("DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_COUNTY_IDS", "fort_bend")
+    monkeypatch.setenv(
+        "DWELLIO_INSTANT_QUOTE_V5_SAVINGS_TRANSLATION_ROLLOUT_STATES",
+        "total_exemption_low_cash,near_total_exemption_low_cash",
+    )
+    monkeypatch.setenv("DWELLIO_DATABASE_URL", "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev")
+    get_settings.cache_clear()
+    service = InstantQuoteService()
+    response = InstantQuoteResponse(
+        supported=True,
+        county_id="fort_bend",
+        tax_year=2026,
+        requested_tax_year=2026,
+        served_tax_year=2026,
+        tax_year_fallback_applied=False,
+        tax_year_fallback_reason=None,
+        data_freshness_label="current_year",
+        account_number="6250-01-004-1600-907",
+        basis_code="assessment_basis_segment_blend",
+        subject=InstantQuoteSubject(
+            parcel_id=uuid4(),
+            address="123 Main St",
+            neighborhood_code="1001",
+            school_district_name="Fort Bend ISD",
+            property_type_code="sfr",
+            property_class_code="A1",
+            living_area_sf=2200.0,
+            year_built=2005,
+            notice_value=400000.0,
+            homestead_flag=True,
+            freeze_flag=False,
+        ),
+        estimate=build_public_estimate(
+            savings_estimate=1072.7895362146855,
+            confidence_label="medium",
+            tax_protection_limited=False,
+        ),
+        explanation=InstantQuoteExplanation(
+            methodology="segment_within_neighborhood",
+            estimate_strength_label="medium",
+            summary="Base summary",
+            bullets=["Base bullet"],
+            limitation_note=None,
+        ),
+        disclaimers=["Base disclaimer"],
+        unsupported_reason=None,
+        next_step_cta=REFINED_REVIEW_CTA,
+    )
+
+    updated, payload = service._apply_savings_translation_rollout(  # type: ignore[attr-defined]
+        response=response,
+        telemetry={
+            "public_rollout_state": "total_exemption_low_cash",
+            "savings_estimate_raw": 1072.7895362146855,
+            "shadow_savings_estimate_raw": 0.0,
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "shadow_limiting_reason_codes": [
+                "profile_support_level_summary_only",
+                "tax_rate_basis_fallback_applied",
+                "total_exemption_likely",
+            ],
+            "shadow_fallback_tax_profile_used_flag": True,
+        },
+    )
+    get_settings.cache_clear()
+
+    assert payload["savings_translation_mode"] == "v5_shadow_tax_profile_rollout"
+    assert payload["savings_translation_applied_flag"] is True
+    assert payload["selected_public_savings_estimate_raw"] == 0.0
+    assert updated.estimate is not None
+    assert updated.estimate.savings_midpoint_display == 0.0
+    assert any("uses the summary tax profile" in text for text in updated.disclaimers)
+
+
 def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:
     cursor = _RefreshCursor()
     monkeypatch.setattr(
