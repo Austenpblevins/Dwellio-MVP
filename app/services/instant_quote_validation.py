@@ -44,6 +44,7 @@ class InstantQuoteValidationReport:
     supported_segment_stats_rows: int
     quote_version: str = QUOTE_VERSION
     current_public_savings_model: str = CURRENT_PUBLIC_SAVINGS_MODEL
+    county_tax_capability: dict[str, Any] = field(default_factory=dict)
     tax_rate_basis_year: int | None = None
     tax_rate_basis_reason: str | None = None
     tax_rate_basis_fallback_applied: bool = False
@@ -197,6 +198,11 @@ class InstantQuoteValidationService:
                     tax_year=tax_year,
                 )
                 blocker_distribution = self._blocker_distribution(
+                    cursor,
+                    county_id=county_id,
+                    tax_year=tax_year,
+                )
+                county_tax_capability = self._county_tax_capability(
                     cursor,
                     county_id=county_id,
                     tax_year=tax_year,
@@ -626,6 +632,7 @@ class InstantQuoteValidationService:
         return InstantQuoteValidationReport(
             county_id=county_id,
             tax_year=tax_year,
+            county_tax_capability=county_tax_capability,
             tax_rate_basis_year=(
                 None
                 if latest_refresh_run is None
@@ -832,6 +839,38 @@ class InstantQuoteValidationService:
             monitored_extreme_savings_watchlist=monitored_extreme_savings_watchlist,
             examples=examples,
         )
+
+    def _county_tax_capability(
+        self,
+        cursor: Any,
+        *,
+        county_id: str,
+        tax_year: int,
+    ) -> dict[str, Any]:
+        cursor.execute(
+            """
+            SELECT county_id,
+                   tax_year,
+                   exemption_normalization_confidence,
+                   over65_reliability,
+                   disabled_reliability,
+                   disabled_veteran_reliability,
+                   freeze_reliability,
+                   tax_unit_assignment_reliability,
+                   tax_rate_reliability,
+                   school_ceiling_amount_available,
+                   unit_exemption_policy_available,
+                   local_option_policy_available,
+                   profile_support_level,
+                   notes
+            FROM instant_quote_county_tax_capability
+            WHERE county_id = %s
+              AND tax_year = %s
+            """,
+            (county_id, tax_year),
+        )
+        row = cursor.fetchone()
+        return {} if row is None else dict(row)
 
     def _count(self, cursor: Any, sql: str, params: tuple[object, ...]) -> int:
         cursor.execute(sql, params)

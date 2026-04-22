@@ -77,3 +77,7 @@ def test_list_county_capability_entries_includes_fort_bend_over65_support() -> N
     assert ("harris", "search_refresh_runtime") in entries
     assert ("fort_bend", "parcel_level_over65") in entries
     assert entries[("fort_bend", "parcel_level_over65")].status == "supported"
+    assert ("harris", "instant_quote_over65_reliability") in entries
+    assert ("fort_bend", "instant_quote_profile_support_level") in entries
+    assert entries[("harris", "instant_quote_over65_reliability")].status == "limited"
+    assert entries[("fort_bend", "instant_quote_profile_support_level")].status == "summary_only"
