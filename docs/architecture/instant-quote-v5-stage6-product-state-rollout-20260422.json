@@ -1,0 +1,526 @@
+{
+  "counties": [
+    {
+      "cohorts": {
+        "high_opportunity_low_cash": [
+          {
+            "account_number": "1097810000030",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 536 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 220 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 100.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "94.1790991618014",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "1216740030008",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 137 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 49 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 200.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "193.303955686917",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "1163970050013",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 497 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 174 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 125.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "131.330372018873",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          }
+        ],
+        "near_total_exemption_low_cash": [],
+        "opportunity_only_tax_profile_incomplete": [
+          {
+            "account_number": "0420350030006",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 86 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 9 peers.",
+              "The current tax profile is incomplete enough that a refined review is safer than a public cash promise."
+            ],
+            "internal_opportunity_vs_savings_state": "no_opportunity_detected",
+            "limitation_note": "Treat this parcel as an opportunity signal, not a confident promise of current-year cash savings.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_opportunity_only_tax_profile_incomplete",
+            "public_rollout_state": "opportunity_only_tax_profile_incomplete",
+            "savings_midpoint_display": 0.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "shadow_savings_estimate_raw": null,
+            "shadow_tax_profile_status": "opportunity_only",
+            "summary": "We found protest signal, but the current tax profile is too limited to treat this as a reliable cash-savings quote.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "0860950000017",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 86 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 24 peers.",
+              "The current tax profile is incomplete enough that a refined review is safer than a public cash promise."
+            ],
+            "internal_opportunity_vs_savings_state": "no_opportunity_detected",
+            "limitation_note": "Treat this parcel as an opportunity signal, not a confident promise of current-year cash savings.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_opportunity_only_tax_profile_incomplete",
+            "public_rollout_state": "opportunity_only_tax_profile_incomplete",
+            "savings_midpoint_display": 0.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "shadow_savings_estimate_raw": null,
+            "shadow_tax_profile_status": "opportunity_only",
+            "summary": "We found protest signal, but the current tax profile is too limited to treat this as a reliable cash-savings quote.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "0860960000018",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 86 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 24 peers.",
+              "The current tax profile is incomplete enough that a refined review is safer than a public cash promise."
+            ],
+            "internal_opportunity_vs_savings_state": "no_opportunity_detected",
+            "limitation_note": "Treat this parcel as an opportunity signal, not a confident promise of current-year cash savings.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_opportunity_only_tax_profile_incomplete",
+            "public_rollout_state": "opportunity_only_tax_profile_incomplete",
+            "savings_midpoint_display": 0.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "shadow_savings_estimate_raw": null,
+            "shadow_tax_profile_status": "opportunity_only",
+            "summary": "We found protest signal, but the current tax profile is too limited to treat this as a reliable cash-savings quote.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          }
+        ],
+        "school_limited_non_school_possible": [],
+        "shadow_quoteable_public_refined_review": [],
+        "total_exemption_low_cash": []
+      },
+      "county_id": "harris",
+      "target_shadow_state_counts": {
+        "near_total_exemption_low_cash": 0,
+        "opportunity_only_tax_profile_incomplete": 88,
+        "school_limited_non_school_possible": 0,
+        "total_exemption_low_cash": 27402
+      },
+      "tax_year": 2026
+    },
+    {
+      "cohorts": {
+        "high_opportunity_low_cash": [
+          {
+            "account_number": "2869-01-001-0230-901",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 146 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 20 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 50.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "57.1512836818177",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "8700-04-001-0150-907",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 50 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 12 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 100.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "88.7020076393711",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "5741-10-002-0170-907",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 86 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 50 peers."
+            ],
+            "internal_opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "limitation_note": "The value gap may still be worth pursuing even when the near-term public cash range stays low.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "supported_opportunity_low_cash",
+            "public_rollout_state": "high_opportunity_low_cash",
+            "savings_midpoint_display": 225.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "236.335075102624",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest opportunity, but the likely current-year cash savings still looks modest.",
+            "supported": true,
+            "tax_protection_note": null,
+            "unsupported_reason": null
+          }
+        ],
+        "near_total_exemption_low_cash": [],
+        "opportunity_only_tax_profile_incomplete": [],
+        "school_limited_non_school_possible": [
+          {
+            "account_number": "5683-04-001-0340-907",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The parcel appears to have tax-protection rules that can limit realized current-year savings.",
+              "We found possible protest signals, but this property needs a refined review."
+            ],
+            "internal_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "limitation_note": "School-related tax effects appear limited, so the public savings range should be treated as directional rather than fully realized current-year cash.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_school_limited_non_school_possible",
+            "public_rollout_state": "school_limited_non_school_possible",
+            "savings_midpoint_display": null,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "freeze_reliability_limited",
+              "profile_support_level_summary_only",
+              "school_ceiling_amount_unavailable",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "school_limited_non_school_possible",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "constrained",
+            "summary": "We found protest opportunity, but school-tax protections may limit current-year cash savings more than non-school taxes.",
+            "supported": false,
+            "tax_protection_note": null,
+            "unsupported_reason": "tax_limitation_uncertain"
+          },
+          {
+            "account_number": "6250-07-004-0110-907",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The parcel appears to have tax-protection rules that can limit realized current-year savings.",
+              "We found possible protest signals, but this property needs a refined review."
+            ],
+            "internal_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "limitation_note": "School-related tax effects appear limited, so the public savings range should be treated as directional rather than fully realized current-year cash.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_school_limited_non_school_possible",
+            "public_rollout_state": "school_limited_non_school_possible",
+            "savings_midpoint_display": null,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "freeze_reliability_limited",
+              "profile_support_level_summary_only",
+              "school_ceiling_amount_unavailable",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "school_limited_non_school_possible",
+            "shadow_savings_estimate_raw": "130.231870950119",
+            "shadow_tax_profile_status": "constrained",
+            "summary": "We found protest opportunity, but school-tax protections may limit current-year cash savings more than non-school taxes.",
+            "supported": false,
+            "tax_protection_note": null,
+            "unsupported_reason": "tax_limitation_uncertain"
+          },
+          {
+            "account_number": "0057-00-860-0001-908",
+            "basis_code": "assessment_basis_neighborhood_only",
+            "bullets": [
+              "The parcel-year has some protest signal support, but the fast estimate confidence is still too low.",
+              "We found possible protest signals, but this property needs a refined review."
+            ],
+            "internal_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "limitation_note": "School-related tax effects appear limited, so the public savings range should be treated as directional rather than fully realized current-year cash.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_school_limited_non_school_possible",
+            "public_rollout_state": "school_limited_non_school_possible",
+            "savings_midpoint_display": null,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "freeze_reliability_limited",
+              "profile_support_level_summary_only",
+              "school_ceiling_amount_unavailable",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "school_limited_non_school_possible",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "constrained",
+            "summary": "We found protest opportunity, but school-tax protections may limit current-year cash savings more than non-school taxes.",
+            "supported": false,
+            "tax_protection_note": null,
+            "unsupported_reason": "tax_limitation_uncertain"
+          }
+        ],
+        "shadow_quoteable_public_refined_review": [
+          {
+            "account_number": "2545-02-001-0300-907",
+            "basis_code": "assessment_basis_neighborhood_only",
+            "bullets": [
+              "The parcel-year has some protest signal support, but the fast estimate confidence is still too low.",
+              "We found possible protest signals, but this property needs a refined review.",
+              "The parcel shows analytical protest signal under the internal tax-profile path.",
+              "Public quote confidence is still too low for a consumer-safe instant range."
+            ],
+            "internal_opportunity_vs_savings_state": "manual_review_recommended",
+            "limitation_note": "The summary tax profile still shows possible savings, but the public quote confidence is too low to publish a safe instant number.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "low_confidence_public_quote_shadow_quoteable",
+            "public_rollout_state": "manual_review_shadow_quoteable",
+            "savings_midpoint_display": null,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest signal, but this parcel still needs a refined review before we show a safe public savings range.",
+            "supported": false,
+            "tax_protection_note": null,
+            "unsupported_reason": "low_confidence_refined_review"
+          },
+          {
+            "account_number": "0029-00-000-1186-901",
+            "basis_code": "assessment_basis_neighborhood_only",
+            "bullets": [
+              "The parcel-year has some protest signal support, but the fast estimate confidence is still too low.",
+              "We found possible protest signals, but this property needs a refined review.",
+              "The parcel shows analytical protest signal under the internal tax-profile path.",
+              "Public quote confidence is still too low for a consumer-safe instant range."
+            ],
+            "internal_opportunity_vs_savings_state": "manual_review_recommended",
+            "limitation_note": "The summary tax profile still shows possible savings, but the public quote confidence is too low to publish a safe instant number.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "low_confidence_public_quote_shadow_quoteable",
+            "public_rollout_state": "manual_review_shadow_quoteable",
+            "savings_midpoint_display": null,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied"
+            ],
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_savings_estimate_raw": "93244.9081222816",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest signal, but this parcel still needs a refined review before we show a safe public savings range.",
+            "supported": false,
+            "tax_protection_note": null,
+            "unsupported_reason": "low_confidence_refined_review"
+          }
+        ],
+        "total_exemption_low_cash": [
+          {
+            "account_number": "3531-04-001-0410-914",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 68 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 49 peers.",
+              "The value signal can still matter, but realized near-term cash savings may stay near zero."
+            ],
+            "internal_opportunity_vs_savings_state": "no_opportunity_detected",
+            "limitation_note": "This looks more like an opportunity signal than a likely current-year cash savings event because exemptions appear to dominate the tax profile.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_total_exemption_low_cash",
+            "public_rollout_state": "total_exemption_low_cash",
+            "savings_midpoint_display": 0.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied",
+              "total_exemption_likely"
+            ],
+            "shadow_opportunity_vs_savings_state": "total_exemption_low_cash",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest signal, but exemptions likely already absorb most or all current-year cash savings.",
+            "supported": true,
+            "tax_protection_note": "Exemptions likely already absorb most or all current-year cash savings.",
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "5016-01-001-0170-914",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 106 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 10 peers.",
+              "The value signal can still matter, but realized near-term cash savings may stay near zero."
+            ],
+            "internal_opportunity_vs_savings_state": "no_opportunity_detected",
+            "limitation_note": "This looks more like an opportunity signal than a likely current-year cash savings event because exemptions appear to dominate the tax profile.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_total_exemption_low_cash",
+            "public_rollout_state": "total_exemption_low_cash",
+            "savings_midpoint_display": 0.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied",
+              "total_exemption_likely"
+            ],
+            "shadow_opportunity_vs_savings_state": "total_exemption_low_cash",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest signal, but exemptions likely already absorb most or all current-year cash savings.",
+            "supported": true,
+            "tax_protection_note": "Exemptions likely already absorb most or all current-year cash savings.",
+            "unsupported_reason": null
+          },
+          {
+            "account_number": "6250-01-004-1600-907",
+            "basis_code": "assessment_basis_segment_blend",
+            "bullets": [
+              "The estimate uses 419 nearby assessment peers from the same neighborhood.",
+              "A same-size and age segment inside that neighborhood contributed 140 peers.",
+              "The value signal can still matter, but realized near-term cash savings may stay near zero."
+            ],
+            "internal_opportunity_vs_savings_state": "strong_opportunity_high_cash",
+            "limitation_note": "This looks more like an opportunity signal than a likely current-year cash savings event because exemptions appear to dominate the tax profile.",
+            "next_step_cta": "We found possible protest signals, but this property needs a refined review.",
+            "public_rollout_applied_flag": true,
+            "public_rollout_reason_code": "shadow_state_total_exemption_low_cash",
+            "public_rollout_state": "total_exemption_low_cash",
+            "savings_midpoint_display": 1050.0,
+            "shadow_fallback_tax_profile_used_flag": true,
+            "shadow_limiting_reason_codes": [
+              "profile_support_level_summary_only",
+              "tax_rate_basis_fallback_applied",
+              "total_exemption_likely"
+            ],
+            "shadow_opportunity_vs_savings_state": "total_exemption_low_cash",
+            "shadow_savings_estimate_raw": "0",
+            "shadow_tax_profile_status": "supported_with_disclosure",
+            "summary": "We found protest signal, but exemptions likely already absorb most or all current-year cash savings.",
+            "supported": true,
+            "tax_protection_note": "Exemptions likely already absorb most or all current-year cash savings.",
+            "unsupported_reason": null
+          }
+        ]
+      },
+      "county_id": "fort_bend",
+      "target_shadow_state_counts": {
+        "near_total_exemption_low_cash": 0,
+        "opportunity_only_tax_profile_incomplete": 11,
+        "school_limited_non_school_possible": 2442,
+        "total_exemption_low_cash": 8117
+      },
+      "tax_year": 2026
+    }
+  ],
+  "current_public_savings_model": "reduction_estimate_times_effective_tax_rate",
+  "stage5_handoff_artifact": "docs/architecture/instant-quote-v5-stage5-shadow-comparison-20260422.json"
+}

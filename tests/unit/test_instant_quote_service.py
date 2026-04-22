@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.models.quote import InstantQuoteResponse
+from app.models.quote import InstantQuoteExplanation, InstantQuoteResponse, InstantQuoteSubject
 from app.services.instant_quote import (
     MATERIAL_CAP_GAP_RATIO,
     MIN_TRIM_GROUP_SIZE,
+    REFINED_REVIEW_CTA,
     SEGMENT_MIN_COUNT,
     TELEMETRY_MAX_INFLIGHT_TASKS,
     TRIM_METHOD_P05_P95_PRESERVE_ALL_LT3,
@@ -451,6 +452,110 @@ def test_instant_quote_service_shadow_payload_does_not_change_public_response_sh
     assert "shadow_profile_version" not in payload
     assert "shadow_savings_estimate_raw" not in payload
     assert payload["estimate"]["savings_midpoint_display"] is not None
+
+
+def test_apply_public_product_state_rollout_sets_supported_low_cash_cta() -> None:
+    service = InstantQuoteService()
+    response = InstantQuoteResponse(
+        supported=True,
+        county_id="harris",
+        tax_year=2026,
+        requested_tax_year=2026,
+        served_tax_year=2026,
+        tax_year_fallback_applied=False,
+        tax_year_fallback_reason=None,
+        data_freshness_label="current_year",
+        account_number="1240900010010",
+        basis_code="assessment_basis_segment_blend",
+        subject=InstantQuoteSubject(
+            parcel_id=uuid4(),
+            address="101 Main St",
+            neighborhood_code="2610.04",
+            school_district_name="Houston ISD",
+            property_type_code="sfr",
+            property_class_code="A1",
+            living_area_sf=1232.0,
+            year_built=1978,
+            notice_value=112000.0,
+            homestead_flag=False,
+            freeze_flag=False,
+        ),
+        estimate=build_public_estimate(
+            savings_estimate=150.0,
+            confidence_label="medium",
+            tax_protection_limited=False,
+        ),
+        explanation=InstantQuoteExplanation(
+            methodology="segment_within_neighborhood",
+            estimate_strength_label="medium",
+            summary="Base summary",
+            bullets=["Base bullet"],
+            limitation_note=None,
+        ),
+        disclaimers=["Base disclaimer"],
+        unsupported_reason=None,
+        next_step_cta=None,
+    )
+    updated, payload = service._apply_public_product_state_rollout(  # type: ignore[attr-defined]
+        response=response,
+        telemetry={
+            "opportunity_vs_savings_state": "supported_opportunity_low_cash",
+            "product_state_reason_code": "supported_value_gap_low_cash",
+            "shadow_opportunity_vs_savings_state": "standard_quote",
+            "shadow_limiting_reason_codes": ["tax_rate_basis_fallback_applied"],
+            "shadow_savings_estimate_raw": 150.0,
+            "shadow_fallback_tax_profile_used_flag": True,
+        },
+    )
+
+    assert payload["public_rollout_state"] == "high_opportunity_low_cash"
+    assert updated.estimate is not None
+    assert updated.estimate.savings_midpoint_display == response.estimate.savings_midpoint_display
+    assert updated.next_step_cta is not None
+    assert "cash savings still looks modest" in updated.explanation.summary
+
+
+def test_apply_public_product_state_rollout_keeps_missing_assessment_basis_explicit() -> None:
+    service = InstantQuoteService()
+    response = InstantQuoteResponse(
+        supported=False,
+        county_id="harris",
+        tax_year=2026,
+        requested_tax_year=2026,
+        served_tax_year=2026,
+        tax_year_fallback_applied=False,
+        tax_year_fallback_reason=None,
+        data_freshness_label="current_year",
+        account_number="0102060000364",
+        basis_code="assessment_basis_unsupported",
+        subject=None,
+        estimate=None,
+        explanation=InstantQuoteExplanation(
+            methodology="unsupported",
+            estimate_strength_label=None,
+            summary="This parcel is missing one or more inputs required for a safe instant quote.",
+            bullets=["The property record resolved, but the instant quote inputs are incomplete."],
+            limitation_note=None,
+        ),
+        disclaimers=[],
+        unsupported_reason="missing_assessment_basis",
+        next_step_cta=REFINED_REVIEW_CTA,
+    )
+    updated, payload = service._apply_public_product_state_rollout(  # type: ignore[attr-defined]
+        response=response,
+        telemetry={
+            "opportunity_vs_savings_state": "suppressed_data_quality",
+            "product_state_reason_code": "support_blocker_missing_assessment_basis",
+            "shadow_opportunity_vs_savings_state": "opportunity_only_tax_profile_incomplete",
+            "shadow_limiting_reason_codes": ["missing_assessment_basis"],
+            "shadow_savings_estimate_raw": None,
+            "shadow_fallback_tax_profile_used_flag": True,
+        },
+    )
+
+    assert payload["public_rollout_state"] == "suppressed_data_quality"
+    assert updated.unsupported_reason == "missing_assessment_basis"
+    assert updated.explanation.summary == response.explanation.summary
 
 
 def test_refresh_subject_cache_builds_from_scoped_canonical_tables(monkeypatch) -> None:
