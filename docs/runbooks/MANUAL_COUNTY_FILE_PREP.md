@@ -55,6 +55,17 @@ The supported canonical workflow is:
 
 Do not use `gross_component_area_sf` as the quote-facing living area denominator.
 
+## Harris primary-building area contract
+
+Harris multi-building account selection for quote-facing `living_area_sf` is intentionally living-area-first:
+
+- prefer `heat_ar` first
+- fall back to `im_sq_ft` when `heat_ar` is missing
+- use `gross_ar` only as a last-resort living-area fallback when no living-area metric exists
+
+Primary-row selection must not let `gross_ar`, `act_ar`, or `eff_ar` override a row with better living-area coverage.  
+Those broader area fields can still exist for diagnostics, but they are not the deciding signal for quote-facing `living_area_sf`.
+
 ## Adapter-ready outputs
 
 The prep script writes these exact filenames:

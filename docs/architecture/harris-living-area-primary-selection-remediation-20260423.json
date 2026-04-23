@@ -1,0 +1,81 @@
+{
+  "artifact_version": "2026-04-23",
+  "county_id": "harris",
+  "tax_year": 2026,
+  "scope": "multi-building primary-row living-area selection remediation",
+  "inputs": {
+    "isolated_database_url": "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev",
+    "raw_real_acct": "/Users/nblevins/county-data/2026/raw/harris/real_acct.txt",
+    "raw_building_res": "/Users/nblevins/county-data/2026/raw/harris/building_res.txt",
+    "prepared_property_roll": "/Users/nblevins/county-data/2026/ready/harris_property_roll_2026.json"
+  },
+  "code_changes": {
+    "primary_selection_rule": "living_area_first",
+    "living_precedence": [
+      "heat_ar",
+      "im_sq_ft",
+      "gross_ar_fallback_only_when_no_living_area_signals"
+    ],
+    "selection_guardrail": "gross_ar/act_ar/eff_ar cannot outrank a row with stronger living-area signals"
+  },
+  "baseline_before_fix": {
+    "audit_scope": "SFR-like classes A1/A4/Z2/Z3",
+    "eligible_sfr_accounts": 1171900,
+    "multi_building_accounts": 22144,
+    "wrong_row_mismatches": 1735,
+    "estimated_overall_affected_share": 0.0014848642269249103,
+    "gross_dominance_share_of_mismatches": 0.9988472622478386,
+    "targeted_quote_impact": {
+      "analyzable_rows": 1696,
+      "median_savings_delta_corrected_minus_current": -761.7935965715849,
+      "mean_savings_delta_corrected_minus_current": -1193.6586586748883,
+      "quote_to_zero_count": 128,
+      "zero_to_quote_count": 0
+    }
+  },
+  "isolated_db_application": {
+    "method": "apply corrected living-area-first account mapping directly to parcel_improvements for Harris 2026",
+    "mapped_rows": 1168160,
+    "updated_rows": 1756,
+    "remaining_mismatch_rows_after_update": 0
+  },
+  "guardrail_validation": {
+    "before": {
+      "support_rate_all_sfr_flagged": 0.9980266470924625,
+      "support_rate_strict_sfr_eligible": 0.9980317581708495,
+      "monitored_zero_savings_quote_share": 0.44,
+      "blocker_distribution": {
+        "supportable": 1169298,
+        "missing_living_area": 900,
+        "missing_assessment_basis": 1345,
+        "missing_effective_tax_rate": 61,
+        "missing_neighborhood_code": 6
+      }
+    },
+    "after": {
+      "support_rate_all_sfr_flagged": 0.9980266470924625,
+      "support_rate_strict_sfr_eligible": 0.9980317581708495,
+      "monitored_zero_savings_quote_share": 0.44,
+      "blocker_distribution": {
+        "supportable": 1169298,
+        "missing_living_area": 900,
+        "missing_assessment_basis": 1345,
+        "missing_effective_tax_rate": 61,
+        "missing_neighborhood_code": 6
+      }
+    }
+  },
+  "post_fix_targeted_validation": {
+    "checked_subject_rows": 1168160,
+    "living_area_mismatch_vs_corrected_rule_rows": 0,
+    "living_area_mismatch_share": 0.0,
+    "savings_delta_corrected_minus_current_median": 0.0,
+    "savings_delta_corrected_minus_current_mean": 0.0,
+    "quote_to_zero_count": 0,
+    "zero_to_quote_count": 0
+  },
+  "notes": [
+    "A full historical_backfill normalize attempt was started after preparing the corrected Harris property roll but exceeded practical runtime for this session.",
+    "Validation results here are based on the canonical rule implemented in code plus isolated-DB application of that same corrected mapping to Harris 2026 parcel improvements and a full instant-quote refresh."
+  ]
+}

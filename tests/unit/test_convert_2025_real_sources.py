@@ -253,7 +253,9 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
             CREATE TABLE harris_building_lookup (
                 acct TEXT PRIMARY KEY,
                 primary_area REAL NOT NULL DEFAULT 0,
+                living_area_priority REAL NOT NULL DEFAULT 0,
                 living_area_sf INTEGER,
+                living_area_source TEXT,
                 year_built INTEGER,
                 effective_year_built INTEGER,
                 effective_age INTEGER,
@@ -280,7 +282,7 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
 
         _index_harris_buildings(connection, source_path=building_res, tax_year=2026)
         row = connection.execute(
-            "SELECT living_area_sf FROM harris_building_lookup WHERE acct = ?",
+            "SELECT living_area_sf, living_area_source FROM harris_building_lookup WHERE acct = ?",
             ("1161530010003",),
         ).fetchone()
     finally:
@@ -288,6 +290,65 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
 
     assert row is not None
     assert row["living_area_sf"] == 7674
+    assert row["living_area_source"] == "heat_ar"
+
+
+def test_harris_building_index_prefers_living_area_over_gross_area_when_selecting_primary_row(
+    tmp_path: Path,
+) -> None:
+    connection = _open_sqlite(tmp_path / "harris_building_living_first.sqlite3")
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE harris_building_lookup (
+                acct TEXT PRIMARY KEY,
+                primary_area REAL NOT NULL DEFAULT 0,
+                living_area_priority REAL NOT NULL DEFAULT 0,
+                living_area_sf INTEGER,
+                living_area_source TEXT,
+                year_built INTEGER,
+                effective_year_built INTEGER,
+                effective_age INTEGER,
+                quality_code TEXT,
+                condition_code TEXT,
+                property_use_code TEXT
+            );
+            """
+        )
+        building_res = tmp_path / "building_res_multi.txt"
+        building_res.write_text(
+            "acct\tproperty_use_cd\tbld_num\timpr_tp\timpr_mdl_cd\tstructure\tstructure_dscr\t"
+            "dpr_val\tcama_replacement_cost\taccrued_depr_pct\tqa_cd\tdscr\tdate_erected\t"
+            "eff\tyr_remodel\tyr_roll\tappr_by\tappr_dt\tnotes\tim_sq_ft\tact_ar\theat_ar\t"
+            "gross_ar\teff_ar\tbase_ar\tperimeter\tpct\tbld_adj\trcnld\tsize_index\tlump_sum_adj\n"
+            "1234567890001            \tA1\t1\t1001\t101 \tR  \tResidential\t100000\t200000\t"
+            "0.500000\tA \tGood\t1988\t1988\t2004\t1985\tHTS\t01/01/2004\tfirst\t1500\t2100\t1500\t"
+            "2100\t1700\t1500\t980\t1.00\t1.0000\t100000.00\t0.50000\t145022\n"
+            "1234567890001            \tA1\t2\t1001\t101 \tR  \tResidential\t100000\t200000\t"
+            "0.500000\tA \tGood\t1990\t1990\t2005\t1986\tHTS\t01/01/2005\tsecond\t1200\t5000\t1200\t"
+            "5000\t1500\t1200\t980\t1.00\t1.0000\t100000.00\t0.50000\t145022\n",
+            encoding="utf-8",
+        )
+
+        from infra.scripts.prepare_manual_county_files import _index_harris_buildings
+
+        _index_harris_buildings(connection, source_path=building_res, tax_year=2026)
+        row = connection.execute(
+            """
+            SELECT living_area_sf, living_area_source, living_area_priority, primary_area
+            FROM harris_building_lookup
+            WHERE acct = ?
+            """,
+            ("1234567890001",),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row is not None
+    assert row["living_area_sf"] == 1500
+    assert row["living_area_source"] == "heat_ar"
+    assert row["living_area_priority"] == 1500
+    assert row["primary_area"] == 2100
 
 def test_fort_bend_property_summary_square_footage_overrides_segment_total_and_preserves_gross_area(
     tmp_path: Path,
