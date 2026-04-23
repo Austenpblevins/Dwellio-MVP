@@ -99,6 +99,9 @@ def test_fort_bend_field_mapping_builds_expected_sections() -> None:
     assert normalized["parcel"]["account_number"] == "2002002002002"
     assert normalized["address"]["normalized_address"] == "404 ELM GROVE RICHMOND TX 77406"
     assert normalized["characteristics"]["homestead_flag"] is True
+    assert normalized["improvements"][0]["living_area_sf"] == 1980
+    assert normalized["improvements"][0]["gross_component_area_sf"] == 2320
+    assert normalized["improvements"][0]["living_area_source"] == "property_summary_export"
     assert normalized["improvements"][0]["pool_flag"] is True
     assert normalized["value_components"][2]["taxable_value"] == 195000
     assert normalized["assessment"]["exemption_value_total"] == 110000

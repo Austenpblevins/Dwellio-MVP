@@ -11,7 +11,7 @@ from app.county_adapters.common.config_loader import CountyAdapterConfig
 from app.utils.hashing import sha256_text
 
 INTEGER_FIELDS = {
-    "bldg_sqft",
+    "living_area_sf",
     "gross_component_area_sf",
     "yr_built",
     "eff_yr_built",
@@ -139,6 +139,13 @@ def _normalize_property_roll_row(raw_row: dict[str, str | None]) -> dict[str, An
             normalized[key] = _coerce_bool(cleaned)
         else:
             normalized[key] = cleaned
+
+    if normalized.get("living_area_sf") in (None, "") and normalized.get("bldg_sqft") not in (None, ""):
+        normalized["living_area_sf"] = _coerce_int(
+            normalized.get("bldg_sqft"),
+            field_name="living_area_sf",
+        )
+    normalized.pop("bldg_sqft", None)
 
     normalized["exemptions"] = _build_exemptions(normalized)
     return normalized

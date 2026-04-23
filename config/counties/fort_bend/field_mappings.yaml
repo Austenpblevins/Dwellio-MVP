@@ -135,7 +135,13 @@ datasets:
             default_value: Main
           - target_field: living_area_sf
             canonical_field_code: property_roll.improvements.living_area_sf
-            source_field: bldg_sqft
+            source_field: living_area_sf
+          - target_field: gross_component_area_sf
+            canonical_field_code: property_roll.improvements.gross_component_area_sf
+            source_field: gross_component_area_sf
+          - target_field: living_area_source
+            canonical_field_code: property_roll.improvements.living_area_source
+            source_field: living_area_source
           - target_field: year_built
             canonical_field_code: property_roll.improvements.year_built
             source_field: yr_built
