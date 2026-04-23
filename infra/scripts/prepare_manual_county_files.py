@@ -68,6 +68,8 @@ FORT_BEND_PROPERTY_HEADERS = [
     "subdivision",
     "school_district",
     "bldg_sqft",
+    "gross_component_area_sf",
+    "living_area_source",
     "yr_built",
     "eff_yr_built",
     "eff_age",
@@ -1239,6 +1241,8 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
         CREATE TABLE fort_bend_residential_lookup (
             property_quick_ref_id TEXT PRIMARY KEY,
             bldg_sqft INTEGER NOT NULL DEFAULT 0,
+            gross_component_area_sf INTEGER NOT NULL DEFAULT 0,
+            living_area_source TEXT,
             yr_built INTEGER,
             eff_yr_built INTEGER,
             bed_cnt INTEGER,
@@ -1497,6 +1501,8 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
                 quick_ref,
                 {
                     "bldg_sqft": 0,
+                    "gross_component_area_sf": 0,
+                    "living_area_source": "residential_segment_total_fallback",
                     "yr_built": None,
                     "eff_yr_built": None,
                     "bed_cnt": 0,
@@ -1505,7 +1511,9 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
                     "condition_grade": None,
                 },
             )
-            bucket["bldg_sqft"] += _as_int(row.get("vTSGRSeg_AdjArea")) or _as_int(row.get("fArea")) or 0
+            segment_sqft = _as_int(row.get("vTSGRSeg_AdjArea")) or _as_int(row.get("fArea")) or 0
+            bucket["bldg_sqft"] += segment_sqft
+            bucket["gross_component_area_sf"] += segment_sqft
             yr_built = _as_int(row.get("fActYear"))
             eff_yr_built = _as_int(row.get("fEffYear"))
             if yr_built and (bucket["yr_built"] is None or yr_built < bucket["yr_built"]):
@@ -1523,6 +1531,8 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
         (
             quick_ref,
             bucket["bldg_sqft"] or 0,
+            bucket["gross_component_area_sf"] or 0,
+            bucket["living_area_source"],
             bucket["yr_built"],
             bucket["eff_yr_built"],
             bucket["bed_cnt"] or None,
@@ -1537,20 +1547,22 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
         INSERT OR REPLACE INTO fort_bend_residential_lookup (
             property_quick_ref_id,
             bldg_sqft,
+            gross_component_area_sf,
+            living_area_source,
             yr_built,
             eff_yr_built,
             bed_cnt,
             bath_half,
             quality_grade,
             condition_grade
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
 
 
 def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, source_path: Path) -> None:
-    rows: list[tuple[str, int]] = []
+    rows: list[tuple[str, int, str]] = []
     with _open_raw_text(source_path) as handle:
         reader = _open_sniffed_dict_reader(handle)
         for row in reader:
@@ -1558,7 +1570,7 @@ def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, sou
             sqft = _as_int(row.get("SquareFootage"))
             if not quick_ref or not sqft:
                 continue
-            rows.append((quick_ref, sqft))
+            rows.append((quick_ref, sqft, "property_summary_export"))
             if len(rows) >= 5000:
                 _upsert_fort_bend_property_square_footage(connection, rows)
                 rows.clear()
@@ -1568,16 +1580,20 @@ def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, sou
 
 def _upsert_fort_bend_property_square_footage(
     connection: sqlite3.Connection,
-    rows: Sequence[tuple[str, int]],
+    rows: Sequence[tuple[str, int, str]],
 ) -> None:
     connection.executemany(
         """
-        INSERT INTO fort_bend_residential_lookup (property_quick_ref_id, bldg_sqft)
-        VALUES (?, ?)
+        INSERT INTO fort_bend_residential_lookup (
+            property_quick_ref_id,
+            bldg_sqft,
+            living_area_source
+        )
+        VALUES (?, ?, ?)
         ON CONFLICT(property_quick_ref_id) DO UPDATE SET
-            bldg_sqft = excluded.bldg_sqft
-        WHERE fort_bend_residential_lookup.bldg_sqft <= 0
-          AND excluded.bldg_sqft > 0
+            bldg_sqft = excluded.bldg_sqft,
+            living_area_source = excluded.living_area_source
+        WHERE excluded.bldg_sqft > 0
         """,
         rows,
     )
@@ -1940,7 +1956,16 @@ def _build_fort_bend_property_roll_row(
     owner_row = owner_cursor.fetchone()
     residential_cursor.execute(
         """
-        SELECT bldg_sqft, yr_built, eff_yr_built, bed_cnt, bath_half, quality_grade, condition_grade
+        SELECT
+          bldg_sqft,
+          gross_component_area_sf,
+          living_area_source,
+          yr_built,
+          eff_yr_built,
+          bed_cnt,
+          bath_half,
+          quality_grade,
+          condition_grade
         FROM fort_bend_residential_lookup
         WHERE property_quick_ref_id = ?
         """,
@@ -1983,6 +2008,14 @@ def _build_fort_bend_property_roll_row(
         "subdivision": _strip(row.get("LegalDesc")),
         "school_district": school_district,
         "bldg_sqft": _stringify_optional(_row_value(residential_row, "bldg_sqft")),
+        "gross_component_area_sf": _stringify_optional(
+            (
+                _row_value(residential_row, "gross_component_area_sf")
+                if (_row_value(residential_row, "gross_component_area_sf") or 0) > 0
+                else None
+            )
+        ),
+        "living_area_source": _row_value(residential_row, "living_area_source") or "",
         "yr_built": _stringify_optional(_row_value(residential_row, "yr_built")),
         "eff_yr_built": _stringify_optional(eff_yr_built),
         "eff_age": _stringify_optional(max(tax_year - eff_yr_built, 0) if eff_yr_built else None),

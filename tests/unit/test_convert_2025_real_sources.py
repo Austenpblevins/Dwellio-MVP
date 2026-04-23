@@ -238,6 +238,8 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
     assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+    assert fort_bend_rows[0]["gross_component_area_sf"] == ""
+    assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
 
 
 def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path: Path) -> None:
@@ -284,7 +286,7 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
     assert row is not None
     assert row["living_area_sf"] == 7674
 
-def test_fort_bend_property_summary_square_footage_recovers_missing_residential_segment_area(
+def test_fort_bend_property_summary_square_footage_overrides_segment_total_and_preserves_gross_area(
     tmp_path: Path,
 ) -> None:
     raw_root = tmp_path / "legacy_fort_bend_property_summary"
@@ -292,7 +294,6 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
     ready_dir.mkdir(parents=True)
 
     fort_bend_paths = _write_fort_bend_raw_files(raw_root)
-    _rewrite_fort_bend_residential_segment_areas(fort_bend_paths.residential_segments, area_value="")
     property_summary_export = raw_root / "PropertyDataExport4558080.txt"
     property_summary_export.write_text(
         "RecordType,PropertyID,QuickRefID,PropertyNumber,SquareFootage\n"
@@ -324,6 +325,8 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
     assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+    assert fort_bend_rows[0]["gross_component_area_sf"] == "1305"
+    assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
 
 
 def _rewrite_delimited_copy(
