@@ -74,8 +74,40 @@
     "quote_to_zero_count": 0,
     "zero_to_quote_count": 0
   },
+  "full_publish_proof": {
+    "import_batch_id": "1690a06f-4d96-4481-9a4c-a4f1da4496c2",
+    "normalize_job_run_id": "ee3b95c8-57d1-4d5e-ac48-7619a2b982e0",
+    "publish_version": "harris-2026-property_roll-ee3b95c8",
+    "final_import_batch_status": "normalized",
+    "final_import_batch_publish_state": "published",
+    "final_import_batch_status_reason": "published_to_canonical: property_roll publish succeeded.",
+    "normalized_row_count": 1595836
+  },
+  "post_full_publish_validation": {
+    "guardrail_after_full_publish": {
+      "support_rate_all_sfr_flagged": 0.9980266470924625,
+      "support_rate_strict_sfr_eligible": 0.9980317581708495,
+      "monitored_zero_savings_quote_share": 0.44,
+      "blocker_distribution": {
+        "supportable": 1169298,
+        "missing_living_area": 900,
+        "missing_assessment_basis": 1345,
+        "missing_effective_tax_rate": 61,
+        "missing_neighborhood_code": 6
+      }
+    },
+    "exact_parser_targeted_check": {
+      "checked_subject_rows": 1170689,
+      "living_area_mismatch_vs_corrected_rule_rows": 0,
+      "savings_delta_median": 0.0,
+      "savings_delta_mean": 0.0,
+      "quote_to_zero_count": 0,
+      "zero_to_quote_count": 0,
+      "abs_savings_delta_over_100_count": 0
+    }
+  },
   "notes": [
-    "A full historical_backfill normalize attempt was started after preparing the corrected Harris property roll but exceeded practical runtime for this session.",
-    "Validation results here are based on the canonical rule implemented in code plus isolated-DB application of that same corrected mapping to Harris 2026 parcel improvements and a full instant-quote refresh."
+    "A full normalize/publish run for Harris 2026 property_roll has now completed successfully on the isolated Stage 21 database.",
+    "Final closure evidence is based on canonical code behavior plus post-publish instant-quote refresh and exact-parser cohort checks."
   ]
 }
