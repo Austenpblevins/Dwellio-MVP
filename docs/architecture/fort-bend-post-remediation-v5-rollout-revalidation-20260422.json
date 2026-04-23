@@ -1,0 +1,180 @@
+{
+  "county_id": "fort_bend",
+  "tax_year": 2026,
+  "analysis_date": "2026-04-22",
+  "isolated_database_url": "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev",
+  "baseline_after_denominator_correction": {
+    "support_rate_all_sfr_flagged": 0.9930466513664263,
+    "support_rate_all_sfr_flagged_denominator_count": 278427,
+    "support_rate_all_sfr_flagged_supportable_count": 276491,
+    "monitored_zero_savings_quote_share": 0.5208333333333334,
+    "blocker_distribution": {
+      "supportable": 276491,
+      "missing_living_area": 1452,
+      "missing_effective_tax_rate": 484
+    }
+  },
+  "target_parcel_recheck": {
+    "address": "1239 Carswell Grove DR, Missouri City, TX 77459",
+    "account_number": "8118-49-006-0150-907",
+    "corrected_living_area_sf": 2023.0,
+    "current_public_quote": {
+      "supported": true,
+      "unsupported_reason": null,
+      "savings_midpoint_display": 1700.0,
+      "savings_range_low": 1200.0,
+      "savings_range_high": 2250.0,
+      "summary": "This fast estimate blends neighborhood and segment assessment patterns for a public-safe savings range.",
+      "public_rollout_state": "strong_opportunity_high_cash",
+      "public_rollout_reason_code": "strong_value_gap_high_cash",
+      "savings_translation_mode": "current_public_formula",
+      "savings_translation_reason_code": "flag_disabled",
+      "savings_translation_applied_flag": false,
+      "selected_public_savings_estimate_raw": 1720.94595348343,
+      "shadow_savings_estimate_raw": 1720.94595348343,
+      "shadow_opportunity_vs_savings_state": "standard_quote",
+      "shadow_tax_profile_status": "supported_with_disclosure",
+      "shadow_limiting_reason_codes": [
+        "profile_support_level_summary_only",
+        "tax_rate_basis_fallback_applied"
+      ]
+    },
+    "flagged_total_exemption_rollout_quote": {
+      "supported": true,
+      "unsupported_reason": null,
+      "savings_midpoint_display": 1700.0,
+      "savings_range_low": 1200.0,
+      "savings_range_high": 2250.0,
+      "summary": "This fast estimate blends neighborhood and segment assessment patterns for a public-safe savings range.",
+      "public_rollout_state": "strong_opportunity_high_cash",
+      "public_rollout_reason_code": "strong_value_gap_high_cash",
+      "savings_translation_mode": "current_public_formula",
+      "savings_translation_reason_code": "rollout_state_not_enabled",
+      "savings_translation_applied_flag": false,
+      "selected_public_savings_estimate_raw": 1720.94595348343,
+      "shadow_savings_estimate_raw": 1720.94595348343,
+      "shadow_opportunity_vs_savings_state": "standard_quote",
+      "shadow_tax_profile_status": "supported_with_disclosure",
+      "shadow_limiting_reason_codes": [
+        "profile_support_level_summary_only",
+        "tax_rate_basis_fallback_applied"
+      ]
+    }
+  },
+  "fort_bend_stage5_revalidation": {
+    "old_artifact_path": "docs/architecture/instant-quote-v5-stage5-shadow-comparison-20260422.json",
+    "comparison_summary_old": {
+      "current_zero_share_supported": 0.46808510638297873,
+      "shadow_zero_share_quoteable": 0.4791666666666667,
+      "max_abs_shadow_delta_raw": 1072.7895362146855,
+      "mean_shadow_delta_raw": -11.174891002236308,
+      "public_unsupported_shadow_quoteable_count": 2
+    },
+    "comparison_summary_new": {
+      "current_zero_share_supported": 0.4787234042553192,
+      "shadow_zero_share_quoteable": 0.4895833333333333,
+      "max_abs_shadow_delta_raw": 840.6166369883666,
+      "mean_shadow_delta_raw": -11.265711501032996,
+      "public_unsupported_shadow_quoteable_count": 2
+    },
+    "material_total_exemption_examples_old": [
+      {
+        "account_number": "3531-04-001-0410-914",
+        "current_savings_estimate_display": 0.0,
+        "shadow_savings_estimate_raw": 0.0
+      },
+      {
+        "account_number": "5016-01-001-0170-914",
+        "current_savings_estimate_display": 0.0,
+        "shadow_savings_estimate_raw": 0.0
+      },
+      {
+        "account_number": "6250-01-004-1600-907",
+        "current_savings_estimate_display": 1050.0,
+        "shadow_savings_estimate_raw": 0.0
+      }
+    ],
+    "material_total_exemption_examples_new": [
+      {
+        "account_number": "3531-04-001-0410-914",
+        "current_savings_estimate_display": 850.0,
+        "shadow_savings_estimate_raw": 0.0
+      },
+      {
+        "account_number": "5016-01-001-0170-914",
+        "current_savings_estimate_display": 0.0,
+        "shadow_savings_estimate_raw": 0.0
+      },
+      {
+        "account_number": "6250-01-004-1600-907",
+        "current_savings_estimate_display": 250.0,
+        "shadow_savings_estimate_raw": 0.0
+      }
+    ]
+  },
+  "fort_bend_stage6_revalidation": {
+    "old_artifact_path": "docs/architecture/instant-quote-v5-stage6-product-state-rollout-20260422.json",
+    "target_shadow_state_counts_old": {
+      "near_total_exemption_low_cash": 0,
+      "opportunity_only_tax_profile_incomplete": 11,
+      "school_limited_non_school_possible": 2442,
+      "total_exemption_low_cash": 8117
+    },
+    "target_shadow_state_counts_new": {
+      "near_total_exemption_low_cash": 0,
+      "opportunity_only_tax_profile_incomplete": 11,
+      "school_limited_non_school_possible": 2442,
+      "total_exemption_low_cash": 8117
+    },
+    "state_rollout_interpretation": "State counts remained stable after the denominator correction. The correction changed quote magnitudes within sampled cohorts, but did not justify broader public state exposure."
+  },
+  "fort_bend_stage7_revalidation": {
+    "old_artifact_path": "docs/architecture/instant-quote-v5-stage7-flagged-savings-rollout-20260422.json",
+    "old_material_translation_rows": [
+      {
+        "account_number": "6250-01-004-1600-907",
+        "current_midpoint": 1050.0,
+        "flagged_midpoint": 0.0
+      }
+    ],
+    "new_material_translation_rows": [
+      {
+        "account_number": "3531-04-001-0410-914",
+        "current_midpoint": 850.0,
+        "flagged_midpoint": 0.0
+      },
+      {
+        "account_number": "6250-01-004-1600-907",
+        "current_midpoint": 250.0,
+        "flagged_midpoint": 0.0
+      }
+    ],
+    "unchanged_zero_translation_example": {
+      "account_number": "5016-01-001-0170-914",
+      "current_midpoint": 0.0,
+      "flagged_midpoint": 0.0
+    }
+  },
+  "fort_bend_stage8_revalidation": {
+    "old_artifact_path": "docs/architecture/instant-quote-v5-stage8-calibration-20260422.json",
+    "decision_old": "do_not_expand_beyond_total_exemption_low_cash",
+    "decision_new": "do_not_expand_beyond_total_exemption_low_cash",
+    "near_total_exemption_low_cash_observed_rows": 0,
+    "school_limited_rollout_decision": "still_too_risky_for_public_flagged_rollout",
+    "refined_review_shadow_signal_decision": "still_too_risky_for_public_flagged_rollout",
+    "high_opportunity_candidate_applied_count": 0,
+    "high_opportunity_candidate_changed_count": 0
+  },
+  "rollout_posture": {
+    "base_quote_path": "safe_after_denominator_correction",
+    "translated_rollout": "restore_narrowly_for_fort_bend_total_exemption_low_cash_only",
+    "translated_rollout_keep_disabled_for": [
+      "near_total_exemption_low_cash",
+      "high_opportunity_low_cash",
+      "opportunity_only_tax_profile_incomplete",
+      "school_limited_non_school_possible",
+      "manual_review_shadow_quoteable"
+    ],
+    "reason": "Corrected-data validation still supports a narrow total-exemption cohort, but all other Fort Bend cohorts remain fallback-driven, unsupported, or lacking live evidence."
+  }
+}
