@@ -12,6 +12,7 @@ from app.utils.hashing import sha256_text
 
 INTEGER_FIELDS = {
     "bldg_sqft",
+    "gross_component_area_sf",
     "yr_built",
     "eff_yr_built",
     "eff_age",
