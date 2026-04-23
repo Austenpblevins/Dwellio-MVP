@@ -28,6 +28,7 @@ Place raw files under a year-scoped root:
 ~/county-data/<tax_year>/raw/fort_bend/ExemptionExport.txt
 ~/county-data/<tax_year>/raw/fort_bend/WebsiteResidentialSegs.csv
 ~/county-data/<tax_year>/raw/fort_bend/Fort Bend Tax Rate Source.csv
+~/county-data/<tax_year>/raw/fort_bend/Fort Bend_Property Data -3-27-2026 - Redacted/PropertyProperty-E/PropertyDataExport*.txt
 ```
 
 Notes:
@@ -35,7 +36,24 @@ Notes:
 - Harris `property_roll` prep still needs the Harris tax-rate raw file because the prep step uses it to recover school district names.
 - Harris exemption dictionary mapping uses `jur_exempt_cd.txt` as the account-level source and keeps `jur_exemption_dscr.txt` and `desc_r_14_exemption_category.txt` in the manifest lineage set.
 - Fort Bend `property_roll` prep still needs the Fort Bend tax-rate raw file because the prep step uses it to resolve school district entity names.
+- Fort Bend canonical living area comes from the official `PropertyDataExport*.txt` `SquareFootage` field.
+- Fort Bend `WebsiteResidentialSegs.csv` is still used, but only for `gross_component_area_sf` and as a fallback when no authoritative property-summary living area is available.
 - If the downloaded filename does not match the canonical local name, either rename it into the canonical contract or use `--raw-file-override`.
+
+## Fort Bend area contract
+
+Fort Bend area semantics are intentionally split into two first-class fields:
+
+- `living_area_sf`: authoritative living area used by quote math and PSF denominators
+- `gross_component_area_sf`: all-component structural area summed from `WebsiteResidentialSegs.csv`
+
+The supported canonical workflow is:
+
+1. build `gross_component_area_sf` from all Fort Bend residential segments
+2. override `living_area_sf` from official `PropertyDataExport*.txt` `SquareFootage`
+3. keep `living_area_source` so downstream tables can show where canonical living area came from
+
+Do not use `gross_component_area_sf` as the quote-facing living area denominator.
 
 ## Adapter-ready outputs
 

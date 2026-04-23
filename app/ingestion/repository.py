@@ -1460,6 +1460,8 @@ class IngestionRepository:
                                 improvement.get("improvement_type", "primary_structure"),
                                 improvement.get("building_label", "Main"),
                                 improvement.get("living_area_sf"),
+                                improvement.get("gross_component_area_sf"),
+                                improvement.get("living_area_source"),
                                 improvement.get("year_built"),
                                 improvement.get("effective_year_built"),
                                 improvement.get("effective_age"),
@@ -1486,6 +1488,8 @@ class IngestionRepository:
                             parcel_id,
                             tax_year,
                             primary_improvement.get("living_area_sf"),
+                            primary_improvement.get("gross_component_area_sf"),
+                            primary_improvement.get("living_area_source"),
                             primary_improvement.get("year_built"),
                             primary_improvement.get("effective_year_built"),
                             primary_improvement.get("effective_age"),
@@ -1599,6 +1603,8 @@ class IngestionRepository:
                       improvement_type,
                       building_label,
                       living_area_sf,
+                      gross_component_area_sf,
+                      living_area_source,
                       year_built,
                       effective_year_built,
                       effective_age,
@@ -1613,7 +1619,7 @@ class IngestionRepository:
                       source_system_id,
                       source_record_hash
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     improvement_rows,
                 )
@@ -1624,6 +1630,8 @@ class IngestionRepository:
                   parcel_id,
                   tax_year,
                   living_area_sf,
+                  gross_component_area_sf,
+                  living_area_source,
                   year_built,
                   effective_year_built,
                   effective_age,
@@ -1638,10 +1646,12 @@ class IngestionRepository:
                   source_system_id,
                   source_record_hash
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   living_area_sf = EXCLUDED.living_area_sf,
+                  gross_component_area_sf = EXCLUDED.gross_component_area_sf,
+                  living_area_source = EXCLUDED.living_area_source,
                   year_built = EXCLUDED.year_built,
                   effective_year_built = EXCLUDED.effective_year_built,
                   effective_age = EXCLUDED.effective_age,
@@ -1844,6 +1854,8 @@ class IngestionRepository:
                   neighborhood_group text,
                   effective_age integer,
                   living_area_sf numeric,
+                  gross_component_area_sf numeric,
+                  living_area_source text,
                   year_built integer,
                   effective_year_built integer,
                   improvement_effective_age integer,
@@ -1899,6 +1911,8 @@ class IngestionRepository:
                   neighborhood_group,
                   effective_age,
                   living_area_sf,
+                  gross_component_area_sf,
+                  living_area_source,
                   year_built,
                   effective_year_built,
                   improvement_effective_age,
@@ -1959,6 +1973,8 @@ class IngestionRepository:
                             characteristics.get("neighborhood_group"),
                             characteristics.get("effective_age"),
                             primary_improvement.get("living_area_sf"),
+                            primary_improvement.get("gross_component_area_sf"),
+                            primary_improvement.get("living_area_source"),
                             primary_improvement.get("year_built"),
                             primary_improvement.get("effective_year_built"),
                             primary_improvement.get("effective_age"),
@@ -2299,6 +2315,8 @@ class IngestionRepository:
                   parcel_id,
                   tax_year,
                   living_area_sf,
+                  gross_component_area_sf,
+                  living_area_source,
                   year_built,
                   effective_year_built,
                   effective_age,
@@ -2317,6 +2335,8 @@ class IngestionRepository:
                   tp.parcel_id,
                   %s,
                   t.living_area_sf,
+                  t.gross_component_area_sf,
+                  t.living_area_source,
                   t.year_built,
                   t.effective_year_built,
                   t.improvement_effective_age,
@@ -2336,6 +2356,8 @@ class IngestionRepository:
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   living_area_sf = EXCLUDED.living_area_sf,
+                  gross_component_area_sf = EXCLUDED.gross_component_area_sf,
+                  living_area_source = EXCLUDED.living_area_source,
                   year_built = EXCLUDED.year_built,
                   effective_year_built = EXCLUDED.effective_year_built,
                   effective_age = EXCLUDED.effective_age,
@@ -2351,6 +2373,8 @@ class IngestionRepository:
                   source_record_hash = EXCLUDED.source_record_hash,
                   updated_at = now()
                 WHERE parcel_improvements.living_area_sf IS DISTINCT FROM EXCLUDED.living_area_sf
+                   OR parcel_improvements.gross_component_area_sf IS DISTINCT FROM EXCLUDED.gross_component_area_sf
+                   OR parcel_improvements.living_area_source IS DISTINCT FROM EXCLUDED.living_area_source
                    OR parcel_improvements.year_built IS DISTINCT FROM EXCLUDED.year_built
                    OR parcel_improvements.effective_year_built IS DISTINCT FROM EXCLUDED.effective_year_built
                    OR parcel_improvements.effective_age IS DISTINCT FROM EXCLUDED.effective_age

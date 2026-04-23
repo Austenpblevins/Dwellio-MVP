@@ -67,7 +67,7 @@ FORT_BEND_PROPERTY_HEADERS = [
     "neighborhood_cd",
     "subdivision",
     "school_district",
-    "bldg_sqft",
+    "living_area_sf",
     "gross_component_area_sf",
     "living_area_source",
     "yr_built",
@@ -137,7 +137,7 @@ class FortBendRawPaths:
     exemption_export: Path
     residential_segments: Path
     tax_rates: Path
-    property_summary_export: Path | None = None
+    property_summary_exports: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -518,8 +518,11 @@ def prepare_fort_bend(
             ("residential_segments", raw_paths.residential_segments),
             ("tax_rates", raw_paths.tax_rates),
         ]
-        if raw_paths.property_summary_export is not None:
-            property_inputs.append(("property_summary_export", raw_paths.property_summary_export))
+        if raw_paths.property_summary_exports:
+            property_inputs.extend(
+                (f"property_summary_export:{path.name}", path)
+                for path in raw_paths.property_summary_exports
+            )
         _require_named_files("fort_bend", "property_roll", property_inputs)
         entity_lookup = _build_fort_bend_tax_entity_lookup(raw_paths.tax_rates)
         _prepare_fort_bend_lookup_tables(connection, raw_paths)
@@ -795,7 +798,7 @@ def resolve_fort_bend_paths(
                 Path("WebsiteResidentialSegs-7-22.csv"),
             ],
         ),
-        property_summary_export=_resolve_optional_raw_file_path(
+        property_summary_exports=_resolve_optional_raw_file_paths(
             raw_root=raw_root,
             county_id="fort_bend",
             canonical_filename="PropertyPropertyExport.txt",
@@ -807,6 +810,7 @@ def resolve_fort_bend_paths(
             ],
             county_glob_patterns=[
                 "Fort Bend_Property Data*/PropertyProperty-E/PropertyDataExport*.txt",
+                "Fort Bend_Property Data*/PropertyDataExport*.txt",
             ],
         ),
         tax_rates=_resolve_raw_file_path(
@@ -849,7 +853,7 @@ def _resolve_raw_file_path(
     return candidates[0].resolve()
 
 
-def _resolve_optional_raw_file_path(
+def _resolve_optional_raw_file_paths(
     *,
     raw_root: Path,
     county_id: str,
@@ -857,9 +861,9 @@ def _resolve_optional_raw_file_path(
     override: Path | None,
     legacy_relative_paths: Sequence[Path],
     county_glob_patterns: Sequence[str] = (),
-) -> Path | None:
+) -> tuple[Path, ...]:
     if override is not None:
-        return override.expanduser().resolve()
+        return (override.expanduser().resolve(),)
 
     county_root = raw_root / county_id
     candidates = [
@@ -870,10 +874,17 @@ def _resolve_optional_raw_file_path(
     candidates.extend(raw_root / relative_path for relative_path in legacy_relative_paths)
     for glob_pattern in county_glob_patterns:
         candidates.extend(sorted(county_root.glob(glob_pattern)))
+    resolved_paths: list[Path] = []
+    seen: set[Path] = set()
     for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    return None
+        if not candidate.exists():
+            continue
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        resolved_paths.append(resolved)
+    return tuple(resolved_paths)
 
 
 def _legacy_fort_bend_export_filename(*, tax_year: int, suffix: str) -> str:
@@ -944,8 +955,11 @@ def convert_fort_bend(
         ("residential_segments", raw_paths.residential_segments),
         ("tax_rates", raw_paths.tax_rates),
     ]
-    if raw_paths.property_summary_export is not None:
-        property_inputs.append(("property_summary_export", raw_paths.property_summary_export))
+    if raw_paths.property_summary_exports:
+        property_inputs.extend(
+            (f"property_summary_export:{path.name}", path)
+            for path in raw_paths.property_summary_exports
+        )
     _require_named_files("fort_bend", "property_roll", property_inputs)
     entity_lookup = _build_fort_bend_tax_entity_lookup(raw_paths.tax_rates)
     _prepare_fort_bend_lookup_tables(connection, raw_paths)
@@ -1240,7 +1254,7 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
         );
         CREATE TABLE fort_bend_residential_lookup (
             property_quick_ref_id TEXT PRIMARY KEY,
-            bldg_sqft INTEGER NOT NULL DEFAULT 0,
+            living_area_sf INTEGER NOT NULL DEFAULT 0,
             gross_component_area_sf INTEGER NOT NULL DEFAULT 0,
             living_area_source TEXT,
             yr_built INTEGER,
@@ -1260,8 +1274,8 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
     )
     _index_fort_bend_owners(connection, raw_paths.owner_export)
     _index_fort_bend_residential_segments(connection, raw_paths.residential_segments)
-    if raw_paths.property_summary_export is not None:
-        _index_fort_bend_property_square_footage(connection, raw_paths.property_summary_export)
+    for property_summary_export in raw_paths.property_summary_exports:
+        _index_fort_bend_property_square_footage(connection, property_summary_export)
     _index_fort_bend_exemptions(connection, raw_paths.exemption_export)
     connection.commit()
 
@@ -1500,7 +1514,7 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
             bucket = summary.setdefault(
                 quick_ref,
                 {
-                    "bldg_sqft": 0,
+                    "living_area_sf": 0,
                     "gross_component_area_sf": 0,
                     "living_area_source": "residential_segment_total_fallback",
                     "yr_built": None,
@@ -1512,7 +1526,7 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
                 },
             )
             segment_sqft = _as_int(row.get("vTSGRSeg_AdjArea")) or _as_int(row.get("fArea")) or 0
-            bucket["bldg_sqft"] += segment_sqft
+            bucket["living_area_sf"] += segment_sqft
             bucket["gross_component_area_sf"] += segment_sqft
             yr_built = _as_int(row.get("fActYear"))
             eff_yr_built = _as_int(row.get("fEffYear"))
@@ -1530,7 +1544,7 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
     rows = [
         (
             quick_ref,
-            bucket["bldg_sqft"] or 0,
+            bucket["living_area_sf"] or 0,
             bucket["gross_component_area_sf"] or 0,
             bucket["living_area_source"],
             bucket["yr_built"],
@@ -1546,7 +1560,7 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
         """
         INSERT OR REPLACE INTO fort_bend_residential_lookup (
             property_quick_ref_id,
-            bldg_sqft,
+            living_area_sf,
             gross_component_area_sf,
             living_area_source,
             yr_built,
@@ -1586,14 +1600,14 @@ def _upsert_fort_bend_property_square_footage(
         """
         INSERT INTO fort_bend_residential_lookup (
             property_quick_ref_id,
-            bldg_sqft,
+            living_area_sf,
             living_area_source
         )
         VALUES (?, ?, ?)
         ON CONFLICT(property_quick_ref_id) DO UPDATE SET
-            bldg_sqft = excluded.bldg_sqft,
+            living_area_sf = excluded.living_area_sf,
             living_area_source = excluded.living_area_source
-        WHERE excluded.bldg_sqft > 0
+        WHERE excluded.living_area_sf > 0
         """,
         rows,
     )
@@ -1957,7 +1971,7 @@ def _build_fort_bend_property_roll_row(
     residential_cursor.execute(
         """
         SELECT
-          bldg_sqft,
+          living_area_sf,
           gross_component_area_sf,
           living_area_source,
           yr_built,
@@ -2007,7 +2021,7 @@ def _build_fort_bend_property_roll_row(
         "neighborhood_cd": _strip(row.get("AbstractCode")),
         "subdivision": _strip(row.get("LegalDesc")),
         "school_district": school_district,
-        "bldg_sqft": _stringify_optional(_row_value(residential_row, "bldg_sqft")),
+        "living_area_sf": _stringify_optional(_row_value(residential_row, "living_area_sf")),
         "gross_component_area_sf": _stringify_optional(
             (
                 _row_value(residential_row, "gross_component_area_sf")

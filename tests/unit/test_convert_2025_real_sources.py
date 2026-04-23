@@ -61,6 +61,9 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     assert fort_bend_rows[0]["account_id"] == "5910-04-022-0700-907"
     assert fort_bend_rows[0]["school_district"] == "Fort Bend ISD"
     assert fort_bend_rows[0]["market_value"] == "213077"
+    assert fort_bend_rows[0]["living_area_sf"] == "1216"
+    assert fort_bend_rows[0]["gross_component_area_sf"] == "1305"
+    assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
 
     results = verify_outputs(outputs=outputs, tax_year=2025)
     assert all(result.parse_issue_count == 0 for result in results)
@@ -226,7 +229,7 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
                 exemption_export=fort_bend_paths.exemption_export,
                 residential_segments=fort_bend_paths.residential_segments,
                 tax_rates=fort_bend_paths.tax_rates,
-                property_summary_export=property_summary_export,
+                property_summary_exports=(property_summary_export,),
             ),
             property_roll_output=outputs.fort_bend_property_roll,
             tax_rates_output=outputs.fort_bend_tax_rates,
@@ -237,7 +240,7 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
     assert counts["property_roll"] == 1
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
-    assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+    assert fort_bend_rows[0]["living_area_sf"] == "1216"
     assert fort_bend_rows[0]["gross_component_area_sf"] == ""
     assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
 
@@ -313,7 +316,7 @@ def test_fort_bend_property_summary_square_footage_overrides_segment_total_and_p
                 exemption_export=fort_bend_paths.exemption_export,
                 residential_segments=fort_bend_paths.residential_segments,
                 tax_rates=fort_bend_paths.tax_rates,
-                property_summary_export=property_summary_export,
+                property_summary_exports=(property_summary_export,),
             ),
             property_roll_output=outputs.fort_bend_property_roll,
             tax_rates_output=outputs.fort_bend_tax_rates,
@@ -324,7 +327,7 @@ def test_fort_bend_property_summary_square_footage_overrides_segment_total_and_p
     assert counts["property_roll"] == 1
     with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
         fort_bend_rows = list(csv.DictReader(handle))
-    assert fort_bend_rows[0]["bldg_sqft"] == "1216"
+    assert fort_bend_rows[0]["living_area_sf"] == "1216"
     assert fort_bend_rows[0]["gross_component_area_sf"] == "1305"
     assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
 
@@ -558,6 +561,12 @@ def _copy_to_canonical_layout(
     shutil.copyfile(fort_bend_paths.exemption_export, fort_bend_root / "ExemptionExport.txt")
     shutil.copyfile(fort_bend_paths.residential_segments, fort_bend_root / "WebsiteResidentialSegs.csv")
     shutil.copyfile(fort_bend_paths.tax_rates, fort_bend_root / "Fort Bend Tax Rate Source.csv")
+    property_summary_root = (
+        fort_bend_root / "Fort Bend_Property Data -3-27-2026 - Redacted" / "PropertyProperty-E"
+    )
+    property_summary_root.mkdir(parents=True)
+    for property_summary_export in fort_bend_paths.property_summary_exports:
+        shutil.copyfile(property_summary_export, property_summary_root / property_summary_export.name)
 
 
 def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
@@ -944,10 +953,18 @@ def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
         encoding="utf-8",
     )
 
+    property_summary_export = raw_root / "PropertyDataExport4558080.txt"
+    property_summary_export.write_text(
+        "RecordType,PropertyID,QuickRefID,PropertyNumber,SquareFootage\n"
+        "1,50090,R100000,5910-04-022-0700-907,1216\n",
+        encoding="utf-8",
+    )
+
     return FortBendRawPaths(
         property_export=property_export,
         owner_export=owner_export,
         exemption_export=exemption_export,
         residential_segments=residential_segments,
         tax_rates=tax_rates,
+        property_summary_exports=(property_summary_export,),
     )

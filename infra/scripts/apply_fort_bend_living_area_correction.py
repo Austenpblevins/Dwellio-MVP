@@ -22,7 +22,11 @@ def _json_safe(value):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Apply the Fort Bend living-area correction from PropertyDataExport SquareFootage."
+        description=(
+            "Legacy backstop: apply the Fort Bend living-area correction from "
+            "PropertyDataExport SquareFootage after ingestion. The canonical "
+            "workflow is to rebuild from raw files with prepare_manual_county_files."
+        )
     )
     parser.add_argument(
         "--property-summary-export",

@@ -1,0 +1,77 @@
+{
+  "counties": [
+    {
+      "blocker_distribution": {
+        "missing_living_area": 1452,
+        "supportable": 276975
+      },
+      "county_id": "fort_bend",
+      "current_public_savings_model": "reduction_estimate_times_effective_tax_rate",
+      "denominator_shift_warning_codes": [],
+      "monitored_extreme_savings_flagged_count": 0,
+      "monitored_zero_savings_quote_count": 25,
+      "monitored_zero_savings_quote_share": 0.5208333333333334,
+      "monitored_zero_savings_sample_row_count": 50,
+      "monitored_zero_savings_supported_quote_count": 48,
+      "quote_version": "instant_quote_v5_stage0_baseline",
+      "support_rate_all_sfr_flagged": 0.9947849885248198,
+      "support_rate_all_sfr_flagged_denominator_count": 278427,
+      "support_rate_all_sfr_flagged_supportable_count": 276975,
+      "support_rate_strict_sfr_eligible": 0.9947849885248198,
+      "tax_rate_basis_reason": "requested_year_usable",
+      "tax_rate_basis_status": "current_year_unofficial_or_proposed_rates",
+      "tax_rate_basis_warning_codes": [],
+      "tax_rate_basis_year": 2026,
+      "tax_year": 2026
+    }
+  ],
+  "current_public_savings_model": "reduction_estimate_times_effective_tax_rate",
+  "documented_unsupported_reasons": [
+    "unsupported_property_type",
+    "missing_living_area",
+    "missing_assessment_basis",
+    "missing_neighborhood_code",
+    "missing_effective_tax_rate",
+    "instant_quote_not_ready",
+    "thin_market_support",
+    "low_confidence_refined_review",
+    "tax_limitation_uncertain",
+    "implausible_savings_outlier"
+  ],
+  "documented_warning_codes": [
+    {
+      "code": "prior_year_assessment_basis_fallback",
+      "effect": "Adds a public disclaimer when current-year assessed basis falls back to prior year."
+    },
+    {
+      "code": "missing_exemption_amount",
+      "effect": "Reduces confidence because exemption normalization is incomplete for the parcel-year."
+    },
+    {
+      "code": "homestead_flag_mismatch",
+      "effect": "Signals disagreement between assessment and exemption layers and reduces confidence."
+    },
+    {
+      "code": "freeze_without_qualifying_exemption",
+      "effect": "Can suppress public savings output through tax-limitation uncertainty handling."
+    },
+    {
+      "code": "assessment_exemption_total_mismatch",
+      "effect": "Can suppress public savings output through tax-limitation uncertainty handling."
+    },
+    {
+      "code": "tax_rate_basis_fallback_applied",
+      "effect": "Refresh-level warning that the selected tax-rate basis fell back off the requested year."
+    },
+    {
+      "code": "no_usable_tax_rate_basis",
+      "effect": "Refresh-level blocker that leaves tax-rate support unavailable for a county-year."
+    },
+    {
+      "code": "tax_rate_basis_current_year_unofficial_or_proposed",
+      "effect": "Refresh-level warning that current-year rates are not fully adopted."
+    }
+  ],
+  "instant_quote_v5_enabled": false,
+  "quote_version": "instant_quote_v5_stage0_baseline"
+}
