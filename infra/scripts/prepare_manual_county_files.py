@@ -1207,7 +1207,9 @@ def _prepare_harris_lookup_tables(
         CREATE TABLE harris_building_lookup (
             acct TEXT PRIMARY KEY,
             primary_area REAL NOT NULL DEFAULT 0,
+            living_area_priority REAL NOT NULL DEFAULT 0,
             living_area_sf INTEGER,
+            living_area_source TEXT,
             year_built INTEGER,
             effective_year_built INTEGER,
             effective_age INTEGER,
@@ -1314,24 +1316,32 @@ def _index_harris_buildings(
         INSERT INTO harris_building_lookup (
             acct,
             primary_area,
+            living_area_priority,
             living_area_sf,
+            living_area_source,
             year_built,
             effective_year_built,
             effective_age,
             quality_code,
             condition_code,
             property_use_code
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(acct) DO UPDATE SET
             primary_area = excluded.primary_area,
+            living_area_priority = excluded.living_area_priority,
             living_area_sf = excluded.living_area_sf,
+            living_area_source = excluded.living_area_source,
             year_built = excluded.year_built,
             effective_year_built = excluded.effective_year_built,
             effective_age = excluded.effective_age,
             quality_code = excluded.quality_code,
             condition_code = excluded.condition_code,
             property_use_code = excluded.property_use_code
-        WHERE excluded.primary_area > harris_building_lookup.primary_area
+        WHERE excluded.living_area_priority > harris_building_lookup.living_area_priority
+           OR (
+             excluded.living_area_priority = harris_building_lookup.living_area_priority
+             AND excluded.primary_area > harris_building_lookup.primary_area
+           )
     """
     with _open_raw_text(source_path) as handle:
         reader = _iter_tab_split_dict_rows(handle)
@@ -1347,15 +1357,29 @@ def _index_harris_buildings(
                 _as_float(row.get("eff_ar")),
                 _as_float(row.get("act_ar")),
             )
-            living_area = _as_int(row.get("heat_ar")) or _as_int(row.get("im_sq_ft")) or _as_int(
-                row.get("gross_ar")
-            )
+            heat_area = _as_int(row.get("heat_ar"))
+            improved_area = _as_int(row.get("im_sq_ft"))
+            gross_area = _as_int(row.get("gross_ar"))
+            if heat_area and heat_area > 0:
+                living_area_priority = heat_area
+                living_area = heat_area
+                living_area_source = "heat_ar"
+            elif improved_area and improved_area > 0:
+                living_area_priority = improved_area
+                living_area = improved_area
+                living_area_source = "im_sq_ft"
+            else:
+                living_area_priority = 0
+                living_area = gross_area
+                living_area_source = "gross_ar_fallback" if gross_area and gross_area > 0 else None
             eff_year = _as_int(row.get("eff"))
             rows.append(
                 (
                     acct,
                     primary_area,
+                    living_area_priority,
                     living_area,
+                    living_area_source,
                     _as_int(row.get("date_erected")),
                     eff_year,
                     max(tax_year - eff_year, 0) if eff_year else None,
