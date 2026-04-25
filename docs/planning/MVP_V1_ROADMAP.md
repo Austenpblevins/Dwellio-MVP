@@ -620,46 +620,56 @@ Dwellio keeps its strongest architectural boundary intact while growing product 
 
 # Stage 4 - Instant quote serving maturity
 **Status:** meaningful partial implementation
-**Goal:** make instant quote a trustworthy, monitored, production-ready acquisition surface without confusing it with the refined quote engine
+**Goal:** make instant quote a versioned, supportability-aware, production-ready acquisition surface without confusing it with the refined quote engine or the downstream protest valuation engine
 
 ## Why this stage exists
 
 The instant quote architecture is already much more advanced than a generic precompute design.
-It now needs a business-grade rollout and operating model.
+It now needs the full V5 modernization layer around contracts, supportability, warnings, rollout controls, and tax-profile semantics before later valuation work starts to depend on ambiguous quote behavior.
 
 ## Included
 
-- operator-facing instant-quote readiness checklist
-- instant-quote supportability thresholds by county-year
-- tax-rate basis-status operational policy
-- refresh-run review SOP
-- quote-quality monitoring SOP
+- baseline freeze and versioning for the current instant-quote engine
+- typed value-basis and tax-basis metadata for public-safe and internal-safe consumers
+- warning taxonomy and internal/public product-state taxonomy
+- extension of the existing county onboarding/readiness capability model for instant-quote supportability
+- planned `instant_quote_tax_profile` contract
+- opportunity-vs-savings separation
+- shadow-savings comparison and launch-gate planning
+- refresh audit, telemetry, and calibration planning
 - explicit supported / unsupported / suppressed behavior spec
-- business-safe estimate copy
 
 ## Excluded
 
 - replacing the refined quote path
 - treating instant quote as final protest analysis
+- using packet rendering as the definition layer for quote logic
+- building a full tax simulator for MVP V1
+- using broad county-average tax fallback where county-specific uncertainty should remain explicit
 - exposing internal tax-rate diagnostics publicly
 
 ## Deliverables
 
-- instant-quote readiness checklist
-- supportability threshold definitions by county-year
-- basis-year and basis-status handling policy
-- refresh-run audit SOP
-- quote-quality monitoring runbook
-- public-safe estimate copy set
+- instant-quote baseline/version definition
+- typed value/tax metadata contract for quote responses
+- warning taxonomy and system-state taxonomy for quote behavior
+- county capability extensions for quote supportability and suppression behavior
+- `instant_quote_tax_profile` planning contract
+- opportunity-vs-savings policy
+- shadow-savings rollout and feature-gating plan
+- refresh audit, telemetry, and calibration runbook
 
 ## Acceptance criteria
 
-- instant quote can be refreshed and audited by county-year
-- same-year vs prior-year basis handling is visible internally
+- the current instant-quote baseline is frozen and later changes can be compared against it
+- same-year vs prior-year basis handling is visible internally and carried through typed contract semantics
 - unsupported and suppressed states remain public-safe
+- warning states and product/supportability states are explicit and reusable by downstream funnel copy
+- county supportability remains derived from one source of truth that extends the onboarding/readiness model instead of duplicating it
+- quote outputs distinguish opportunity signals from true savings signals
 - quote serving remains fast and deterministic
 - instant quote is documented as acquisition-oriented, not final protest analysis
-- telemetry supports monitoring refresh quality and supportability drift
+- telemetry and audit planning support monitoring refresh quality, supportability drift, and calibration drift
 
 ## Owner type
 
@@ -674,8 +684,7 @@ It now needs a business-grade rollout and operating model.
 
 ## Can run in parallel with
 
-- Stage 5
-- Stage 6
+- Stage 5 design work
 
 ## Launch-critical
 
@@ -683,13 +692,13 @@ It now needs a business-grade rollout and operating model.
 
 ## Business result
 
-Dwellio gets a fast estimate surface that improves conversion without damaging credibility.
+Dwellio gets a fast estimate surface whose contract, supportability semantics, and rollout controls are explicit enough to support later funnel and valuation work without credibility drift.
 
 ---
 
 # Stage 5 - Public quote-to-lead funnel hardening
 **Status:** partial
-**Goal:** finish the current soft-gated lead funnel as a stable lead-generation system before expanding into full onboarding
+**Goal:** finish the current soft-gated lead funnel as a stable lead-generation system whose copy and CTA behavior are driven by Stage 4 quote states before expanding into full onboarding
 
 ## Why this stage exists
 
@@ -698,8 +707,8 @@ That is meaningful progress, but it is not customer onboarding.
 
 ## Included
 
-- funnel-state definitions for quote-ready, unsupported county, unsupported property type, missing quote-ready row, and configuration/reachability failure
-- UX copy for each state
+- funnel-state mapping for quote-ready, unsupported county, unsupported property type, missing quote-ready row, and configuration/reachability failure
+- UX copy and CTA behavior for each funnel state
 - duplicate lead handling rules
 - lead context-status analytics
 - parcel-year attribution integrity checks
@@ -715,7 +724,7 @@ That is meaningful progress, but it is not customer onboarding.
 
 ## Deliverables
 
-- state definitions for all funnel outcomes
+- funnel-state mapping for all public acquisition outcomes
 - UX copy matrix for each state
 - duplicate lead policy
 - attribution integrity checks
@@ -726,6 +735,7 @@ That is meaningful progress, but it is not customer onboarding.
 
 - every lead submission preserves county, parcel, requested tax year, and served tax year context
 - unsupported users can still be captured without pretending a quote exists
+- funnel messaging reflects Stage 4 warning/product states without redefining quote logic locally
 - lead capture never impersonates account creation or signed representation
 - analytics can distinguish quote-ready vs unsupported demand
 - quote-to-lead remains aligned with canonical backend contracts
@@ -743,7 +753,6 @@ That is meaningful progress, but it is not customer onboarding.
 ## Can run in parallel with
 
 - Stage 2
-- Stage 6
 - Stage 9 design work
 
 ## Launch-critical
@@ -756,9 +765,89 @@ Dwellio gets a stable acquisition funnel that honestly matches what the product 
 
 ---
 
-# Stage 6 - Internal case workflow expansion
+# Stage 6 - Advanced equity valuation engine
+**Status:** major missing build item
+**Goal:** build the defendable protest-analysis engine that produces the core equity value conclusions Dwellio will rely on for case review, packet content, and filing decisions
+
+## Why this stage exists
+
+This is arguably the most important missing build item in the roadmap.
+The protest is based on the equity valuation analysis, not on packet rendering alone.
+If the advanced equity engine is not explicit, the roadmap overstates downstream stages and understates the actual core logic the business depends on.
+Packet generation is downstream of valuation, not a substitute for it.
+
+## Included
+
+- subject parcel feature normalization for protest use
+- equity comp candidate generation
+- comp eligibility and exclusion rules
+- comp ranking and scoring logic
+- adjustment logic for subject-to-comp differences
+- equity value conclusion logic
+- confidence and supportability scoring
+- savings-impact logic tied to equity conclusions
+- reviewer override and re-run interaction model
+- packet-ready valuation explanation outputs
+- Harris and Fort Bend validation on representative real or production-shaped sample data
+
+## Excluded
+
+- final packet artifact rendering
+- customer-facing portal work
+- statewide modeling expansion
+- pretending instant quote is the final protest engine
+- using packet generation, packet copy, or quote copy as the source of valuation truth
+
+## Deliverables
+
+- equity comp selection rules
+- comp ranking and scoring model
+- adjustment-engine design and implementation plan
+- equity value conclusion logic
+- confidence/supportability model
+- reviewer override workflow definition
+- packet-ready explanation output contract
+- validation set and evaluation approach for Harris and Fort Bend
+
+## Acceptance criteria
+
+- Dwellio can generate a defendable equity analysis for representative Harris and Fort Bend sample cases
+- comp selection, adjustments, and value conclusions are explainable and auditable
+- supportability/confidence is visible internally
+- reviewer overrides are explicit and do not silently mutate baseline model output
+- downstream case and packet workflows can consume the valuation output without inventing new logic
+- the stage is explicitly documented as the first protest-grade valuation layer, not an extension of instant quote or packet rendering
+- the stage is validated on realistic data, not just fixtures
+
+## Owner type
+
+- engineering
+- data/valuation
+- reviewer operations
+
+## Depends on
+
+- Stage 2
+- Stage 4
+
+## Can run in parallel with
+
+- Stage 5
+- Stage 7 design work
+
+## Launch-critical
+
+- yes
+
+## Business result
+
+Dwellio gets the actual protest-analysis engine that the rest of the internal workflow and final packet are built on, with packet generation consuming valuation outputs instead of defining them.
+
+---
+
+# Stage 7 - Internal case workflow expansion
 **Status:** partial foundation already exists
-**Goal:** turn the current protest-case foundation into a usable internal operator workflow and define the represented-customer model before agreement implementation
+**Goal:** turn the current protest-case foundation into a usable internal operator workflow and define the represented-customer model around the new valuation engine before agreement implementation
 
 ## Why this stage exists
 
@@ -1551,9 +1640,10 @@ Once Stage 1 is complete and Stage 0 is defined enough to remove ambiguity:
 
 - Stage 2, Stage 3, and Stage 4 can overlap
 - Stage 5 can proceed once Stage 3 and Stage 4 are stable enough
-- Stage 6 and Stage 7 can proceed while Stage 9 design is being finalized
-- Stage 8, Stage 10, and Stage 11 can overlap after the Stage 6/7 model is stable
-- Stage 12 and Stage 13 should start only after earlier operating dependencies are clear
+- Stage 6 can proceed once Stage 4 contract boundaries are stable enough to keep quote logic and protest valuation distinct
+- Stage 7 can proceed once Stage 6 output shape is stable while Stage 10 design is being finalized
+- Stage 8, Stage 9, and Stage 12 can overlap after the Stage 6/7 model is stable
+- Stage 13 and Stage 14 should start only after earlier operating dependencies are clear
 
 ---
 
@@ -1582,7 +1672,7 @@ Required:
 
 - Stage 3, Stage 4, and Stage 5 complete
 - public route safety is verified
-- instant quote behavior is monitored and business-safe
+- instant quote behavior is versioned, supportability-aware, and business-safe
 - quote-to-lead flow does not overpromise onboarding or representation
 
 ### Gate 4 - Internal operating workflow is real

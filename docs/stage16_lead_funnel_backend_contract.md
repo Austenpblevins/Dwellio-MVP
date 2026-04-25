@@ -29,6 +29,8 @@ Structured attribution and funnel context are persisted in `lead_events.event_pa
 - UTM fields
 - quote and parcel context
 
+The canonical auditability and admin reporting requirements for this payload now live in [architecture/LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md](./architecture/LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md).
+
 ## Unsupported and missing-context behavior
 
 `POST /lead` accepts lead capture even when quote context is incomplete.
