@@ -33,6 +33,10 @@ The public web app still uses the canonical public backend routes:
 - lead capture stays soft-gated with email required and phone optional
 - attribution is stored client-side and submitted through the existing `POST /lead` contract
 
+Approved copy and CTA matrix:
+
+- [LEAD_FUNNEL_UX_COPY_MATRIX.md](./architecture/LEAD_FUNNEL_UX_COPY_MATRIX.md)
+
 ## Supported scope
 
 - counties: `harris`, `fort_bend`
@@ -53,6 +57,8 @@ The public web app still uses the canonical public backend routes:
 - the public funnel is parcel-page based; there is no separate alternate quote route or modal architecture
 - quote completeness still depends on county-year readiness and whether a `v_quote_read_model` row exists for the parcel-year
 - the web app stores attribution in session storage and submits it through the existing lead route; there is no separate frontend analytics service in this stage
+
+Lead-demand analytics for this stage are defined in [architecture/QUOTE_READY_VS_UNSUPPORTED_DEMAND_ANALYTICS.md](./architecture/QUOTE_READY_VS_UNSUPPORTED_DEMAND_ANALYTICS.md) and remain based on accepted lead submissions rather than a separate client event stream.
 
 ## Boundaries preserved
 

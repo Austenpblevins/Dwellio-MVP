@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import Field
 
@@ -607,6 +607,132 @@ class AdminMutationResult(DwellioBaseModel):
     job_run_id: str | None = None
     publish_version: str | None = None
     message: str
+
+
+class AdminLeadReportingKpiSummary(DwellioBaseModel):
+    total_count: int = 0
+    quote_ready_count: int = 0
+    reachable_unquoted_count: int = 0
+    unsupported_county_count: int = 0
+    unsupported_property_count: int = 0
+    fallback_applied_count: int = 0
+    duplicate_group_count: int = 0
+
+
+class AdminLeadDemandBucketSummary(DwellioBaseModel):
+    demand_bucket: str
+    lead_count: int
+
+
+class AdminLeadDuplicateGroupSummary(DwellioBaseModel):
+    duplicate_group_key: str
+    latest_lead_id: str
+    county_id: str
+    account_number: str
+    requested_tax_year: int
+    lead_count: int
+    latest_submitted_at: datetime | None = None
+    latest_demand_bucket: str | None = None
+    fallback_present: bool = False
+    demand_bucket_count: int = 1
+
+
+class AdminLeadSummary(DwellioBaseModel):
+    lead_id: str
+    lead_event_id: str
+    submitted_at: datetime | None = None
+    county_id: str
+    account_number: str
+    requested_tax_year: int
+    served_tax_year: int | None = None
+    demand_bucket: str
+    context_status: str
+    source_channel: str | None = None
+    owner_name: str | None = None
+    fallback_applied: bool = False
+    fallback_reason: str | None = None
+    email_present: bool = False
+    phone_present: bool = False
+    consent_to_contact: bool = False
+    duplicate_group_key: str
+    duplicate_group_size: int = 1
+
+
+class AdminLeadListResponse(DwellioBaseModel):
+    access_scope: str = "internal"
+    county_id: str | None = None
+    requested_tax_year: int | None = None
+    served_tax_year: int | None = None
+    demand_bucket: str | None = None
+    fallback_applied: bool | None = None
+    source_channel: str | None = None
+    duplicate_only: bool = False
+    quote_ready_only: bool = False
+    submitted_from: date | None = None
+    submitted_to: date | None = None
+    limit: int = 50
+    kpi_summary: AdminLeadReportingKpiSummary = Field(
+        default_factory=AdminLeadReportingKpiSummary
+    )
+    demand_buckets: list[AdminLeadDemandBucketSummary] = Field(default_factory=list)
+    duplicate_groups: list[AdminLeadDuplicateGroupSummary] = Field(default_factory=list)
+    leads: list[AdminLeadSummary] = Field(default_factory=list)
+
+
+class AdminLeadContactSnapshot(DwellioBaseModel):
+    owner_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    email_present: bool = False
+    phone_present: bool = False
+    consent_to_contact: bool = False
+
+
+class AdminLeadQuoteContextSnapshot(DwellioBaseModel):
+    context_status: str
+    demand_bucket: str
+    county_supported: bool
+    property_supported: bool | None = None
+    quote_ready: bool
+    requested_tax_year: int
+    served_tax_year: int | None = None
+    tax_year_fallback_applied: bool = False
+    tax_year_fallback_reason: str | None = None
+    parcel_id: str | None = None
+    property_type_code: str | None = None
+    protest_recommendation: str | None = None
+    expected_tax_savings_point: float | None = None
+    defensible_value_point: float | None = None
+
+
+class AdminLeadAttributionSnapshot(DwellioBaseModel):
+    anonymous_session_id: str | None = None
+    funnel_stage: str | None = None
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_term: str | None = None
+    utm_content: str | None = None
+
+
+class AdminLeadDuplicatePeer(DwellioBaseModel):
+    lead_id: str
+    submitted_at: datetime | None = None
+    demand_bucket: str
+    context_status: str
+    served_tax_year: int | None = None
+    fallback_applied: bool = False
+    source_channel: str | None = None
+
+
+class AdminLeadDetail(DwellioBaseModel):
+    access_scope: str = "internal"
+    lead: AdminLeadSummary
+    contact: AdminLeadContactSnapshot
+    quote_context: AdminLeadQuoteContextSnapshot
+    attribution: AdminLeadAttributionSnapshot
+    raw_event_payload: JsonDict = Field(default_factory=dict)
+    duplicate_peers: list[AdminLeadDuplicatePeer] = Field(default_factory=list)
 
 
 class AdminCountyYearWorkflowStep(DwellioBaseModel):

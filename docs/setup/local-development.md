@@ -79,6 +79,8 @@ Canonical internal/admin routes:
 - `GET /admin/search/inspect`
 - `GET /admin/ops/import-batches`
 - `POST /admin/ops/manual-import/register`
+- `GET /admin/leads`
+- `GET /admin/leads/{lead_id}`
 - `GET /admin/cases`
 - `GET /admin/packets`
 
@@ -110,6 +112,8 @@ Important public pages:
 
 Important internal pages:
 - `/admin/ops`
+- `/admin/leads`
+- `/admin/leads/{leadId}`
 - `/admin/cases`
 - `/admin/cases/{caseId}`
 - `/admin/packets`

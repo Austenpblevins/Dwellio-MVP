@@ -10,9 +10,15 @@ Tickets covered here:
 
 This document does not finalize:
 
-- unsupported-state UX copy and CTA behavior (`S3-T3`, `S5-T2`)
-- route smoke-test matrix (`S3-T4`)
-- frontend payload guarantees beyond the audited public contract (`S3-T5`)
+- unsupported-state UX copy and CTA behavior (`S5-T2`)
+
+Companion docs:
+
+- [FRONTEND_SAFE_PAYLOAD_GUARANTEES.md](./FRONTEND_SAFE_PAYLOAD_GUARANTEES.md) closes `S3-T5`
+- [LEAD_FUNNEL_UX_COPY_MATRIX.md](./LEAD_FUNNEL_UX_COPY_MATRIX.md) closes `S5-T2`
+- [LEAD_CAPTURE_DUPLICATE_AND_ATTRIBUTION_RULES.md](./LEAD_CAPTURE_DUPLICATE_AND_ATTRIBUTION_RULES.md) closes `S5-T3`
+- [LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md](./LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md) closes `S5-T4`
+- [QUOTE_READY_VS_UNSUPPORTED_DEMAND_ANALYTICS.md](./QUOTE_READY_VS_UNSUPPORTED_DEMAND_ANALYTICS.md) closes `S5-T5`
 
 ## 1. Canonical public route inventory
 
@@ -108,6 +114,8 @@ Not allowed:
 - internal event payload internals
 - hidden admin workflow status
 - packet/case data
+
+Operator auditability and admin reporting requirements for accepted lead submissions are defined separately in [LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md](./LEAD_EVENT_AUDITABILITY_AND_ADMIN_REPORTING.md).
 
 ## 3. Owner-masking contract
 

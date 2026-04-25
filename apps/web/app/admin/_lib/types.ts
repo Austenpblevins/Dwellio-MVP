@@ -402,3 +402,127 @@ export type AdminCaseDetail = {
   status_history: AdminCaseStatusHistoryEntry[];
   packets: AdminEvidencePacketSummary[];
 };
+
+export type AdminLeadReportingKpiSummary = {
+  total_count: number;
+  quote_ready_count: number;
+  reachable_unquoted_count: number;
+  unsupported_county_count: number;
+  unsupported_property_count: number;
+  fallback_applied_count: number;
+  duplicate_group_count: number;
+};
+
+export type AdminLeadDemandBucketSummary = {
+  demand_bucket: string;
+  lead_count: number;
+};
+
+export type AdminLeadDuplicateGroupSummary = {
+  duplicate_group_key: string;
+  latest_lead_id: string;
+  county_id: string;
+  account_number: string;
+  requested_tax_year: number;
+  lead_count: number;
+  latest_submitted_at: string | null;
+  latest_demand_bucket: string | null;
+  fallback_present: boolean;
+  demand_bucket_count: number;
+};
+
+export type AdminLeadSummary = {
+  lead_id: string;
+  lead_event_id: string;
+  submitted_at: string | null;
+  county_id: string;
+  account_number: string;
+  requested_tax_year: number;
+  served_tax_year: number | null;
+  demand_bucket: string;
+  context_status: string;
+  source_channel: string | null;
+  owner_name: string | null;
+  fallback_applied: boolean;
+  fallback_reason: string | null;
+  email_present: boolean;
+  phone_present: boolean;
+  consent_to_contact: boolean;
+  duplicate_group_key: string;
+  duplicate_group_size: number;
+};
+
+export type AdminLeadListResponse = {
+  access_scope: string;
+  county_id: string | null;
+  requested_tax_year: number | null;
+  served_tax_year: number | null;
+  demand_bucket: string | null;
+  fallback_applied: boolean | null;
+  source_channel: string | null;
+  duplicate_only: boolean;
+  quote_ready_only: boolean;
+  submitted_from: string | null;
+  submitted_to: string | null;
+  limit: number;
+  kpi_summary: AdminLeadReportingKpiSummary;
+  demand_buckets: AdminLeadDemandBucketSummary[];
+  duplicate_groups: AdminLeadDuplicateGroupSummary[];
+  leads: AdminLeadSummary[];
+};
+
+export type AdminLeadContactSnapshot = {
+  owner_name: string | null;
+  email: string | null;
+  phone: string | null;
+  email_present: boolean;
+  phone_present: boolean;
+  consent_to_contact: boolean;
+};
+
+export type AdminLeadQuoteContextSnapshot = {
+  context_status: string;
+  demand_bucket: string;
+  county_supported: boolean;
+  property_supported: boolean | null;
+  quote_ready: boolean;
+  requested_tax_year: number;
+  served_tax_year: number | null;
+  tax_year_fallback_applied: boolean;
+  tax_year_fallback_reason: string | null;
+  parcel_id: string | null;
+  property_type_code: string | null;
+  protest_recommendation: string | null;
+  expected_tax_savings_point: number | null;
+  defensible_value_point: number | null;
+};
+
+export type AdminLeadAttributionSnapshot = {
+  anonymous_session_id: string | null;
+  funnel_stage: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_term: string | null;
+  utm_content: string | null;
+};
+
+export type AdminLeadDuplicatePeer = {
+  lead_id: string;
+  submitted_at: string | null;
+  demand_bucket: string;
+  context_status: string;
+  served_tax_year: number | null;
+  fallback_applied: boolean;
+  source_channel: string | null;
+};
+
+export type AdminLeadDetail = {
+  access_scope: string;
+  lead: AdminLeadSummary;
+  contact: AdminLeadContactSnapshot;
+  quote_context: AdminLeadQuoteContextSnapshot;
+  attribution: AdminLeadAttributionSnapshot;
+  raw_event_payload: Record<string, unknown>;
+  duplicate_peers: AdminLeadDuplicatePeer[];
+};

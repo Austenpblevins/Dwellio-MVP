@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.admin import (
+    get_admin_lead_detail,
+    get_admin_leads,
     get_completeness_issues,
     get_county_onboarding_contract,
     get_county_year_readiness,
@@ -32,6 +35,8 @@ from app.api.cases import (
 )
 from app.api.deps.admin_auth import require_admin_access
 from app.models.admin import (
+    AdminLeadDetail,
+    AdminLeadListResponse,
     AdminCompletenessIssuesResponse,
     AdminCountyOnboardingContract,
     AdminCountyYearReadinessDashboard,
@@ -59,6 +64,49 @@ from app.models.case import (
 )
 
 router = APIRouter(dependencies=[Depends(require_admin_access)])
+
+
+@router.get(
+    "/admin/leads",
+    response_model=AdminLeadListResponse,
+)
+def admin_leads_endpoint(
+    county_id: Annotated[str | None, Query()] = None,
+    requested_tax_year: Annotated[int | None, Query()] = None,
+    served_tax_year: Annotated[int | None, Query()] = None,
+    demand_bucket: Annotated[str | None, Query()] = None,
+    fallback_applied: Annotated[bool | None, Query()] = None,
+    source_channel: Annotated[str | None, Query()] = None,
+    duplicate_only: Annotated[bool, Query()] = False,
+    quote_ready_only: Annotated[bool, Query()] = False,
+    submitted_from: Annotated[date | None, Query()] = None,
+    submitted_to: Annotated[date | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> AdminLeadListResponse:
+    return get_admin_leads(
+        county_id=county_id,
+        requested_tax_year=requested_tax_year,
+        served_tax_year=served_tax_year,
+        demand_bucket=demand_bucket,
+        fallback_applied=fallback_applied,
+        source_channel=source_channel,
+        duplicate_only=duplicate_only,
+        quote_ready_only=quote_ready_only,
+        submitted_from=submitted_from,
+        submitted_to=submitted_to,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/admin/leads/{lead_id}",
+    response_model=AdminLeadDetail,
+)
+def admin_lead_detail_endpoint(lead_id: str) -> AdminLeadDetail:
+    try:
+        return get_admin_lead_detail(lead_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get(

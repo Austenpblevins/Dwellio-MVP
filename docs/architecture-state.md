@@ -12,13 +12,13 @@ Design authority lives in:
 
 ## Document Metadata
 
-- Last verified: `2026-04-22`
+- Last verified: `2026-04-24`
 - Verified by: `Codex`
 - Verified against:
   - latest migration: `0056_stage22_ingestion_step_runs.sql`
   - public routes checked: `yes`
   - admin routes checked: `yes`
-  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py` (executed), `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py`, `tests/unit/test_case_admin_api.py` (reviewed), `tests/unit/test_lead_capture.py` (executed), `tests/unit/test_quote_api.py` (executed), `tests/unit/test_search_services.py` (executed)
+  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py` (executed), `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py` (executed), `tests/unit/test_admin_lead_reporting_api.py` (executed), `tests/unit/test_admin_lead_reporting_service.py` (executed), `tests/unit/test_case_admin_api.py` (reviewed), `tests/unit/test_lead_capture.py` (executed), `tests/unit/test_quote_api.py` (executed), `tests/unit/test_search_services.py` (executed)
 - Authority level: `Implementation status only`
 - Scope: `Repository reality, not launch readiness`
 
@@ -46,6 +46,7 @@ Design authority lives in:
 | Public quote | Implemented | Read-model-backed quote and explanation routes are part of the canonical public flow. | `app/api/routes/quote.py`, `docs/final_implementation_summary.md` |
 | Instant quote service | Partial | Stage 17 adds a separate instant-quote route and cache-backed serving layer without replacing the refined quote path. | `app/api/routes/quote.py`, `app/services/instant_quote.py`, `docs/architecture/instant-quote-service-spec.md`, `tests/unit/test_stage17_instant_quote_migration_contract.py` |
 | Lead capture | Implemented | Canonical `POST /lead` persists lead rows plus attribution and parcel-year context. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, `docs/final_implementation_summary.md` |
+| Lead reporting/admin visibility | Implemented | Token-protected lead reporting routes and admin pages expose demand mix, duplicate review, and raw `lead_submitted` drill-down without creating represented-customer or case behavior. | `app/api/routes/admin.py`, `app/services/admin_lead_reporting.py`, `apps/web/app/admin/leads/page.tsx`, `apps/web/app/admin/leads/[leadId]/page.tsx`, `docs/runbooks/ADMIN_LEAD_REPORTING_UI.md` |
 | Public web funnel | Partial | The web app supports search to parcel to quote-to-lead, but not full customer signup, agreements, or billing. | `apps/web/app/`, `docs/stage16_lead_funnel_frontend_ux.md` |
 | County ingestion framework | Implemented | Shared ingestion, import-batch, validation, lineage, publish/rollback, and job orchestration backbone exists. | `app/ingestion/service.py`, `app/jobs/cli.py`, `docs/ingestion_framework.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
 | Harris county support | Partial | Harris adapter, onboarding, and manual-prep path exist, but current workflow still includes fixture/manual-prep realities. | `app/county_adapters/harris/adapter.py`, `docs/harris_adapter.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
@@ -87,6 +88,7 @@ Current canonical internal/admin surfaces include:
 - import-batch inspection
 - source-file and validation review
 - publish / rollback / retry-maintenance
+- lead reporting and drill-down
 - case review routes
 - packet review routes
 
@@ -155,5 +157,6 @@ If those checks are not met, mark the item `Partial` or `Deferred`.
 
 ## Change Log
 
+- `2026-04-24`: implemented the protected admin lead reporting surface (`/admin/leads`) with duplicate review, raw event drill-down, and operator runbook coverage
 - `2026-04-22`: tightened the public parcel payload contract to exclude tax-assignment debug metadata and added repo-native Stage 2 / Stage 3 / Stage 5 contract docs
 - `2026-04-20`: rebuilt the file as a repo-reality status ledger with evidence-backed subsystem rows, route inventories, and maintenance rules
