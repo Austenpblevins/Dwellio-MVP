@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.models.admin import (
+    AdminLeadDetail,
+    AdminLeadListResponse,
     AdminCountyOnboardingBaselineComparison,
     AdminCompletenessIssuesResponse,
     AdminCountyOnboardingAction,
@@ -25,6 +27,7 @@ from app.models.admin import (
     AdminValidationResultsResponse,
 )
 from app.services.address_resolver import AddressResolverService
+from app.services.admin_lead_reporting import AdminLeadReportingService
 from app.services.admin_ops import AdminOpsService
 from app.services.admin_readiness import AdminReadinessService
 from app.services.county_onboarding import CountyOnboardingService
@@ -255,6 +258,39 @@ def get_import_batches(
 def get_import_batch_detail(import_batch_id: str) -> AdminImportBatchDetail:
     service = AdminOpsService()
     return service.get_import_batch_detail(import_batch_id=import_batch_id)
+
+
+def get_admin_leads(
+    *,
+    county_id: str | None = None,
+    requested_tax_year: int | None = None,
+    served_tax_year: int | None = None,
+    demand_bucket: str | None = None,
+    fallback_applied: bool | None = None,
+    source_channel: str | None = None,
+    duplicate_only: bool = False,
+    quote_ready_only: bool = False,
+    submitted_from=None,
+    submitted_to=None,
+    limit: int = 50,
+) -> AdminLeadListResponse:
+    return AdminLeadReportingService().list_leads(
+        county_id=county_id,
+        requested_tax_year=requested_tax_year,
+        served_tax_year=served_tax_year,
+        demand_bucket=demand_bucket,
+        fallback_applied=fallback_applied,
+        source_channel=source_channel,
+        duplicate_only=duplicate_only,
+        quote_ready_only=quote_ready_only,
+        submitted_from=submitted_from,
+        submitted_to=submitted_to,
+        limit=limit,
+    )
+
+
+def get_admin_lead_detail(lead_id: str) -> AdminLeadDetail:
+    return AdminLeadReportingService().get_lead_detail(lead_id=lead_id)
 
 
 def get_validation_results(

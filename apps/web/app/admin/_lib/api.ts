@@ -1,5 +1,7 @@
 import { requireAdminToken } from "./auth";
 import type {
+  AdminLeadDetail,
+  AdminLeadListResponse,
   AdminCaseDetail,
   AdminCaseListResponse,
   AdminCompletenessIssuesResponse,
@@ -164,4 +166,59 @@ export async function getAdminPacketDetail(
   packetId: string,
 ): Promise<AdminEvidencePacketDetail> {
   return adminFetch(`/admin/packets/${packetId}`);
+}
+
+export async function getAdminLeads(filters?: {
+  countyId?: string;
+  requestedTaxYear?: number;
+  servedTaxYear?: number;
+  demandBucket?: string;
+  fallbackApplied?: boolean;
+  sourceChannel?: string;
+  duplicateOnly?: boolean;
+  quoteReadyOnly?: boolean;
+  submittedFrom?: string;
+  submittedTo?: string;
+  limit?: number;
+}): Promise<AdminLeadListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.countyId) {
+    params.set("county_id", filters.countyId);
+  }
+  if (filters?.requestedTaxYear !== undefined) {
+    params.set("requested_tax_year", String(filters.requestedTaxYear));
+  }
+  if (filters?.servedTaxYear !== undefined) {
+    params.set("served_tax_year", String(filters.servedTaxYear));
+  }
+  if (filters?.demandBucket) {
+    params.set("demand_bucket", filters.demandBucket);
+  }
+  if (filters?.fallbackApplied !== undefined) {
+    params.set("fallback_applied", String(filters.fallbackApplied));
+  }
+  if (filters?.sourceChannel) {
+    params.set("source_channel", filters.sourceChannel);
+  }
+  if (filters?.duplicateOnly) {
+    params.set("duplicate_only", "true");
+  }
+  if (filters?.quoteReadyOnly) {
+    params.set("quote_ready_only", "true");
+  }
+  if (filters?.submittedFrom) {
+    params.set("submitted_from", filters.submittedFrom);
+  }
+  if (filters?.submittedTo) {
+    params.set("submitted_to", filters.submittedTo);
+  }
+  if (filters?.limit !== undefined) {
+    params.set("limit", String(filters.limit));
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminFetch(`/admin/leads${suffix}`);
+}
+
+export async function getAdminLeadDetail(leadId: string): Promise<AdminLeadDetail> {
+  return adminFetch(`/admin/leads/${leadId}`);
 }

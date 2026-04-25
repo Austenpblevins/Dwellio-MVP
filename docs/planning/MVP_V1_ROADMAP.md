@@ -765,6 +765,79 @@ Dwellio gets a stable acquisition funnel that honestly matches what the product 
 
 ---
 
+# Off-Board Tranche OB1 - Lead reporting and ops visibility
+**Status:** intentionally reprioritized
+**Goal:** turn the completed Stage 5 lead contracts into a protected internal reporting surface while Stage 6 remains blocked
+
+## Why this tranche exists
+
+Stage 6 remains the next critical-path build item, but it is intentionally not being opened yet.
+
+Rather than drifting into downstream product workflow or pretending valuation is ready, Dwellio can safely pull forward a narrow internal tranche that:
+
+- improves operator visibility into current lead demand
+- uses only Stage 5 lead evidence already persisted in the repo
+- stays behind protected admin/internal surfaces
+- does not redefine quote supportability, represented-customer workflow, or protest valuation logic
+
+This is an explicit off-board reprioritization, not a replacement for Stage 6.
+
+## Included
+
+- protected admin lead reporting surface
+- reporting queries for quote-ready vs unsupported demand
+- duplicate-demand review support
+- lead-event drill-down from reporting aggregates into raw submission evidence
+- operator-facing visibility into fallback demand and lead quality mix
+
+## Excluded
+
+- public analytics widgets
+- customer-facing reporting
+- represented-customer or case workflow
+- packet, agreement, billing, filing, or customer-account behavior
+- advanced equity valuation logic
+
+## Deliverables
+
+- admin reporting surface definition for current lead demand
+- reporting query/service layer scoped to `leads` and `lead_events`
+- protected admin/API or page implementation for lead review
+- smoke or integration validation for the reporting path
+- execution-board reconciliation showing this as an intentional off-board tranche
+
+## Acceptance criteria
+
+- operators can review quote-ready, unsupported county, unsupported property, and reachable-but-unquoted demand without DB access
+- reporting preserves the distinction between `requested_tax_year` and `served_tax_year`
+- operators can drill from aggregates into raw `lead_submitted` evidence
+- duplicate-demand review uses the canonical Stage 5 grouping rules
+- no public route gains admin reporting behavior
+- no Stage 6 valuation behavior is stubbed or implied by this tranche
+
+## Owner type
+
+- engineering
+- operations
+
+## Depends on
+
+- Stage 5
+
+## Can run in parallel with
+
+- Stage 6 remaining blocked
+
+## Launch-critical
+
+- no, but high leverage for current operator usability
+
+## Business result
+
+Dwellio gets an internal reporting surface that makes the existing lead funnel operationally useful without skipping ahead into valuation-dependent workflow.
+
+---
+
 # Stage 6 - Advanced equity valuation engine
 **Status:** major missing build item
 **Goal:** build the defendable protest-analysis engine that produces the core equity value conclusions Dwellio will rely on for case review, packet content, and filing decisions

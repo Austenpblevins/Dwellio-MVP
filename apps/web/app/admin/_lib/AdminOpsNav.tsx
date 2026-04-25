@@ -11,6 +11,7 @@ const ADMIN_LINKS = [
   { href: "/admin/ops/completeness", label: "Completeness" },
   { href: "/admin/ops/tax-assignment", label: "Tax Assignment" },
   { href: "/admin/readiness", label: "Readiness" },
+  { href: "/admin/leads", label: "Leads" },
 ];
 
 export function AdminOpsNav() {

@@ -47,7 +47,7 @@ Primary planning inputs:
 
 Current ready state:
 
-- no additional Stage 5 tickets remain open
+- no additional `OB1` tickets remain open
 - Stage 6 remains intentionally blocked until the advanced equity valuation engine is explicitly opened as its own workstream
 
 ## Master Execution Board
@@ -93,6 +93,21 @@ Current ready state:
 | `S5-T3` | Define duplicate-lead and parcel-year attribution rules | `P0` | `Done` | `S5-T1` | Repeat submissions, requested tax year, served tax year, county, and parcel context are handled consistently |
 | `S5-T4` | Define lead-event auditability and admin lead reporting requirements | `P1` | `Done` | `S5-T1`, `S5-T3` | Ops can reconstruct what the user saw and submitted and review lead volume and quality |
 | `S5-T5` | Define quote-ready vs unsupported-demand analytics | `P1` | `Done` | `S4-T3`, `S5-T1`, `S5-T3` | Reporting separates supported demand from interest in unsupported or unreachable cases without re-defining quote supportability locally |
+
+### Off-board tranche OB1 - Lead reporting and ops visibility
+
+Execution note:
+- this tranche is an intentional reprioritization while Stage 6 remains blocked
+- it must stay behind protected admin/internal surfaces
+- it must consume the Stage 5 lead contracts rather than redefining funnel or quote semantics
+- it must not backfill Stage 6, packet, agreement, billing, filing, or customer-account behavior
+
+| ID | Ticket | Priority | Status | Depends on | Done when |
+|---|---|---|---|---|---|
+| `OB1-T1` | Define the protected admin lead reporting surface and operator drill-down requirements | `P1` | `Done` | `S5-T4`, `S5-T5` | There is one approved internal reporting surface for lead volume, demand mix, duplicate review, and raw event drill-down |
+| `OB1-T2` | Implement reporting query/service layer for Stage 5 lead analytics | `P1` | `Done` | `OB1-T1`, `S5-T3`, `S5-T4`, `S5-T5` | The repo can compute quote-ready, unsupported, fallback, and duplicate-review metrics from canonical lead evidence |
+| `OB1-T3` | Implement protected admin API or page for lead reporting and event drill-down | `P1` | `Done` | `OB1-T1`, `OB1-T2` | Operators can review lead reporting and inspect raw submission evidence without direct DB access |
+| `OB1-T4` | Add smoke/integration coverage plus operator usage notes for the reporting path | `P1` | `Done` | `OB1-T2`, `OB1-T3` | The reporting surface is tested at the route/workflow level and operator expectations are documented |
 
 ### Stage 6 - Advanced equity valuation engine (protest-grade)
 
@@ -254,4 +269,4 @@ This is the highest-signal dependency spine:
 
 - Stage 0 decisions are locked in the roadmap and remain launch-gating constraints.
 - Stage 1 governance is largely in place, but the PR docs-impact rule still needs to be enforced operationally.
-- This board should be reviewed weekly while Stages 2-5 are active and before opening any Stage 6 implementation work.
+- This board should be reviewed weekly while Stages 2-5 and `OB1` are active and before opening any Stage 6 implementation work.
