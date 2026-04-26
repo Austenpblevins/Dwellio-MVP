@@ -26,6 +26,7 @@ def test_harris_field_mapping_builds_expected_sections() -> None:
     assert normalized["characteristics"]["homestead_flag"] is True
     assert normalized["characteristics"]["property_type_code"] == "sfr"
     assert normalized["improvements"][0]["building_label"] == "Main"
+    assert normalized["improvements"][0]["total_rooms"] == 8
     assert normalized["land_segments"][0]["segment_num"] == 1
     assert normalized["value_components"][2]["taxable_value"] == 230000
     assert normalized["assessment"]["exemption_value_total"] == 100000

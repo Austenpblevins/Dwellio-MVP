@@ -380,6 +380,7 @@ Important fields:
 - `bedrooms`
 - `full_baths`
 - `half_baths`
+- `total_rooms`
 - `stories`
 - `quality_code`
 - `condition_code`
@@ -390,6 +391,10 @@ Used by:
 - feature generation
 - comp filtering
 - valuation models
+
+Important note:
+
+- `total_rooms` is a safe additive canonical field added for the Harris upstream property-characteristics contract and is intended for downstream model support when the county source provides an explicit room-count signal
 
 ---
 

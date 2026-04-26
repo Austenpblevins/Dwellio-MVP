@@ -5,6 +5,8 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from infra.scripts.convert_2025_real_sources import (
     convert_fort_bend,
     convert_harris,
@@ -53,6 +55,11 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     assert harris_property_roll[0]["market_value"] == 484857
     assert harris_property_roll[0]["school_district_name"] == "HOUSTON ISD"
     assert harris_property_roll[0]["property_type_code"] == "sfr"
+    assert harris_property_roll[0]["bedrooms"] == 3
+    assert harris_property_roll[0]["full_baths"] == 2
+    assert harris_property_roll[0]["half_baths"] == 1
+    assert harris_property_roll[0]["total_rooms"] == 8
+    assert harris_property_roll[0]["pool_flag"] is True
     assert harris_property_roll[0]["exemptions"][0]["exemption_type_code"] == "homestead"
     assert harris_property_roll[0]["exemptions"][0]["raw_exemption_code"] == "RES"
 
@@ -100,6 +107,8 @@ def test_prepare_manual_county_files_generates_2026_outputs_from_canonical_layou
     harris_property = json.loads((ready_root / "harris_property_roll_2026.json").read_text(encoding="utf-8"))
     assert harris_property[0]["account_number"] == "0021440000001"
     assert harris_property[0]["school_district_name"] == "HOUSTON ISD"
+    assert harris_property[0]["total_rooms"] == 8
+    assert harris_property[0]["pool_flag"] is True
     assert harris_property[0]["exemptions"][0]["exemption_type_code"] == "homestead"
 
     with (ready_root / "fort_bend_tax_rates_2026.csv").open("r", encoding="utf-8", newline="") as handle:
@@ -114,16 +123,94 @@ def test_prepare_manual_county_files_generates_2026_outputs_from_canonical_layou
         "real_acct",
         "owners",
         "building_res",
+        "fixtures",
+        "extra_features",
+        "extra_features_detail1",
+        "extra_features_detail2",
         "land",
         "tax_rates",
         "jur_exempt",
         "jur_exempt_cd",
         "jur_exemption_dscr",
         "exemption_category_desc",
+        "building_data_elements_desc",
+        "extra_features_desc",
+        "extra_feature_category_desc",
     }
     assert manifest["output_files"][0]["row_count"] == 1
     assert result_lookup[("harris", "property_roll")].verification is not None
     assert result_lookup[("harris", "property_roll")].verification.validation_error_count == 0
+
+
+def test_prepare_manual_county_files_accepts_legacy_nested_harris_layout_without_flattened_copies(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    ready_root.mkdir(parents=True)
+
+    harris_paths = _write_harris_raw_files(tmp_path / "legacy_harris_nested_only")
+    county_root = raw_root / "harris"
+    county_root.mkdir(parents=True)
+
+    nested_targets = {
+        county_root / "Harris_Real_acct_owner" / "real_acct.txt": harris_paths.real_acct,
+        county_root / "Harris_Real_acct_owner" / "owners.txt": harris_paths.owners,
+        county_root / "Harris_Real_building_land" / "building_res.txt": harris_paths.building_res,
+        county_root / "Harris_Real_building_land" / "fixtures.txt": harris_paths.fixtures,
+        county_root / "Harris_Real_building_land" / "extra_features.txt": harris_paths.extra_features,
+        county_root
+        / "Harris_Real_building_land"
+        / "extra_features_detail1.txt": harris_paths.extra_features_detail1,
+        county_root
+        / "Harris_Real_building_land"
+        / "extra_features_detail2.txt": harris_paths.extra_features_detail2,
+        county_root / "Harris_Real_building_land" / "land.txt": harris_paths.land,
+        county_root
+        / "Harris_Real_jur_exempt"
+        / "jur_tax_dist_exempt_value_rate.txt": harris_paths.tax_rates,
+        county_root / "Harris_Real_jur_exempt" / "jur_exempt.txt": harris_paths.jur_exempt,
+        county_root / "Harris_Real_jur_exempt" / "jur_exempt_cd.txt": harris_paths.jur_exempt_cd,
+        county_root
+        / "Harris_Real_jur_exempt"
+        / "jur_exemption_dscr.txt": harris_paths.jur_exemption_dscr,
+        county_root
+        / "Harris_Code_description_real (1)"
+        / "desc_r_14_exemption_category.txt": harris_paths.exemption_category_desc,
+        county_root
+        / "Harris_Code_description_real (1)"
+        / "desc_r_05_building_data_elements.txt": harris_paths.building_data_elements_desc,
+        county_root
+        / "Harris_Code_description_real (1)"
+        / "desc_r_10_extra_features.txt": harris_paths.extra_features_desc,
+        county_root
+        / "Harris_Code_description_real (1)"
+        / "desc_r_11_extra_feature_category.txt": harris_paths.extra_feature_category_desc,
+    }
+    for target_path, source_path in nested_targets.items():
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, target_path)
+
+    results = prepare_manual_county_files(
+        county_ids=["harris"],
+        tax_year=2026,
+        dataset_types=["property_roll", "tax_rates"],
+        raw_root=raw_root,
+        ready_root=ready_root,
+    )
+
+    assert len(results) == 2
+    property_result = next(result for result in results if result.dataset_type == "property_roll")
+    manifest = json.loads(property_result.manifest_path.read_text(encoding="utf-8"))
+    raw_file_paths = {item["logical_name"]: item["path"] for item in manifest["raw_files"]}
+
+    assert raw_file_paths["real_acct"].endswith("Harris_Real_acct_owner/real_acct.txt")
+    assert raw_file_paths["owners"].endswith("Harris_Real_acct_owner/owners.txt")
+    assert raw_file_paths["building_res"].endswith("Harris_Real_building_land/building_res.txt")
+    assert raw_file_paths["land"].endswith("Harris_Real_building_land/land.txt")
+    assert raw_file_paths["tax_rates"].endswith(
+        "Harris_Real_jur_exempt/jur_tax_dist_exempt_value_rate.txt"
+    )
 
 
 def test_prepare_manual_county_files_supports_explicit_override_for_noncanonical_name(tmp_path: Path) -> None:
@@ -152,6 +239,28 @@ def test_prepare_manual_county_files_supports_explicit_override_for_noncanonical
     assert manifest["raw_files"][0]["logical_name"] == "tax_rates"
     assert manifest["raw_files"][0]["path"] == str(custom_tax_rates)
     assert manifest["validation"]["status"] == "passed"
+
+
+def test_prepare_manual_county_files_requires_harris_characteristics_detail_files(tmp_path: Path) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    ready_root.mkdir(parents=True)
+
+    _copy_to_canonical_layout(
+        harris_paths=_write_harris_raw_files(tmp_path / "legacy_harris_missing_fixture"),
+        fort_bend_paths=_write_fort_bend_raw_files(tmp_path / "legacy_fort_bend_missing_fixture"),
+        raw_root=raw_root,
+    )
+    (raw_root / "harris" / "fixtures.txt").unlink()
+
+    with pytest.raises(FileNotFoundError, match="fixtures"):
+        prepare_manual_county_files(
+            county_ids=["harris"],
+            tax_year=2026,
+            dataset_types=["property_roll"],
+            raw_root=raw_root,
+            ready_root=ready_root,
+        )
 
 
 def test_prepare_manual_county_files_accepts_comma_delimited_fort_bend_owner_and_exemption_exports(
@@ -250,6 +359,32 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
     try:
         connection.executescript(
             """
+            CREATE TABLE harris_building_candidates (
+                acct TEXT NOT NULL,
+                bld_num INTEGER NOT NULL,
+                primary_area REAL NOT NULL DEFAULT 0,
+                living_area_priority REAL NOT NULL DEFAULT 0,
+                living_area_sf INTEGER,
+                living_area_source TEXT,
+                year_built INTEGER,
+                effective_year_built INTEGER,
+                effective_age INTEGER,
+                quality_code TEXT,
+                condition_code TEXT,
+                property_use_code TEXT,
+                PRIMARY KEY (acct, bld_num)
+            );
+            CREATE TABLE harris_fixture_lookup (
+                acct TEXT NOT NULL,
+                bld_num INTEGER NOT NULL,
+                has_room_detail INTEGER NOT NULL DEFAULT 0,
+                bedrooms REAL NOT NULL DEFAULT 0,
+                full_baths REAL NOT NULL DEFAULT 0,
+                half_baths REAL NOT NULL DEFAULT 0,
+                total_rooms REAL NOT NULL DEFAULT 0,
+                stories REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (acct, bld_num)
+            );
             CREATE TABLE harris_building_lookup (
                 acct TEXT PRIMARY KEY,
                 primary_area REAL NOT NULL DEFAULT 0,
@@ -261,7 +396,18 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
                 effective_age INTEGER,
                 quality_code TEXT,
                 condition_code TEXT,
-                property_use_code TEXT
+                property_use_code TEXT,
+                primary_building_num INTEGER,
+                bedrooms INTEGER,
+                full_baths REAL,
+                half_baths REAL,
+                total_rooms INTEGER,
+                stories REAL,
+                bedrooms_source TEXT,
+                full_baths_source TEXT,
+                half_baths_source TEXT,
+                total_rooms_source TEXT,
+                stories_source TEXT
             );
             """
         )
@@ -278,9 +424,13 @@ def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path
             encoding="utf-8",
         )
 
-        from infra.scripts.prepare_manual_county_files import _index_harris_buildings
+        from infra.scripts.prepare_manual_county_files import (
+            _index_harris_buildings,
+            _materialize_harris_primary_buildings,
+        )
 
         _index_harris_buildings(connection, source_path=building_res, tax_year=2026)
+        _materialize_harris_primary_buildings(connection)
         row = connection.execute(
             "SELECT living_area_sf, living_area_source FROM harris_building_lookup WHERE acct = ?",
             ("1161530010003",),
@@ -300,6 +450,32 @@ def test_harris_building_index_prefers_living_area_over_gross_area_when_selectin
     try:
         connection.executescript(
             """
+            CREATE TABLE harris_building_candidates (
+                acct TEXT NOT NULL,
+                bld_num INTEGER NOT NULL,
+                primary_area REAL NOT NULL DEFAULT 0,
+                living_area_priority REAL NOT NULL DEFAULT 0,
+                living_area_sf INTEGER,
+                living_area_source TEXT,
+                year_built INTEGER,
+                effective_year_built INTEGER,
+                effective_age INTEGER,
+                quality_code TEXT,
+                condition_code TEXT,
+                property_use_code TEXT,
+                PRIMARY KEY (acct, bld_num)
+            );
+            CREATE TABLE harris_fixture_lookup (
+                acct TEXT NOT NULL,
+                bld_num INTEGER NOT NULL,
+                has_room_detail INTEGER NOT NULL DEFAULT 0,
+                bedrooms REAL NOT NULL DEFAULT 0,
+                full_baths REAL NOT NULL DEFAULT 0,
+                half_baths REAL NOT NULL DEFAULT 0,
+                total_rooms REAL NOT NULL DEFAULT 0,
+                stories REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (acct, bld_num)
+            );
             CREATE TABLE harris_building_lookup (
                 acct TEXT PRIMARY KEY,
                 primary_area REAL NOT NULL DEFAULT 0,
@@ -311,7 +487,18 @@ def test_harris_building_index_prefers_living_area_over_gross_area_when_selectin
                 effective_age INTEGER,
                 quality_code TEXT,
                 condition_code TEXT,
-                property_use_code TEXT
+                property_use_code TEXT,
+                primary_building_num INTEGER,
+                bedrooms INTEGER,
+                full_baths REAL,
+                half_baths REAL,
+                total_rooms INTEGER,
+                stories REAL,
+                bedrooms_source TEXT,
+                full_baths_source TEXT,
+                half_baths_source TEXT,
+                total_rooms_source TEXT,
+                stories_source TEXT
             );
             """
         )
@@ -330,9 +517,13 @@ def test_harris_building_index_prefers_living_area_over_gross_area_when_selectin
             encoding="utf-8",
         )
 
-        from infra.scripts.prepare_manual_county_files import _index_harris_buildings
+        from infra.scripts.prepare_manual_county_files import (
+            _index_harris_buildings,
+            _materialize_harris_primary_buildings,
+        )
 
         _index_harris_buildings(connection, source_path=building_res, tax_year=2026)
+        _materialize_harris_primary_buildings(connection)
         row = connection.execute(
             """
             SELECT living_area_sf, living_area_source, living_area_priority, primary_area
@@ -508,6 +699,7 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
         "\t".join(
             [
                 "acct",
+                "bld_num",
                 "property_use_cd",
                 "qa_cd",
                 "dscr",
@@ -524,6 +716,7 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
         + "\t".join(
             [
                 "0021440000001",
+                "1",
                 "A1",
                 "B",
                 "Good",
@@ -537,6 +730,37 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
             ]
         )
         + "\n",
+        encoding="utf-8",
+    )
+
+    fixtures = building_land_dir / "fixtures.txt"
+    fixtures.write_text(
+        "acct\tbld_num\ttype\ttype_dscr\tunits\n"
+        "0021440000001\t1\tRMB\tRoom: Bedroom\t3.00\n"
+        "0021440000001\t1\tRMF\tRoom: Full Bath\t2.00\n"
+        "0021440000001\t1\tRMH\tRoom: Half Bath\t1.00\n"
+        "0021440000001\t1\tRMT\tRoom: Total\t8.00\n"
+        "0021440000001\t1\tSTY\tStory Height Index\t2.00\n",
+        encoding="utf-8",
+    )
+
+    extra_features = building_land_dir / "extra_features.txt"
+    extra_features.write_text(
+        "acct\tbld_num\tcount\tgrade\tcd\ts_dscr\tl_dscr\tcat\tdscr\tnote\tuts\n"
+        "0021440000001\t0\t1\t4\tRRP5\tGnPool\tGunite Pool\tPL\tPools\t\t231.00\n",
+        encoding="utf-8",
+    )
+
+    extra_features_detail1 = building_land_dir / "extra_features_detail1.txt"
+    extra_features_detail1.write_text(
+        "acct\tcd\tdscr\tgrade\tcond_cd\tbld_num\tlength\twidth\tunits\tunit_price\tadj_unit_price\tpct_comp\tact_yr\teff_yr\troll_yr\tDT\tpct_cond\tdpr_val\tnote\tasd_val\n"
+        "0021440000001\tRRP5\tGunite Pool\t4\tA\t0\t21\t11\t231.00\t40.000\t76.4000\t1.00\t2021\t2021\t2022\tX2A\t0.6000\t10589\t\t10589\n",
+        encoding="utf-8",
+    )
+
+    extra_features_detail2 = building_land_dir / "extra_features_detail2.txt"
+    extra_features_detail2.write_text(
+        "acct\tcd\tdscr\tgrade\tcond_cd\tbld_num\tlength\twidth\tunits\tunit_price\tadj_unit_price\tpct_comp\tact_yr\teff_yr\troll_yr\tDT\tpct_cond\tdpr_val\tnote\tasd_val\n",
         encoding="utf-8",
     )
 
@@ -583,16 +807,56 @@ def _write_harris_raw_files(raw_root: Path) -> HarrisRawPaths:
         encoding="utf-8",
     )
 
+    building_data_elements_desc = desc_dir / "desc_r_05_building_data_elements.txt"
+    building_data_elements_desc.write_text(
+        "Code\tDept\tDescription\n"
+        "RMB\tRoom:  Bedroom\tBedroom\n"
+        "RMF\tRoom:  Full Bath\tFull Bath\n"
+        "RMH\tRoom:  Half Bath\tHalf Bath\n"
+        "RMT\tRoom:  Total\tTotal Rooms\n"
+        "STY\tStory Height Index\tStories\n",
+        encoding="utf-8",
+    )
+
+    extra_features_desc = desc_dir / "desc_r_10_extra_features.txt"
+    extra_features_desc.write_text(
+        "Code\tDscr\tLongDescription\tCategory\n"
+        "CSC1\tPool\tSwimming Pool\tMS\n"
+        "RRP1\tPlLnPl\tPlastic Liner Pool\tPL\n"
+        "RRP2\tVpool\tPrefab Vinyl Pool\tPL\n"
+        "RRP3\tRCPool\tReinforced Concrete Pool\tPL\n"
+        "RRP4\tFGPool\tFiberglass Pool\tPL\n"
+        "RRP5\tGnPool\tGunite Pool\tPL\n"
+        "RRP8\tPoolHeater\tPool Heater only\tPL\n"
+        "RRP9\tPool SPA\tPool SPA with Heater\tPL\n",
+        encoding="utf-8",
+    )
+
+    extra_feature_category_desc = desc_dir / "desc_r_11_extra_feature_category.txt"
+    extra_feature_category_desc.write_text(
+        "Category\tDescription\n"
+        "PL\tPools\n"
+        "MS\tMiscellaneous\n",
+        encoding="utf-8",
+    )
+
     return HarrisRawPaths(
         real_acct=real_acct,
         owners=owners,
         building_res=building_res,
+        fixtures=fixtures,
+        extra_features=extra_features,
+        extra_features_detail1=extra_features_detail1,
+        extra_features_detail2=extra_features_detail2,
         land=land,
         tax_rates=tax_rates,
         jur_exempt=jur_exempt,
         jur_exempt_cd=jur_exempt_cd,
         jur_exemption_dscr=jur_exemption_dscr,
         exemption_category_desc=exemption_category_desc,
+        building_data_elements_desc=building_data_elements_desc,
+        extra_features_desc=extra_features_desc,
+        extra_feature_category_desc=extra_feature_category_desc,
     )
 
 
@@ -610,12 +874,22 @@ def _copy_to_canonical_layout(
     shutil.copyfile(harris_paths.real_acct, harris_root / "real_acct.txt")
     shutil.copyfile(harris_paths.owners, harris_root / "owners.txt")
     shutil.copyfile(harris_paths.building_res, harris_root / "building_res.txt")
+    shutil.copyfile(harris_paths.fixtures, harris_root / "fixtures.txt")
+    shutil.copyfile(harris_paths.extra_features, harris_root / "extra_features.txt")
+    shutil.copyfile(harris_paths.extra_features_detail1, harris_root / "extra_features_detail1.txt")
+    shutil.copyfile(harris_paths.extra_features_detail2, harris_root / "extra_features_detail2.txt")
     shutil.copyfile(harris_paths.land, harris_root / "land.txt")
     shutil.copyfile(harris_paths.tax_rates, harris_root / "jur_tax_dist_exempt_value_rate.txt")
     shutil.copyfile(harris_paths.jur_exempt, harris_root / "jur_exempt.txt")
     shutil.copyfile(harris_paths.jur_exempt_cd, harris_root / "jur_exempt_cd.txt")
     shutil.copyfile(harris_paths.jur_exemption_dscr, harris_root / "jur_exemption_dscr.txt")
     shutil.copyfile(harris_paths.exemption_category_desc, harris_root / "desc_r_14_exemption_category.txt")
+    shutil.copyfile(harris_paths.building_data_elements_desc, harris_root / "desc_r_05_building_data_elements.txt")
+    shutil.copyfile(harris_paths.extra_features_desc, harris_root / "desc_r_10_extra_features.txt")
+    shutil.copyfile(
+        harris_paths.extra_feature_category_desc,
+        harris_root / "desc_r_11_extra_feature_category.txt",
+    )
 
     shutil.copyfile(fort_bend_paths.property_export, fort_bend_root / "PropertyExport.txt")
     shutil.copyfile(fort_bend_paths.owner_export, fort_bend_root / "OwnerExport.txt")

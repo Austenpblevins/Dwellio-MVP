@@ -36,12 +36,19 @@ HARRIS_RAW_OVERRIDE_KEYS = {
     "real_acct",
     "owners",
     "building_res",
+    "fixtures",
+    "extra_features",
+    "extra_features_detail1",
+    "extra_features_detail2",
     "land",
     "tax_rates",
     "jur_exempt",
     "jur_exempt_cd",
     "jur_exemption_dscr",
     "exemption_category_desc",
+    "building_data_elements_desc",
+    "extra_features_desc",
+    "extra_feature_category_desc",
 }
 FORT_BEND_RAW_OVERRIDE_KEYS = {
     "property_export",
@@ -116,18 +123,50 @@ FORT_BEND_TAX_RATE_HEADERS = [
     "allow_multiple",
 ]
 
+HARRIS_FIXTURE_CODE_TO_FIELD = {
+    "RMB": "bedrooms",
+    "RMF": "full_baths",
+    "RMH": "half_baths",
+    "RMT": "total_rooms",
+    "STY": "stories",
+}
+HARRIS_FIXTURE_CODE_EXPECTATIONS = {
+    "RMB": "bedroom",
+    "RMF": "full bath",
+    "RMH": "half bath",
+    "RMT": "total",
+    "STY": "story",
+}
+HARRIS_POOL_FEATURE_CODES = {
+    "CSC1",
+    "RRP1",
+    "RRP2",
+    "RRP3",
+    "RRP4",
+    "RRP5",
+    "RRP8",
+    "RRP9",
+}
+
 
 @dataclass(frozen=True)
 class HarrisRawPaths:
     real_acct: Path
     owners: Path
     building_res: Path
+    fixtures: Path
+    extra_features: Path
+    extra_features_detail1: Path
+    extra_features_detail2: Path
     land: Path
     tax_rates: Path
     jur_exempt: Path
     jur_exempt_cd: Path
     jur_exemption_dscr: Path
     exemption_category_desc: Path
+    building_data_elements_desc: Path
+    extra_features_desc: Path
+    extra_feature_category_desc: Path
 
 
 @dataclass(frozen=True)
@@ -406,12 +445,19 @@ def prepare_harris(
             ("real_acct", raw_paths.real_acct),
             ("owners", raw_paths.owners),
             ("building_res", raw_paths.building_res),
+            ("fixtures", raw_paths.fixtures),
+            ("extra_features", raw_paths.extra_features),
+            ("extra_features_detail1", raw_paths.extra_features_detail1),
+            ("extra_features_detail2", raw_paths.extra_features_detail2),
             ("land", raw_paths.land),
             ("tax_rates", raw_paths.tax_rates),
             ("jur_exempt", raw_paths.jur_exempt),
             ("jur_exempt_cd", raw_paths.jur_exempt_cd),
             ("jur_exemption_dscr", raw_paths.jur_exemption_dscr),
             ("exemption_category_desc", raw_paths.exemption_category_desc),
+            ("building_data_elements_desc", raw_paths.building_data_elements_desc),
+            ("extra_features_desc", raw_paths.extra_features_desc),
+            ("extra_feature_category_desc", raw_paths.extra_feature_category_desc),
         ]
         _require_named_files("harris", "property_roll", property_inputs)
         _prepare_harris_lookup_tables(connection, raw_paths=raw_paths, tax_year=tax_year)
@@ -642,6 +688,7 @@ def resolve_harris_paths(
             tax_year=tax_year,
             override=overrides.get("real_acct"),
             legacy_relative_paths=[
+                Path("Harris_Real_acct_owner") / "real_acct.txt",
                 Path(f"{tax_year} Harris_Real_acct_owner") / "real_acct.txt",
             ],
         ),
@@ -653,6 +700,7 @@ def resolve_harris_paths(
             tax_year=tax_year,
             override=overrides.get("owners"),
             legacy_relative_paths=[
+                Path("Harris_Real_acct_owner") / "owners.txt",
                 Path(f"{tax_year} Harris_Real_acct_owner") / "owners.txt",
             ],
         ),
@@ -664,7 +712,56 @@ def resolve_harris_paths(
             tax_year=tax_year,
             override=overrides.get("building_res"),
             legacy_relative_paths=[
+                Path("Harris_Real_building_land") / "building_res.txt",
                 Path(f"{tax_year} Harris_Real_building_land") / "building_res.txt",
+            ],
+        ),
+        fixtures=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="fixtures",
+            canonical_filename="fixtures.txt",
+            tax_year=tax_year,
+            override=overrides.get("fixtures"),
+            legacy_relative_paths=[
+                Path(f"{tax_year} Harris_Real_building_land") / "fixtures.txt",
+                Path("Harris_Real_building_land") / "fixtures.txt",
+            ],
+        ),
+        extra_features=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="extra_features",
+            canonical_filename="extra_features.txt",
+            tax_year=tax_year,
+            override=overrides.get("extra_features"),
+            legacy_relative_paths=[
+                Path(f"{tax_year} Harris_Real_building_land") / "extra_features.txt",
+                Path("Harris_Real_building_land") / "extra_features.txt",
+            ],
+        ),
+        extra_features_detail1=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="extra_features_detail1",
+            canonical_filename="extra_features_detail1.txt",
+            tax_year=tax_year,
+            override=overrides.get("extra_features_detail1"),
+            legacy_relative_paths=[
+                Path(f"{tax_year} Harris_Real_building_land") / "extra_features_detail1.txt",
+                Path("Harris_Real_building_land") / "extra_features_detail1.txt",
+            ],
+        ),
+        extra_features_detail2=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="extra_features_detail2",
+            canonical_filename="extra_features_detail2.txt",
+            tax_year=tax_year,
+            override=overrides.get("extra_features_detail2"),
+            legacy_relative_paths=[
+                Path(f"{tax_year} Harris_Real_building_land") / "extra_features_detail2.txt",
+                Path("Harris_Real_building_land") / "extra_features_detail2.txt",
             ],
         ),
         land=_resolve_raw_file_path(
@@ -675,6 +772,7 @@ def resolve_harris_paths(
             tax_year=tax_year,
             override=overrides.get("land"),
             legacy_relative_paths=[
+                Path("Harris_Real_building_land") / "land.txt",
                 Path(f"{tax_year} Harris_Real_building_land") / "land.txt",
             ],
         ),
@@ -686,6 +784,7 @@ def resolve_harris_paths(
             tax_year=tax_year,
             override=overrides.get("tax_rates"),
             legacy_relative_paths=[
+                Path("Harris_Real_jur_exempt") / "jur_tax_dist_exempt_value_rate.txt",
                 Path(f"{tax_year} Harris Roll Source_Real_jur_exempt")
                 / "jur_tax_dist_exempt_value_rate.txt",
             ],
@@ -739,6 +838,42 @@ def resolve_harris_paths(
             legacy_relative_paths=[
                 Path("Harris_Code_description_real (1)") / "desc_r_14_exemption_category.txt",
                 Path(f"{tax_year} Harris_Code_description_real") / "desc_r_14_exemption_category.txt",
+            ],
+        ),
+        building_data_elements_desc=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="building_data_elements_desc",
+            canonical_filename="desc_r_05_building_data_elements.txt",
+            tax_year=tax_year,
+            override=overrides.get("building_data_elements_desc"),
+            legacy_relative_paths=[
+                Path("Harris_Code_description_real (1)") / "desc_r_05_building_data_elements.txt",
+                Path(f"{tax_year} Harris_Code_description_real") / "desc_r_05_building_data_elements.txt",
+            ],
+        ),
+        extra_features_desc=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="extra_features_desc",
+            canonical_filename="desc_r_10_extra_features.txt",
+            tax_year=tax_year,
+            override=overrides.get("extra_features_desc"),
+            legacy_relative_paths=[
+                Path("Harris_Code_description_real (1)") / "desc_r_10_extra_features.txt",
+                Path(f"{tax_year} Harris_Code_description_real") / "desc_r_10_extra_features.txt",
+            ],
+        ),
+        extra_feature_category_desc=_resolve_raw_file_path(
+            raw_root=raw_root,
+            county_id="harris",
+            logical_name="extra_feature_category_desc",
+            canonical_filename="desc_r_11_extra_feature_category.txt",
+            tax_year=tax_year,
+            override=overrides.get("extra_feature_category_desc"),
+            legacy_relative_paths=[
+                Path("Harris_Code_description_real (1)") / "desc_r_11_extra_feature_category.txt",
+                Path(f"{tax_year} Harris_Code_description_real") / "desc_r_11_extra_feature_category.txt",
             ],
         ),
     )
@@ -913,12 +1048,19 @@ def convert_harris(
         ("real_acct", raw_paths.real_acct),
         ("owners", raw_paths.owners),
         ("building_res", raw_paths.building_res),
+        ("fixtures", raw_paths.fixtures),
+        ("extra_features", raw_paths.extra_features),
+        ("extra_features_detail1", raw_paths.extra_features_detail1),
+        ("extra_features_detail2", raw_paths.extra_features_detail2),
         ("land", raw_paths.land),
         ("tax_rates", raw_paths.tax_rates),
         ("jur_exempt", raw_paths.jur_exempt),
         ("jur_exempt_cd", raw_paths.jur_exempt_cd),
         ("jur_exemption_dscr", raw_paths.jur_exemption_dscr),
         ("exemption_category_desc", raw_paths.exemption_category_desc),
+        ("building_data_elements_desc", raw_paths.building_data_elements_desc),
+        ("extra_features_desc", raw_paths.extra_features_desc),
+        ("extra_feature_category_desc", raw_paths.extra_feature_category_desc),
     ]
     _require_named_files("harris", "property_roll", property_inputs)
     _prepare_harris_lookup_tables(connection, raw_paths=raw_paths, tax_year=tax_year)
@@ -1197,12 +1339,41 @@ def _prepare_harris_lookup_tables(
     connection.executescript(
         """
         DROP TABLE IF EXISTS harris_owner_lookup;
+        DROP TABLE IF EXISTS harris_building_candidates;
+        DROP TABLE IF EXISTS harris_fixture_lookup;
         DROP TABLE IF EXISTS harris_building_lookup;
+        DROP TABLE IF EXISTS harris_pool_lookup;
         DROP TABLE IF EXISTS harris_land_lookup;
         DROP TABLE IF EXISTS harris_exemption_lookup;
         CREATE TABLE harris_owner_lookup (
             acct TEXT PRIMARY KEY,
             owner_name TEXT
+        );
+        CREATE TABLE harris_building_candidates (
+            acct TEXT NOT NULL,
+            bld_num INTEGER NOT NULL,
+            primary_area REAL NOT NULL DEFAULT 0,
+            living_area_priority REAL NOT NULL DEFAULT 0,
+            living_area_sf INTEGER,
+            living_area_source TEXT,
+            year_built INTEGER,
+            effective_year_built INTEGER,
+            effective_age INTEGER,
+            quality_code TEXT,
+            condition_code TEXT,
+            property_use_code TEXT,
+            PRIMARY KEY (acct, bld_num)
+        );
+        CREATE TABLE harris_fixture_lookup (
+            acct TEXT NOT NULL,
+            bld_num INTEGER NOT NULL,
+            has_room_detail INTEGER NOT NULL DEFAULT 0,
+            bedrooms REAL NOT NULL DEFAULT 0,
+            full_baths REAL NOT NULL DEFAULT 0,
+            half_baths REAL NOT NULL DEFAULT 0,
+            total_rooms REAL NOT NULL DEFAULT 0,
+            stories REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (acct, bld_num)
         );
         CREATE TABLE harris_building_lookup (
             acct TEXT PRIMARY KEY,
@@ -1215,7 +1386,24 @@ def _prepare_harris_lookup_tables(
             effective_age INTEGER,
             quality_code TEXT,
             condition_code TEXT,
-            property_use_code TEXT
+            property_use_code TEXT,
+            primary_building_num INTEGER,
+            bedrooms INTEGER,
+            full_baths REAL,
+            half_baths REAL,
+            total_rooms INTEGER,
+            stories REAL,
+            bedrooms_source TEXT,
+            full_baths_source TEXT,
+            half_baths_source TEXT,
+            total_rooms_source TEXT,
+            stories_source TEXT
+        );
+        CREATE TABLE harris_pool_lookup (
+            acct TEXT PRIMARY KEY,
+            pool_flag INTEGER NOT NULL DEFAULT 0,
+            pool_codes_json TEXT NOT NULL DEFAULT '[]',
+            pool_source_json TEXT NOT NULL DEFAULT '[]'
         );
         CREATE TABLE harris_land_lookup (
             acct TEXT PRIMARY KEY,
@@ -1230,9 +1418,22 @@ def _prepare_harris_lookup_tables(
         """
     )
     _index_harris_owners(connection, raw_paths.owners)
+    _index_harris_fixtures(
+        connection,
+        source_path=raw_paths.fixtures,
+        description_path=raw_paths.building_data_elements_desc,
+    )
+    _index_harris_pool_features(
+        connection,
+        summary_source_path=raw_paths.extra_features,
+        detail_source_paths=(raw_paths.extra_features_detail1, raw_paths.extra_features_detail2),
+        description_path=raw_paths.extra_features_desc,
+        category_description_path=raw_paths.extra_feature_category_desc,
+    )
     _index_harris_buildings(connection, source_path=raw_paths.building_res, tax_year=tax_year)
     _index_harris_land(connection, raw_paths.land)
     _index_harris_exemptions(connection, source_path=raw_paths.jur_exempt_cd)
+    _materialize_harris_primary_buildings(connection)
     connection.commit()
 
 
@@ -1306,15 +1507,155 @@ def _index_harris_owners(connection: sqlite3.Connection, source_path: Path) -> N
             )
 
 
+def _index_harris_fixtures(
+    connection: sqlite3.Connection,
+    *,
+    source_path: Path,
+    description_path: Path,
+) -> None:
+    descriptions = _load_harris_code_descriptions(description_path, key_field="Code", description_field="Dept")
+    for code, expected_fragment in HARRIS_FIXTURE_CODE_EXPECTATIONS.items():
+        actual = descriptions.get(code, "").lower()
+        if expected_fragment not in actual:
+            raise ValueError(
+                f"Harris fixture code contract drift for {code}: expected description containing "
+                f"{expected_fragment!r}, got {descriptions.get(code)!r}."
+            )
+
+    update_sql = """
+        INSERT INTO harris_fixture_lookup (
+            acct,
+            bld_num,
+            has_room_detail,
+            bedrooms,
+            full_baths,
+            half_baths,
+            total_rooms,
+            stories
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(acct, bld_num) DO UPDATE SET
+            has_room_detail = 1,
+            bedrooms = MAX(harris_fixture_lookup.bedrooms, excluded.bedrooms),
+            full_baths = MAX(harris_fixture_lookup.full_baths, excluded.full_baths),
+            half_baths = MAX(harris_fixture_lookup.half_baths, excluded.half_baths),
+            total_rooms = MAX(harris_fixture_lookup.total_rooms, excluded.total_rooms),
+            stories = MAX(harris_fixture_lookup.stories, excluded.stories)
+    """
+    with _open_raw_text(source_path) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        rows: list[tuple[Any, ...]] = []
+        for row in reader:
+            acct = _strip(row.get("acct"))
+            bld_num = _as_int(row.get("bld_num"))
+            code = _strip(row.get("type")).upper()
+            units = _as_float(row.get("units"))
+            if not acct or bld_num is None or code not in HARRIS_FIXTURE_CODE_TO_FIELD or units is None:
+                continue
+            if units < 0:
+                raise ValueError(
+                    f"Harris fixture contract drift: negative units {units} for acct={acct} "
+                    f"bld_num={bld_num} code={code}."
+                )
+            rows.append(
+                (
+                    acct,
+                    bld_num,
+                    1,
+                    units if code == "RMB" else 0,
+                    units if code == "RMF" else 0,
+                    units if code == "RMH" else 0,
+                    units if code == "RMT" else 0,
+                    units if code == "STY" else 0,
+                )
+            )
+            if len(rows) >= 5000:
+                connection.executemany(update_sql, rows)
+                rows.clear()
+        if rows:
+            connection.executemany(update_sql, rows)
+
+
+def _index_harris_pool_features(
+    connection: sqlite3.Connection,
+    *,
+    summary_source_path: Path,
+    detail_source_paths: Sequence[Path],
+    description_path: Path,
+    category_description_path: Path,
+) -> None:
+    descriptions = _load_harris_extra_feature_descriptions(description_path)
+    categories = _load_harris_code_descriptions(
+        category_description_path,
+        key_field="Category",
+        description_field="Description",
+    )
+    if "pools" not in categories.get("PL", "").lower():
+        raise ValueError(
+            "Harris extra-feature category contract drift: expected category PL to describe pools."
+        )
+    for code in HARRIS_POOL_FEATURE_CODES:
+        description = descriptions.get(code)
+        if description is None:
+            raise ValueError(f"Missing Harris extra-feature code description for {code}.")
+        normalized_description = " ".join(
+            str(description.get(field) or "").lower()
+            for field in ("description", "long_description", "category")
+        )
+        if "pool" not in normalized_description and "spa" not in normalized_description:
+            raise ValueError(
+                f"Harris pool code contract drift for {code}: expected pool/spa semantics, "
+                f"got {description!r}."
+            )
+
+    by_account: dict[str, dict[str, set[str]]] = {}
+    _collect_harris_pool_codes(
+        by_account=by_account,
+        source_path=summary_source_path,
+        code_field="cd",
+        source_label="extra_features",
+    )
+    for detail_path in detail_source_paths:
+        source_label = detail_path.stem
+        _collect_harris_pool_codes(
+            by_account=by_account,
+            source_path=detail_path,
+            code_field="cd",
+            source_label=source_label,
+        )
+
+    rows = [
+        (
+            acct,
+            1,
+            json.dumps(sorted(bucket["codes"])),
+            json.dumps(sorted(bucket["sources"])),
+        )
+        for acct, bucket in by_account.items()
+    ]
+    if rows:
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO harris_pool_lookup (
+                acct,
+                pool_flag,
+                pool_codes_json,
+                pool_source_json
+            ) VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
 def _index_harris_buildings(
     connection: sqlite3.Connection,
     *,
     source_path: Path,
     tax_year: int,
 ) -> None:
-    update_sql = """
-        INSERT INTO harris_building_lookup (
+    insert_sql = """
+        INSERT OR REPLACE INTO harris_building_candidates (
             acct,
+            bld_num,
             primary_area,
             living_area_priority,
             living_area_sf,
@@ -1325,30 +1666,15 @@ def _index_harris_buildings(
             quality_code,
             condition_code,
             property_use_code
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(acct) DO UPDATE SET
-            primary_area = excluded.primary_area,
-            living_area_priority = excluded.living_area_priority,
-            living_area_sf = excluded.living_area_sf,
-            living_area_source = excluded.living_area_source,
-            year_built = excluded.year_built,
-            effective_year_built = excluded.effective_year_built,
-            effective_age = excluded.effective_age,
-            quality_code = excluded.quality_code,
-            condition_code = excluded.condition_code,
-            property_use_code = excluded.property_use_code
-        WHERE excluded.living_area_priority > harris_building_lookup.living_area_priority
-           OR (
-             excluded.living_area_priority = harris_building_lookup.living_area_priority
-             AND excluded.primary_area > harris_building_lookup.primary_area
-           )
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     with _open_raw_text(source_path) as handle:
         reader = _iter_tab_split_dict_rows(handle)
         rows: list[tuple[Any, ...]] = []
         for row in reader:
             acct = _strip(row.get("acct"))
-            if not acct:
+            bld_num = _as_int(row.get("bld_num"))
+            if not acct or bld_num is None:
                 continue
             primary_area = max(
                 _as_float(row.get("heat_ar")),
@@ -1376,6 +1702,7 @@ def _index_harris_buildings(
             rows.append(
                 (
                     acct,
+                    bld_num,
                     primary_area,
                     living_area_priority,
                     living_area,
@@ -1389,10 +1716,133 @@ def _index_harris_buildings(
                 )
             )
             if len(rows) >= 5000:
-                connection.executemany(update_sql, rows)
+                connection.executemany(insert_sql, rows)
                 rows.clear()
         if rows:
-            connection.executemany(update_sql, rows)
+            connection.executemany(insert_sql, rows)
+
+
+def _materialize_harris_primary_buildings(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM harris_building_lookup")
+    connection.execute(
+        """
+        INSERT INTO harris_building_lookup (
+            acct,
+            primary_area,
+            living_area_priority,
+            living_area_sf,
+            living_area_source,
+            year_built,
+            effective_year_built,
+            effective_age,
+            quality_code,
+            condition_code,
+            property_use_code,
+            primary_building_num,
+            bedrooms,
+            full_baths,
+            half_baths,
+            total_rooms,
+            stories,
+            bedrooms_source,
+            full_baths_source,
+            half_baths_source,
+            total_rooms_source,
+            stories_source
+        )
+        WITH ranked AS (
+            SELECT
+                candidate.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY candidate.acct
+                    ORDER BY candidate.living_area_priority DESC, candidate.primary_area DESC, candidate.bld_num ASC
+                ) AS row_rank
+            FROM harris_building_candidates AS candidate
+        )
+        SELECT
+            ranked.acct,
+            ranked.primary_area,
+            ranked.living_area_priority,
+            ranked.living_area_sf,
+            ranked.living_area_source,
+            ranked.year_built,
+            ranked.effective_year_built,
+            ranked.effective_age,
+            ranked.quality_code,
+            ranked.condition_code,
+            ranked.property_use_code,
+            ranked.bld_num,
+            CAST(NULLIF(fixtures.bedrooms, 0) AS INTEGER),
+            NULLIF(fixtures.full_baths, 0),
+            CASE
+                WHEN COALESCE(fixtures.has_room_detail, 0) = 1 THEN COALESCE(NULLIF(fixtures.half_baths, 0), 0)
+                ELSE NULL
+            END,
+            CAST(NULLIF(fixtures.total_rooms, 0) AS INTEGER),
+            NULLIF(fixtures.stories, 0),
+            CASE WHEN fixtures.bedrooms > 0 THEN 'fixtures.RMB' END,
+            CASE WHEN fixtures.full_baths > 0 THEN 'fixtures.RMF' END,
+            CASE
+                WHEN fixtures.half_baths > 0 THEN 'fixtures.RMH'
+                WHEN COALESCE(fixtures.has_room_detail, 0) = 1 THEN 'fixtures.RMH.absent_zero'
+            END,
+            CASE WHEN fixtures.total_rooms > 0 THEN 'fixtures.RMT' END,
+            CASE WHEN fixtures.stories > 0 THEN 'fixtures.STY' END
+        FROM ranked
+        LEFT JOIN harris_fixture_lookup AS fixtures
+          ON fixtures.acct = ranked.acct
+         AND fixtures.bld_num = ranked.bld_num
+        WHERE ranked.row_rank = 1
+        """
+    )
+
+
+def _collect_harris_pool_codes(
+    *,
+    by_account: dict[str, dict[str, set[str]]],
+    source_path: Path,
+    code_field: str,
+    source_label: str,
+) -> None:
+    with _open_raw_text(source_path) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            acct = _strip(row.get("acct"))
+            code = _strip(row.get(code_field)).upper()
+            if not acct or code not in HARRIS_POOL_FEATURE_CODES:
+                continue
+            bucket = by_account.setdefault(acct, {"codes": set(), "sources": set()})
+            bucket["codes"].add(code)
+            bucket["sources"].add(source_label)
+
+
+def _load_harris_code_descriptions(
+    source_path: Path,
+    *,
+    key_field: str,
+    description_field: str,
+) -> dict[str, str]:
+    with _open_raw_text(source_path) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        return {
+            _strip(row.get(key_field)).upper(): _strip(row.get(description_field))
+            for row in reader
+            if _strip(row.get(key_field))
+        }
+
+
+def _load_harris_extra_feature_descriptions(source_path: Path) -> dict[str, dict[str, str]]:
+    with _open_raw_text(source_path) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        return {
+            _strip(row.get("Code")).upper(): {
+                "description": _strip(row.get("Dscr")),
+                "long_description": _strip(row.get("LongDescription")),
+                "category": _strip(row.get("Category")).upper(),
+            }
+            for row in reader
+            if _strip(row.get("Code"))
+        }
 
 
 def _iter_tab_split_dict_rows(handle: Any) -> Iterator[dict[str, str]]:
@@ -1761,6 +2211,7 @@ def _write_harris_property_roll(
 ) -> int:
     owner_cursor = connection.cursor()
     building_cursor = connection.cursor()
+    pool_cursor = connection.cursor()
     land_cursor = connection.cursor()
     exemption_cursor = connection.cursor()
     row_count = 0
@@ -1773,6 +2224,7 @@ def _write_harris_property_roll(
                 row=row,
                 owner_cursor=owner_cursor,
                 building_cursor=building_cursor,
+                pool_cursor=pool_cursor,
                 land_cursor=land_cursor,
                 exemption_cursor=exemption_cursor,
                 school_district_lookup=school_district_lookup,
@@ -1793,6 +2245,7 @@ def _build_harris_property_roll_row(
     row: dict[str, str],
     owner_cursor: sqlite3.Cursor,
     building_cursor: sqlite3.Cursor,
+    pool_cursor: sqlite3.Cursor,
     land_cursor: sqlite3.Cursor,
     exemption_cursor: sqlite3.Cursor,
     school_district_lookup: dict[str, str],
@@ -1805,13 +2258,36 @@ def _build_harris_property_roll_row(
     owner_row = owner_cursor.fetchone()
     building_cursor.execute(
         """
-        SELECT living_area_sf, year_built, effective_year_built, effective_age, quality_code, condition_code, property_use_code
+        SELECT
+          living_area_sf,
+          year_built,
+          effective_year_built,
+          effective_age,
+          quality_code,
+          condition_code,
+          property_use_code,
+          primary_building_num,
+          bedrooms,
+          full_baths,
+          half_baths,
+          total_rooms,
+          stories,
+          bedrooms_source,
+          full_baths_source,
+          half_baths_source,
+          total_rooms_source,
+          stories_source
         FROM harris_building_lookup
         WHERE acct = ?
         """,
         (account_number,),
     )
     building_row = building_cursor.fetchone()
+    pool_cursor.execute(
+        "SELECT pool_flag, pool_codes_json, pool_source_json FROM harris_pool_lookup WHERE acct = ?",
+        (account_number,),
+    )
+    pool_row = pool_cursor.fetchone()
     land_cursor.execute(
         "SELECT land_sf, land_acres, land_value FROM harris_land_lookup WHERE acct = ?",
         (account_number,),
@@ -1861,8 +2337,30 @@ def _build_harris_property_roll_row(
         "effective_age": effective_age if effective_age is not None else (
             max(tax_year - effective_year_built, 0) if effective_year_built else None
         ),
+        "primary_building_num": _row_value(building_row, "primary_building_num"),
+        "bedrooms": _row_value(building_row, "bedrooms"),
+        "full_baths": _row_value(building_row, "full_baths"),
+        "half_baths": _row_value(building_row, "half_baths"),
+        "total_rooms": _row_value(building_row, "total_rooms"),
+        "stories": _row_value(building_row, "stories"),
+        "bedrooms_source": _row_value(building_row, "bedrooms_source"),
+        "full_baths_source": _row_value(building_row, "full_baths_source"),
+        "half_baths_source": _row_value(building_row, "half_baths_source"),
+        "total_rooms_source": _row_value(building_row, "total_rooms_source"),
+        "stories_source": _row_value(building_row, "stories_source"),
         "quality_code": _row_value(building_row, "quality_code"),
         "condition_code": _row_value(building_row, "condition_code"),
+        "pool_flag": bool(_row_value(pool_row, "pool_flag")) if pool_row is not None else False,
+        "pool_feature_codes": (
+            json.loads(str(_row_value(pool_row, "pool_codes_json") or "[]"))
+            if pool_row is not None and _row_value(pool_row, "pool_flag")
+            else None
+        ),
+        "pool_source_files": (
+            json.loads(str(_row_value(pool_row, "pool_source_json") or "[]"))
+            if pool_row is not None and _row_value(pool_row, "pool_flag")
+            else None
+        ),
         "land_sf": land_sf,
         "land_acres": land_acres,
         "land_value": land_value,

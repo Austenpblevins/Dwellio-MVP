@@ -70,6 +70,7 @@ class ParcelSummaryResponse(TaxYearFallbackMetadata, DwellioBaseModel):
     bedrooms: int | None = None
     full_baths: float | None = None
     half_baths: float | None = None
+    total_rooms: int | None = None
     land_sf: float | None = None
     land_acres: float | None = None
     market_value: float | None = None

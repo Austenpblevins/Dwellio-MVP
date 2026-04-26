@@ -16,12 +16,19 @@ Place raw files under a year-scoped root:
 ~/county-data/<tax_year>/raw/harris/real_acct.txt
 ~/county-data/<tax_year>/raw/harris/owners.txt
 ~/county-data/<tax_year>/raw/harris/building_res.txt
+~/county-data/<tax_year>/raw/harris/fixtures.txt
+~/county-data/<tax_year>/raw/harris/extra_features.txt
+~/county-data/<tax_year>/raw/harris/extra_features_detail1.txt
+~/county-data/<tax_year>/raw/harris/extra_features_detail2.txt
 ~/county-data/<tax_year>/raw/harris/land.txt
 ~/county-data/<tax_year>/raw/harris/jur_tax_dist_exempt_value_rate.txt
 ~/county-data/<tax_year>/raw/harris/jur_exempt.txt
 ~/county-data/<tax_year>/raw/harris/jur_exempt_cd.txt
 ~/county-data/<tax_year>/raw/harris/jur_exemption_dscr.txt
 ~/county-data/<tax_year>/raw/harris/desc_r_14_exemption_category.txt
+~/county-data/<tax_year>/raw/harris/desc_r_05_building_data_elements.txt
+~/county-data/<tax_year>/raw/harris/desc_r_10_extra_features.txt
+~/county-data/<tax_year>/raw/harris/desc_r_11_extra_feature_category.txt
 
 ~/county-data/<tax_year>/raw/fort_bend/PropertyExport.txt
 ~/county-data/<tax_year>/raw/fort_bend/OwnerExport.txt
@@ -34,11 +41,52 @@ Place raw files under a year-scoped root:
 Notes:
 
 - Harris `property_roll` prep still needs the Harris tax-rate raw file because the prep step uses it to recover school district names.
+- Harris `property_roll` prep now also requires `fixtures.txt`, `extra_features.txt`, `extra_features_detail1.txt`, `extra_features_detail2.txt`, `desc_r_05_building_data_elements.txt`, `desc_r_10_extra_features.txt`, and `desc_r_11_extra_feature_category.txt` to support canonical bedrooms, baths, total rooms, and pool derivation.
 - Harris exemption dictionary mapping uses `jur_exempt_cd.txt` as the account-level source and keeps `jur_exemption_dscr.txt` and `desc_r_14_exemption_category.txt` in the manifest lineage set.
 - Fort Bend `property_roll` prep still needs the Fort Bend tax-rate raw file because the prep step uses it to resolve school district entity names.
 - Fort Bend canonical living area comes from the official `PropertyDataExport*.txt` `SquareFootage` field.
 - Fort Bend `WebsiteResidentialSegs.csv` is still used, but only for `gross_component_area_sf` and as a fallback when no authoritative property-summary living area is available.
 - If the downloaded filename does not match the canonical local name, either rename it into the canonical contract or use `--raw-file-override`.
+
+## Harris property-characteristics contract
+
+Harris residential characteristics are now a first-class upstream prep contract, not a downstream patch.
+
+Authoritative Harris raw files:
+
+- `building_res.txt`: building grain and area metrics used to choose the primary residential building per account
+- `fixtures.txt`: authoritative room and bath fixture counts
+- `extra_features.txt`, `extra_features_detail1.txt`, `extra_features_detail2.txt`: explicit pool feature signals
+- `desc_r_05_building_data_elements.txt`: authoritative code descriptions for fixture codes such as `RMB`, `RMF`, `RMH`, `RMT`, and `STY`
+- `desc_r_10_extra_features.txt` and `desc_r_11_extra_feature_category.txt`: authoritative support for extra-feature code interpretation
+
+Canonical operator layout:
+
+- Supported long-term layout is the flattened Harris root under `~/county-data/<tax_year>/raw/harris/`
+- Legacy nested download folders such as `Harris_Real_building_land/` and `Harris_Code_description_real (1)/` are still accepted for backward compatibility
+- If both exist, the prep flow resolves the canonical flattened path first and only falls back to the nested legacy folders when the canonical file is absent
+
+Normalization rules:
+
+- `bedrooms`: primary-building `fixtures.txt` code `RMB`
+- `full_baths`: primary-building `fixtures.txt` code `RMF`
+- `half_baths`: primary-building `fixtures.txt` code `RMH`; when fixture-room detail exists for the selected building but `RMH` is absent, canonical `half_baths` is set to `0`
+- `total_rooms`: primary-building `fixtures.txt` code `RMT`
+- `stories`: primary-building `fixtures.txt` code `STY`
+- `pool_flag`: `true` only when an explicit Harris extra-feature pool code is present; current supported pool codes are `CSC1`, `RRP1`, `RRP2`, `RRP3`, `RRP4`, `RRP5`, `RRP8`, and `RRP9`
+
+Aggregation and lineage rules:
+
+- Room and bath counts are taken from exactly one selected residential building per account
+- Primary-building selection is deterministic: highest living-area priority, then largest primary area, then lowest building number
+- Pool presence is account-level and is derived from explicit extra-feature rows only
+- Prep output includes lineage fields such as `bedrooms_source`, `full_baths_source`, `half_baths_source`, `total_rooms_source`, `stories_source`, and pool source metadata for auditability
+
+Residual caveats:
+
+- Structural-element files were reviewed during contract expansion, but they are not required for this room, bath, and pool contract because the authoritative supported signals already exist in `fixtures.txt` and the extra-feature files
+- `total_rooms` is canonical only where `RMT` is present and parseable; no heuristic fill is applied when the source is absent
+- The prep step fails loudly when the Harris characteristics files required by this contract are missing
 
 ## Fort Bend area contract
 

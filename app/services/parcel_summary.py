@@ -130,12 +130,17 @@ class ParcelSummaryService:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT *
-                    FROM parcel_summary_view
-                    WHERE county_id = %s
-                      AND account_number = %s
-                      AND tax_year <= %s
-                    ORDER BY tax_year DESC
+                    SELECT
+                      psv.*,
+                      pi.total_rooms
+                    FROM parcel_summary_view AS psv
+                    LEFT JOIN parcel_improvements AS pi
+                      ON pi.parcel_id = psv.parcel_id
+                     AND pi.tax_year = psv.tax_year
+                    WHERE psv.county_id = %s
+                      AND psv.account_number = %s
+                      AND psv.tax_year <= %s
+                    ORDER BY psv.tax_year DESC
                     LIMIT 1
                     """,
                     (county_id, account_number, requested_tax_year),
@@ -193,6 +198,7 @@ class ParcelSummaryService:
             bedrooms=_as_int(row.get("bedrooms")),
             full_baths=_as_float(row.get("full_baths")),
             half_baths=_as_float(row.get("half_baths")),
+            total_rooms=_as_int(row.get("total_rooms")),
             land_sf=_as_float(row.get("land_sf")),
             land_acres=_as_float(row.get("land_acres")),
             market_value=_as_float(row.get("market_value")),

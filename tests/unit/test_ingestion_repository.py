@@ -181,6 +181,7 @@ def test_bulk_property_roll_upsert_populates_parcel_improvements_summary() -> No
                         "bedrooms": 4,
                         "full_baths": 2,
                         "half_baths": 1,
+                        "total_rooms": 8,
                         "stories": 2,
                         "quality_code": "AVG",
                         "condition_code": "GOOD",
@@ -209,7 +210,8 @@ def test_bulk_property_roll_upsert_populates_parcel_improvements_summary() -> No
 
     assert "INSERT INTO parcel_improvements" in joined_queries
     assert connection.cursor_instance.copy_rows[0][25] == 2150
-    assert connection.cursor_instance.copy_rows[0][26] == 2004
+    assert connection.cursor_instance.copy_rows[0][28] == 2004
+    assert connection.cursor_instance.copy_rows[0][34] == 8
 
 
 def test_bulk_property_roll_upsert_materializes_target_ids_and_skips_unchanged_addresses() -> None:
@@ -263,6 +265,7 @@ def test_bulk_property_roll_upsert_materializes_target_ids_and_skips_unchanged_a
                         "bedrooms": 4,
                         "full_baths": 2,
                         "half_baths": 1,
+                        "total_rooms": 8,
                         "stories": 2,
                         "quality_code": "AVG",
                         "condition_code": "GOOD",

@@ -1468,6 +1468,7 @@ class IngestionRepository:
                                 improvement.get("bedrooms"),
                                 improvement.get("full_baths"),
                                 improvement.get("half_baths"),
+                                improvement.get("total_rooms"),
                                 improvement.get("stories"),
                                 improvement.get("quality_code"),
                                 improvement.get("condition_code"),
@@ -1496,6 +1497,7 @@ class IngestionRepository:
                             primary_improvement.get("bedrooms"),
                             primary_improvement.get("full_baths"),
                             primary_improvement.get("half_baths"),
+                            primary_improvement.get("total_rooms"),
                             primary_improvement.get("stories"),
                             primary_improvement.get("quality_code"),
                             primary_improvement.get("condition_code"),
@@ -1611,6 +1613,7 @@ class IngestionRepository:
                       bedrooms,
                       full_baths,
                       half_baths,
+                      total_rooms,
                       stories,
                       quality_code,
                       condition_code,
@@ -1619,7 +1622,7 @@ class IngestionRepository:
                       source_system_id,
                       source_record_hash
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     improvement_rows,
                 )
@@ -1638,6 +1641,7 @@ class IngestionRepository:
                   bedrooms,
                   full_baths,
                   half_baths,
+                  total_rooms,
                   stories,
                   quality_code,
                   condition_code,
@@ -1646,7 +1650,7 @@ class IngestionRepository:
                   source_system_id,
                   source_record_hash
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (parcel_id, tax_year)
                 DO UPDATE SET
                   living_area_sf = EXCLUDED.living_area_sf,
@@ -1658,6 +1662,7 @@ class IngestionRepository:
                   bedrooms = EXCLUDED.bedrooms,
                   full_baths = EXCLUDED.full_baths,
                   half_baths = EXCLUDED.half_baths,
+                  total_rooms = EXCLUDED.total_rooms,
                   stories = EXCLUDED.stories,
                   quality_code = EXCLUDED.quality_code,
                   condition_code = EXCLUDED.condition_code,
@@ -1862,6 +1867,7 @@ class IngestionRepository:
                   bedrooms integer,
                   full_baths numeric,
                   half_baths numeric,
+                  total_rooms integer,
                   stories numeric,
                   quality_code text,
                   condition_code text,
@@ -1919,6 +1925,7 @@ class IngestionRepository:
                   bedrooms,
                   full_baths,
                   half_baths,
+                  total_rooms,
                   stories,
                   quality_code,
                   condition_code,
@@ -1981,6 +1988,7 @@ class IngestionRepository:
                             primary_improvement.get("bedrooms"),
                             primary_improvement.get("full_baths"),
                             primary_improvement.get("half_baths"),
+                            primary_improvement.get("total_rooms"),
                             primary_improvement.get("stories"),
                             primary_improvement.get("quality_code"),
                             primary_improvement.get("condition_code"),
@@ -2323,6 +2331,7 @@ class IngestionRepository:
                   bedrooms,
                   full_baths,
                   half_baths,
+                  total_rooms,
                   stories,
                   quality_code,
                   condition_code,
@@ -2343,6 +2352,7 @@ class IngestionRepository:
                   t.bedrooms,
                   t.full_baths,
                   t.half_baths,
+                  t.total_rooms,
                   t.stories,
                   t.quality_code,
                   t.condition_code,
@@ -2364,6 +2374,7 @@ class IngestionRepository:
                   bedrooms = EXCLUDED.bedrooms,
                   full_baths = EXCLUDED.full_baths,
                   half_baths = EXCLUDED.half_baths,
+                  total_rooms = EXCLUDED.total_rooms,
                   stories = EXCLUDED.stories,
                   quality_code = EXCLUDED.quality_code,
                   condition_code = EXCLUDED.condition_code,
@@ -2381,6 +2392,7 @@ class IngestionRepository:
                    OR parcel_improvements.bedrooms IS DISTINCT FROM EXCLUDED.bedrooms
                    OR parcel_improvements.full_baths IS DISTINCT FROM EXCLUDED.full_baths
                    OR parcel_improvements.half_baths IS DISTINCT FROM EXCLUDED.half_baths
+                   OR parcel_improvements.total_rooms IS DISTINCT FROM EXCLUDED.total_rooms
                    OR parcel_improvements.stories IS DISTINCT FROM EXCLUDED.stories
                    OR parcel_improvements.quality_code IS DISTINCT FROM EXCLUDED.quality_code
                    OR parcel_improvements.condition_code IS DISTINCT FROM EXCLUDED.condition_code
