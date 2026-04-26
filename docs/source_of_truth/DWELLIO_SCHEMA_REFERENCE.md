@@ -395,6 +395,7 @@ Used by:
 Important note:
 
 - `total_rooms` is a safe additive canonical field added for the Harris upstream property-characteristics contract and is intended for downstream model support when the county source provides an explicit room-count signal
+- Fort Bend uses the existing `bedrooms`, `half_baths`, `stories`, and `pool_flag` fields through its upstream residential-segment contract, but it intentionally leaves `full_baths`, `total_rooms`, and `garage_spaces` null when the county source semantics are not yet safe enough to promote
 
 ---
 

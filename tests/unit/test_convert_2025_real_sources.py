@@ -71,6 +71,10 @@ def test_convert_real_2025_sources_generates_adapter_ready_files(tmp_path: Path)
     assert fort_bend_rows[0]["living_area_sf"] == "1216"
     assert fort_bend_rows[0]["gross_component_area_sf"] == "1305"
     assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
+    assert fort_bend_rows[0]["bed_cnt"] == "4"
+    assert fort_bend_rows[0]["bath_half"] == "1"
+    assert fort_bend_rows[0]["story_count"] == "1"
+    assert fort_bend_rows[0]["pool_ind"] == "N"
 
     results = verify_outputs(outputs=outputs, tax_year=2025)
     assert all(result.parse_issue_count == 0 for result in results)
@@ -309,6 +313,77 @@ def test_prepare_manual_county_files_accepts_comma_delimited_fort_bend_owner_and
     assert len(rows) == 1
     assert rows[0]["account_id"] == "5910-04-022-0700-907"
     assert rows[0]["market_value"] == "213077"
+    assert rows[0]["story_count"] == "1"
+    assert rows[0]["pool_ind"] == "N"
+
+
+def test_prepare_manual_county_files_accepts_fort_bend_alternate_residential_segment_filename(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    county_root = raw_root / "fort_bend"
+    county_root.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(tmp_path / "legacy_fort_bend_alt_segments")
+
+    shutil.copyfile(fort_bend_paths.property_export, county_root / "PropertyExport.txt")
+    shutil.copyfile(fort_bend_paths.owner_export, county_root / "OwnerExport.txt")
+    shutil.copyfile(fort_bend_paths.exemption_export, county_root / "ExemptionExport.txt")
+    shutil.copyfile(
+        fort_bend_paths.residential_segments,
+        county_root / "Fort Bend_Website_ResidentialSegments.txt",
+    )
+    shutil.copyfile(fort_bend_paths.tax_rates, county_root / "Fort Bend Tax Rate Source.csv")
+
+    results = prepare_manual_county_files(
+        county_ids=["fort_bend"],
+        tax_year=2026,
+        dataset_types=["property_roll"],
+        raw_root=raw_root,
+        ready_root=ready_root,
+    )
+
+    assert len(results) == 1
+    assert results[0].dataset_type == "property_roll"
+    with (ready_root / "fort_bend_property_roll_2026.csv").open(
+        "r",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["story_count"] == "1"
+    assert rows[0]["pool_ind"] == "N"
+
+
+def test_prepare_manual_county_files_requires_pool_capable_fort_bend_residential_segments(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "2026" / "raw"
+    ready_root = tmp_path / "2026" / "ready"
+    county_root = raw_root / "fort_bend"
+    county_root.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(tmp_path / "legacy_fort_bend_missing_pool_col")
+
+    shutil.copyfile(fort_bend_paths.property_export, county_root / "PropertyExport.txt")
+    shutil.copyfile(fort_bend_paths.owner_export, county_root / "OwnerExport.txt")
+    shutil.copyfile(fort_bend_paths.exemption_export, county_root / "ExemptionExport.txt")
+    shutil.copyfile(fort_bend_paths.tax_rates, county_root / "Fort Bend Tax Rate Source.csv")
+    shutil.copyfile(fort_bend_paths.residential_segments, county_root / "WebsiteResidentialSegs.csv")
+    _drop_fort_bend_residential_segment_columns(
+        county_root / "WebsiteResidentialSegs.csv",
+        columns_to_drop={"vTSGRSeg_PoolValue"},
+    )
+
+    with pytest.raises(ValueError, match="not sufficient for canonical pool support"):
+        prepare_manual_county_files(
+            county_ids=["fort_bend"],
+            tax_year=2026,
+            dataset_types=["property_roll"],
+            raw_root=raw_root,
+            ready_root=ready_root,
+        )
 
 def test_fort_bend_property_summary_square_footage_recovers_missing_residential_segment_area(
     tmp_path: Path,
@@ -352,6 +427,273 @@ def test_fort_bend_property_summary_square_footage_recovers_missing_residential_
     assert fort_bend_rows[0]["living_area_sf"] == "1216"
     assert fort_bend_rows[0]["gross_component_area_sf"] == ""
     assert fort_bend_rows[0]["living_area_source"] == "property_summary_export"
+
+
+def test_fort_bend_characteristics_use_primary_residential_improvement_without_inflation(
+    tmp_path: Path,
+) -> None:
+    raw_root = tmp_path / "legacy_fort_bend_primary_improvement"
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir(parents=True)
+
+    fort_bend_paths = _write_fort_bend_raw_files(raw_root)
+    with fort_bend_paths.residential_segments.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "vwPropertyGeneral_AdHocTaxYear",
+                "PropertyStatusCode",
+                "QuickRefID",
+                "PropertyNumber",
+                "PropertyTypeCode",
+                "PropertyID",
+                "InstanceID",
+                "cama_TSGRSeg_AdHocTaxYear",
+                "NodeID",
+                "TreeNodeID",
+                "LBound",
+                "ParentNodeID",
+                "LPParentNodeID",
+                "FirstPage",
+                "fActYear",
+                "fApexMapping",
+                "fApprMethod",
+                "fArea",
+                "fBedrooms",
+                "fCDU",
+                "fCondition",
+                "fEffYear",
+                "fNumHalfBath",
+                "fNumQuaterBath",
+                "fPlumbing",
+                "fSegClass",
+                "fSegType",
+                "vTSGRSeg_AdjArea",
+                "vTSGRSeg_ImpNum",
+                "vTSGRSeg_ImpSegNum",
+                "vTSGRSeg_NbhdPercent",
+                "vTSGRSeg_PercentGood",
+                "vTSGRSeg_PhysPercent",
+                "vTSGRSeg_SegmentValNbhd",
+                "vTSGRSeg_SegmentValue",
+                "vTSGRSeg_SegmentValueUnadj",
+                "vTSGRSeg_UnitPrice",
+                "vTSGRSeg_UnitPrUnAdj",
+                "vTSGRSeg_YearNewValue",
+                "vTSGRSeg_FireplaceValue",
+                "vTSGRSeg_UpgradeValue",
+                "vTSGRSeg_PoolValue",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {
+                    "vwPropertyGeneral_AdHocTaxYear": "2025",
+                    "PropertyStatusCode": "A",
+                    "QuickRefID": "R100000",
+                    "PropertyNumber": "5910-04-022-0700-907",
+                    "PropertyTypeCode": "RR",
+                    "PropertyID": "50090",
+                    "InstanceID": "505669",
+                    "cama_TSGRSeg_AdHocTaxYear": "2025",
+                    "NodeID": "11",
+                    "TreeNodeID": "85973000",
+                    "LBound": "9",
+                    "ParentNodeID": "85972999",
+                    "LPParentNodeID": "85972998",
+                    "FirstPage": "1",
+                    "fActYear": "1976",
+                    "fApexMapping": "21",
+                    "fApprMethod": "RMS",
+                    "fArea": "900",
+                    "fBedrooms": "2",
+                    "fCDU": "21",
+                    "fCondition": "0",
+                    "fEffYear": "1976",
+                    "fNumHalfBath": "",
+                    "fNumQuaterBath": "",
+                    "fPlumbing": "2",
+                    "fSegClass": "RA2",
+                    "fSegType": "MA",
+                    "vTSGRSeg_AdjArea": "900",
+                    "vTSGRSeg_ImpNum": "1",
+                    "vTSGRSeg_ImpSegNum": "1",
+                    "vTSGRSeg_NbhdPercent": "127",
+                    "vTSGRSeg_PercentGood": "57",
+                    "vTSGRSeg_PhysPercent": "100",
+                    "vTSGRSeg_SegmentValNbhd": "189875",
+                    "vTSGRSeg_SegmentValue": "108229",
+                    "vTSGRSeg_SegmentValueUnadj": "149508",
+                    "vTSGRSeg_UnitPrice": "131.46",
+                    "vTSGRSeg_UnitPrUnAdj": "103.51",
+                    "vTSGRSeg_YearNewValue": "9699",
+                    "vTSGRSeg_FireplaceValue": "0",
+                    "vTSGRSeg_UpgradeValue": "0",
+                    "vTSGRSeg_PoolValue": "0",
+                },
+                {
+                    "vwPropertyGeneral_AdHocTaxYear": "2025",
+                    "PropertyStatusCode": "A",
+                    "QuickRefID": "R100000",
+                    "PropertyNumber": "5910-04-022-0700-907",
+                    "PropertyTypeCode": "RR",
+                    "PropertyID": "50090",
+                    "InstanceID": "505670",
+                    "cama_TSGRSeg_AdHocTaxYear": "2025",
+                    "NodeID": "11",
+                    "TreeNodeID": "85973001",
+                    "LBound": "10",
+                    "ParentNodeID": "85972999",
+                    "LPParentNodeID": "85972998",
+                    "FirstPage": "0",
+                    "fActYear": "1976",
+                    "fApexMapping": "28",
+                    "fApprMethod": "RMS",
+                    "fArea": "700",
+                    "fBedrooms": "",
+                    "fCDU": "21",
+                    "fCondition": "0",
+                    "fEffYear": "1976",
+                    "fNumHalfBath": "",
+                    "fNumQuaterBath": "",
+                    "fPlumbing": "",
+                    "fSegClass": "RA2",
+                    "fSegType": "MA2",
+                    "vTSGRSeg_AdjArea": "700",
+                    "vTSGRSeg_ImpNum": "1",
+                    "vTSGRSeg_ImpSegNum": "2",
+                    "vTSGRSeg_NbhdPercent": "127",
+                    "vTSGRSeg_PercentGood": "57",
+                    "vTSGRSeg_PhysPercent": "100",
+                    "vTSGRSeg_SegmentValNbhd": "100000",
+                    "vTSGRSeg_SegmentValue": "60000",
+                    "vTSGRSeg_SegmentValueUnadj": "80000",
+                    "vTSGRSeg_UnitPrice": "131.46",
+                    "vTSGRSeg_UnitPrUnAdj": "103.51",
+                    "vTSGRSeg_YearNewValue": "0",
+                    "vTSGRSeg_FireplaceValue": "0",
+                    "vTSGRSeg_UpgradeValue": "0",
+                    "vTSGRSeg_PoolValue": "0",
+                },
+                {
+                    "vwPropertyGeneral_AdHocTaxYear": "2025",
+                    "PropertyStatusCode": "A",
+                    "QuickRefID": "R100000",
+                    "PropertyNumber": "5910-04-022-0700-907",
+                    "PropertyTypeCode": "RR",
+                    "PropertyID": "50090",
+                    "InstanceID": "505671",
+                    "cama_TSGRSeg_AdHocTaxYear": "2025",
+                    "NodeID": "11",
+                    "TreeNodeID": "85973002",
+                    "LBound": "11",
+                    "ParentNodeID": "85972999",
+                    "LPParentNodeID": "85972998",
+                    "FirstPage": "0",
+                    "fActYear": "1980",
+                    "fApexMapping": "30",
+                    "fApprMethod": "RMS",
+                    "fArea": "800",
+                    "fBedrooms": "4",
+                    "fCDU": "25",
+                    "fCondition": "1",
+                    "fEffYear": "1982",
+                    "fNumHalfBath": "2",
+                    "fNumQuaterBath": "",
+                    "fPlumbing": "4",
+                    "fSegClass": "RA3",
+                    "fSegType": "MA",
+                    "vTSGRSeg_AdjArea": "800",
+                    "vTSGRSeg_ImpNum": "2",
+                    "vTSGRSeg_ImpSegNum": "1",
+                    "vTSGRSeg_NbhdPercent": "127",
+                    "vTSGRSeg_PercentGood": "57",
+                    "vTSGRSeg_PhysPercent": "100",
+                    "vTSGRSeg_SegmentValNbhd": "110000",
+                    "vTSGRSeg_SegmentValue": "65000",
+                    "vTSGRSeg_SegmentValueUnadj": "85000",
+                    "vTSGRSeg_UnitPrice": "131.46",
+                    "vTSGRSeg_UnitPrUnAdj": "103.51",
+                    "vTSGRSeg_YearNewValue": "0",
+                    "vTSGRSeg_FireplaceValue": "0",
+                    "vTSGRSeg_UpgradeValue": "0",
+                    "vTSGRSeg_PoolValue": "32000",
+                },
+                {
+                    "vwPropertyGeneral_AdHocTaxYear": "2025",
+                    "PropertyStatusCode": "A",
+                    "QuickRefID": "R100000",
+                    "PropertyNumber": "5910-04-022-0700-907",
+                    "PropertyTypeCode": "RR",
+                    "PropertyID": "50090",
+                    "InstanceID": "505672",
+                    "cama_TSGRSeg_AdHocTaxYear": "2025",
+                    "NodeID": "11",
+                    "TreeNodeID": "85973003",
+                    "LBound": "12",
+                    "ParentNodeID": "85972999",
+                    "LPParentNodeID": "85972998",
+                    "FirstPage": "0",
+                    "fActYear": "1980",
+                    "fApexMapping": "31",
+                    "fApprMethod": "RMS",
+                    "fArea": "200",
+                    "fBedrooms": "",
+                    "fCDU": "25",
+                    "fCondition": "1",
+                    "fEffYear": "1982",
+                    "fNumHalfBath": "",
+                    "fNumQuaterBath": "",
+                    "fPlumbing": "",
+                    "fSegClass": "RA3",
+                    "fSegType": "RP",
+                    "vTSGRSeg_AdjArea": "200",
+                    "vTSGRSeg_ImpNum": "2",
+                    "vTSGRSeg_ImpSegNum": "2",
+                    "vTSGRSeg_NbhdPercent": "127",
+                    "vTSGRSeg_PercentGood": "57",
+                    "vTSGRSeg_PhysPercent": "100",
+                    "vTSGRSeg_SegmentValNbhd": "15000",
+                    "vTSGRSeg_SegmentValue": "12000",
+                    "vTSGRSeg_SegmentValueUnadj": "12000",
+                    "vTSGRSeg_UnitPrice": "131.46",
+                    "vTSGRSeg_UnitPrUnAdj": "103.51",
+                    "vTSGRSeg_YearNewValue": "0",
+                    "vTSGRSeg_FireplaceValue": "0",
+                    "vTSGRSeg_UpgradeValue": "0",
+                    "vTSGRSeg_PoolValue": "32000",
+                },
+            ]
+        )
+
+    outputs = resolve_outputs(ready_dir)
+    connection = _open_sqlite(tmp_path / "conversion.sqlite3")
+    try:
+        counts = convert_fort_bend(
+            connection=connection,
+            tax_year=2025,
+            raw_paths=FortBendRawPaths(
+                property_export=fort_bend_paths.property_export,
+                owner_export=fort_bend_paths.owner_export,
+                exemption_export=fort_bend_paths.exemption_export,
+                residential_segments=fort_bend_paths.residential_segments,
+                tax_rates=fort_bend_paths.tax_rates,
+                property_summary_exports=fort_bend_paths.property_summary_exports,
+            ),
+            property_roll_output=outputs.fort_bend_property_roll,
+            tax_rates_output=outputs.fort_bend_tax_rates,
+        )
+    finally:
+        connection.close()
+
+    assert counts["property_roll"] == 1
+    with outputs.fort_bend_property_roll.open("r", encoding="utf-8", newline="") as handle:
+        fort_bend_rows = list(csv.DictReader(handle))
+    assert fort_bend_rows[0]["bed_cnt"] == "2"
+    assert fort_bend_rows[0]["bath_half"] == "0"
+    assert fort_bend_rows[0]["story_count"] == "2"
+    assert fort_bend_rows[0]["pool_ind"] == "Y"
 
 
 def test_harris_building_index_uses_authoritative_tab_split_living_area(tmp_path: Path) -> None:
@@ -614,6 +956,24 @@ def _rewrite_fort_bend_residential_segment_areas(source_path: Path, *, area_valu
         row["vTSGRSeg_AdjArea"] = area_value
     with source_path.open("w", encoding="utf-8", newline="") as target_handle:
         writer = csv.DictWriter(target_handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _drop_fort_bend_residential_segment_columns(source_path: Path, *, columns_to_drop: set[str]) -> None:
+    with source_path.open("r", encoding="utf-8", newline="") as source_handle:
+        reader = csv.DictReader(source_handle)
+        fieldnames = reader.fieldnames
+        assert fieldnames is not None
+        rows = list(reader)
+
+    remaining_fieldnames = [fieldname for fieldname in fieldnames if fieldname not in columns_to_drop]
+    for row in rows:
+        for column_name in columns_to_drop:
+            row.pop(column_name, None)
+
+    with source_path.open("w", encoding="utf-8", newline="") as target_handle:
+        writer = csv.DictWriter(target_handle, fieldnames=remaining_fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -1090,9 +1450,10 @@ def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
     )
 
     residential_segments = raw_root / "WebsiteResidentialSegs-7-22.csv"
-    residential_segments.write_text(
-        ",".join(
-            [
+    with residential_segments.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
                 "vwPropertyGeneral_AdHocTaxYear",
                 "PropertyStatusCode",
                 "QuickRefID",
@@ -1108,176 +1469,82 @@ def _write_fort_bend_raw_files(raw_root: Path) -> FortBendRawPaths:
                 "LPParentNodeID",
                 "FirstPage",
                 "fActYear",
-                "fAddlFixtures",
                 "fApexMapping",
                 "fApprMethod",
                 "fArea",
-                "fAreaFactor",
                 "fBedrooms",
-                "fCapPercent",
-                "fCapStatus",
-                "fCapYear",
                 "fCDU",
-                "fChangeFinder",
-                "fComment",
                 "fCondition",
-                "fConstStyle",
-                "fEconCd",
-                "fEconomic",
                 "fEffYear",
-                "fExtFinish",
-                "fFireplace",
-                "fFlatValue",
-                "fFlooring",
-                "fFoundation",
-                "fFunctional",
-                "fFuntionalCd",
-                "fHeatAC",
-                "fIntFinish",
                 "fNumHalfBath",
                 "fNumQuaterBath",
-                "fPercentComplete",
-                "fPercentGood",
-                "fPerimeter",
-                "fPhysical",
-                "fPhysicalCd",
                 "fPlumbing",
-                "fRemodComments",
-                "fRemodType",
-                "fRemodYear",
-                "fRoof",
-                "fRooms",
                 "fSegClass",
                 "fSegType",
-                "fUpgrade",
-                "fUpgradeReason",
-                "fUpgradeReasons",
-                "fVectors",
                 "vTSGRSeg_AdjArea",
-                "vTSGRSeg_AdjFactor",
-                "vTSGRSeg_CalcPctGood",
-                "vTSGRSeg_DefaultCDU",
-                "vTSGRSeg_EconPercent",
-                "vTSGRSeg_FixedIncrement",
-                "vTSGRSeg_FixedIncUnAdj",
-                "vTSGRSeg_FPValue",
-                "vTSGRSeg_FuncPercent",
                 "vTSGRSeg_ImpNum",
                 "vTSGRSeg_ImpSegNum",
-                "vTSGRSeg_MktUnitPrice",
                 "vTSGRSeg_NbhdPercent",
                 "vTSGRSeg_PercentGood",
                 "vTSGRSeg_PhysPercent",
                 "vTSGRSeg_SegmentValNbhd",
                 "vTSGRSeg_SegmentValue",
                 "vTSGRSeg_SegmentValueUnadj",
-                "vTSGRSeg_SegNewValue",
-                "vTSGRSeg_SegNewYear",
-                "vTSGRSeg_SumPorch",
-                "vTSGRSeg_TableClass",
-                "vTSGRSeg_TempVar",
                 "vTSGRSeg_UnitPrice",
                 "vTSGRSeg_UnitPrUnAdj",
                 "vTSGRSeg_YearNewValue",
                 "vTSGRSeg_FireplaceValue",
                 "vTSGRSeg_UpgradeValue",
-            ]
+                "vTSGRSeg_PoolValue",
+            ],
         )
-        + "\n"
-        + ",".join(
-            [
-                "2025",
-                "A",
-                "R100000",
-                "5910-04-022-0700-907",
-                "RR",
-                "50090",
-                "505669",
-                "2025",
-                "11",
-                "85973000",
-                "9",
-                "85972999",
-                "85972998",
-                "1",
-                "1976",
-                "",
-                "21",
-                "RMS",
-                "1305",
-                "",
-                "4",
-                "",
-                "",
-                "",
-                "21",
-                "",
-                "",
-                "0",
-                "CV",
-                "",
-                "",
-                "1976",
-                "",
-                "",
-                "0",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "1",
-                "",
-                "",
-                "70",
-                "164",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "RA2",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "1305",
-                "0.57",
-                "57",
-                "",
-                "100",
-                "18322",
-                "14427",
-                "18322",
-                "100",
-                "1",
-                "1",
-                "127",
-                "57",
-                "100",
-                "189875",
-                "108229",
-                "149508",
-                "",
-                "",
-                "0",
-                "",
-                "",
-                "131.46",
-                "103.51",
-                "",
-                "9699",
-                "0",
-            ]
+        writer.writeheader()
+        writer.writerow(
+            {
+                "vwPropertyGeneral_AdHocTaxYear": "2025",
+                "PropertyStatusCode": "A",
+                "QuickRefID": "R100000",
+                "PropertyNumber": "5910-04-022-0700-907",
+                "PropertyTypeCode": "RR",
+                "PropertyID": "50090",
+                "InstanceID": "505669",
+                "cama_TSGRSeg_AdHocTaxYear": "2025",
+                "NodeID": "11",
+                "TreeNodeID": "85973000",
+                "LBound": "9",
+                "ParentNodeID": "85972999",
+                "LPParentNodeID": "85972998",
+                "FirstPage": "1",
+                "fActYear": "1976",
+                "fApexMapping": "21",
+                "fApprMethod": "RMS",
+                "fArea": "1305",
+                "fBedrooms": "4",
+                "fCDU": "21",
+                "fCondition": "0",
+                "fEffYear": "1976",
+                "fNumHalfBath": "1",
+                "fNumQuaterBath": "",
+                "fPlumbing": "2",
+                "fSegClass": "RA2",
+                "fSegType": "MA",
+                "vTSGRSeg_AdjArea": "1305",
+                "vTSGRSeg_ImpNum": "1",
+                "vTSGRSeg_ImpSegNum": "1",
+                "vTSGRSeg_NbhdPercent": "127",
+                "vTSGRSeg_PercentGood": "57",
+                "vTSGRSeg_PhysPercent": "100",
+                "vTSGRSeg_SegmentValNbhd": "189875",
+                "vTSGRSeg_SegmentValue": "108229",
+                "vTSGRSeg_SegmentValueUnadj": "149508",
+                "vTSGRSeg_UnitPrice": "131.46",
+                "vTSGRSeg_UnitPrUnAdj": "103.51",
+                "vTSGRSeg_YearNewValue": "9699",
+                "vTSGRSeg_FireplaceValue": "0",
+                "vTSGRSeg_UpgradeValue": "0",
+                "vTSGRSeg_PoolValue": "0",
+            }
         )
-        + "\n",
-        encoding="utf-8",
-    )
 
     tax_rates = raw_root / "2025 Fort Bend Tax Rate Source.csv"
     tax_rates.write_text(

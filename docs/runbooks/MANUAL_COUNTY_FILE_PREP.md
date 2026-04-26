@@ -34,6 +34,7 @@ Place raw files under a year-scoped root:
 ~/county-data/<tax_year>/raw/fort_bend/OwnerExport.txt
 ~/county-data/<tax_year>/raw/fort_bend/ExemptionExport.txt
 ~/county-data/<tax_year>/raw/fort_bend/WebsiteResidentialSegs.csv
+~/county-data/<tax_year>/raw/fort_bend/Fort Bend_Website_ResidentialSegments.txt
 ~/county-data/<tax_year>/raw/fort_bend/Fort Bend Tax Rate Source.csv
 ~/county-data/<tax_year>/raw/fort_bend/Fort Bend_Property Data -3-27-2026 - Redacted/PropertyProperty-E/PropertyDataExport*.txt
 ```
@@ -45,7 +46,9 @@ Notes:
 - Harris exemption dictionary mapping uses `jur_exempt_cd.txt` as the account-level source and keeps `jur_exemption_dscr.txt` and `desc_r_14_exemption_category.txt` in the manifest lineage set.
 - Fort Bend `property_roll` prep still needs the Fort Bend tax-rate raw file because the prep step uses it to resolve school district entity names.
 - Fort Bend canonical living area comes from the official `PropertyDataExport*.txt` `SquareFootage` field.
-- Fort Bend `WebsiteResidentialSegs.csv` is still used, but only for `gross_component_area_sf` and as a fallback when no authoritative property-summary living area is available.
+- Fort Bend `WebsiteResidentialSegs.csv` is the authoritative residential-segment family for canonical bedrooms, half baths, stories, and pool support. `Fort Bend_Website_ResidentialSegments.txt` is an accepted alternate filename for that same contract family.
+- Fort Bend `PropertyDataExport4558084.txt` was reviewed during contract expansion, but it is not sufficient alone for canonical pool support because it does not carry `vTSGRSeg_PoolValue`.
+- Fort Bend `WebsiteResidentialSegs.csv` is still used for `gross_component_area_sf` and as a fallback when no authoritative property-summary living area is available.
 - If the downloaded filename does not match the canonical local name, either rename it into the canonical contract or use `--raw-file-override`.
 
 ## Harris property-characteristics contract
@@ -102,6 +105,49 @@ The supported canonical workflow is:
 3. keep `living_area_source` so downstream tables can show where canonical living area came from
 
 Do not use `gross_component_area_sf` as the quote-facing living area denominator.
+
+## Fort Bend property-characteristics contract
+
+Fort Bend property characteristics are now a first-class upstream prep contract, but only for fields with defensible source semantics.
+
+Supported Fort Bend fields:
+
+- `bedrooms`
+- `half_baths`
+- `stories`
+- `pool_flag`
+
+Intentionally unsupported Fort Bend fields:
+
+- `full_baths`
+- `total_rooms`
+- `garage_spaces`
+- `quarter_baths` as a canonical warehouse field
+
+Authoritative Fort Bend characteristics source:
+
+- `WebsiteResidentialSegs.csv` or `Fort Bend_Website_ResidentialSegments.txt`
+
+Normalization rules:
+
+- `bedrooms`: selected primary residential improvement `fBedrooms`
+- `half_baths`: selected primary residential improvement `fNumHalfBath`; blank selected-main-area rows normalize to `0`, invalid negative values are not promoted
+- `stories`: count explicit story-level segment codes `MA`, `MA2`, `MA3`, `MA4` on the selected primary residential improvement
+- `pool_flag`: `true` when any parcel segment carries non-zero `vTSGRSeg_PoolValue` or segment type `RP`
+
+Primary-improvement selection:
+
+- choose the residential improvement with the largest summed main-area square footage
+- break ties with more explicit story-level segments
+- then break remaining ties with lower `vTSGRSeg_ImpNum`
+
+Important non-go decision:
+
+- `full_baths` stays null for Fort Bend because `fPlumbing` / `Plumbing` is not yet proven to mean exact full-bath count
+
+See the durable county contract:
+
+- [FORT_BEND_PROPERTY_CHARACTERISTICS_CONTRACT.md](/Users/nblevins/Desktop/dwellio/docs/runbooks/FORT_BEND_PROPERTY_CHARACTERISTICS_CONTRACT.md)
 
 ## Harris primary-building area contract
 
