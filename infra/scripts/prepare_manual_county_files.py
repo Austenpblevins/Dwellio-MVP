@@ -104,6 +104,36 @@ FORT_BEND_PROPERTY_HEADERS = [
     "exemptions_json",
 ]
 
+FORT_BEND_CHARACTERISTIC_SEGMENT_TYPES = {
+    "MA",
+    "MA1.5",
+    "MA2",
+    "MA3",
+    "MA4",
+    "MAA",
+}
+FORT_BEND_EXPLICIT_STORY_SEGMENTS = {
+    "MA",
+    "MA2",
+    "MA3",
+    "MA4",
+}
+FORT_BEND_POOL_SEGMENT_TYPES = {"RP"}
+FORT_BEND_REQUIRED_RESIDENTIAL_SEGMENT_COLUMNS = {
+    "QuickRefID",
+    "fActYear",
+    "fBedrooms",
+    "fCDU",
+    "fCondition",
+    "fEffYear",
+    "fNumHalfBath",
+    "fSegClass",
+    "fSegType",
+    "vTSGRSeg_AdjArea",
+    "vTSGRSeg_ImpNum",
+    "vTSGRSeg_PoolValue",
+}
+
 FORT_BEND_TAX_RATE_HEADERS = [
     "unit_type_code",
     "unit_code",
@@ -930,6 +960,7 @@ def resolve_fort_bend_paths(
             tax_year=tax_year,
             override=overrides.get("residential_segments"),
             legacy_relative_paths=[
+                Path("Fort Bend_Website_ResidentialSegments.txt"),
                 Path("WebsiteResidentialSegs-7-22.csv"),
             ],
         ),
@@ -1464,8 +1495,10 @@ def _prepare_fort_bend_lookup_tables(connection: sqlite3.Connection, raw_paths: 
             eff_yr_built INTEGER,
             bed_cnt INTEGER,
             bath_half INTEGER,
+            story_count INTEGER,
             quality_grade TEXT,
-            condition_grade TEXT
+            condition_grade TEXT,
+            pool_ind INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE fort_bend_exemption_lookup (
             owner_quick_ref_id TEXT PRIMARY KEY,
@@ -1980,7 +2013,16 @@ def _index_fort_bend_owners(connection: sqlite3.Connection, source_path: Path) -
 def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source_path: Path) -> None:
     summary: dict[str, dict[str, Any]] = {}
     with _open_raw_text(source_path) as handle:
-        reader = csv.DictReader(handle)
+        reader = _open_sniffed_dict_reader(handle)
+        fieldnames = set(reader.fieldnames or [])
+        missing_columns = sorted(FORT_BEND_REQUIRED_RESIDENTIAL_SEGMENT_COLUMNS - fieldnames)
+        if missing_columns:
+            raise ValueError(
+                "Fort Bend residential segment file is missing required characteristics columns: "
+                + ", ".join(missing_columns)
+                + ". Use WebsiteResidentialSegs.csv or Fort Bend_Website_ResidentialSegments.txt; "
+                + "PropertyDataExport4558084.txt alone is not sufficient for canonical pool support."
+            )
         for row in reader:
             quick_ref = _strip(row.get("QuickRefID"))
             if not quick_ref:
@@ -1993,13 +2035,16 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
                     "living_area_source": "residential_segment_total_fallback",
                     "yr_built": None,
                     "eff_yr_built": None,
-                    "bed_cnt": 0,
-                    "bath_half": 0,
+                    "bed_cnt": None,
+                    "bath_half": None,
+                    "story_count": None,
                     "quality_grade": None,
                     "condition_grade": None,
+                    "pool_ind": 0,
+                    "candidates": {},
                 },
             )
-            segment_sqft = _as_int(row.get("vTSGRSeg_AdjArea")) or _as_int(row.get("fArea")) or 0
+            segment_sqft = max(_as_int(row.get("vTSGRSeg_AdjArea")) or _as_int(row.get("fArea")) or 0, 0)
             bucket["living_area_sf"] += segment_sqft
             bucket["gross_component_area_sf"] += segment_sqft
             yr_built = _as_int(row.get("fActYear"))
@@ -2008,12 +2053,57 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
                 bucket["yr_built"] = yr_built
             if eff_yr_built and (bucket["eff_yr_built"] is None or eff_yr_built > bucket["eff_yr_built"]):
                 bucket["eff_yr_built"] = eff_yr_built
-            bucket["bed_cnt"] = max(bucket["bed_cnt"], _as_int(row.get("fBedrooms")) or 0)
-            bucket["bath_half"] = max(bucket["bath_half"], _as_int(row.get("fNumHalfBath")) or 0)
-            if bucket["quality_grade"] is None:
-                bucket["quality_grade"] = _strip(row.get("fCDU")) or _strip(row.get("fSegClass")) or None
-            if bucket["condition_grade"] is None:
-                bucket["condition_grade"] = _strip(row.get("fCondition")) or None
+            segment_type = _strip(row.get("fSegType")).upper()
+            if _fort_bend_has_pool_signal(row, segment_type=segment_type):
+                bucket["pool_ind"] = 1
+            if segment_type not in FORT_BEND_CHARACTERISTIC_SEGMENT_TYPES:
+                continue
+            improvement_num = _strip(row.get("vTSGRSeg_ImpNum")) or "0"
+            candidate = bucket["candidates"].setdefault(
+                improvement_num,
+                {
+                    "improvement_num": improvement_num,
+                    "main_area_sqft": 0,
+                    "story_segments": set(),
+                    "bed_cnt": None,
+                    "bath_half": None,
+                    "has_half_bath_signal": False,
+                    "has_invalid_half_bath_signal": False,
+                    "quality_grade": None,
+                    "condition_grade": None,
+                },
+            )
+            candidate["main_area_sqft"] += segment_sqft
+            if segment_type in FORT_BEND_EXPLICIT_STORY_SEGMENTS:
+                candidate["story_segments"].add(segment_type)
+            bedrooms = _as_int(row.get("fBedrooms"))
+            if bedrooms is not None and bedrooms >= 0:
+                candidate["bed_cnt"] = max(candidate["bed_cnt"] or 0, bedrooms)
+            half_baths = _as_int(row.get("fNumHalfBath"))
+            if half_baths is not None and half_baths >= 0:
+                candidate["has_half_bath_signal"] = True
+                candidate["bath_half"] = max(candidate["bath_half"] or 0, half_baths)
+            elif half_baths is not None:
+                candidate["has_invalid_half_bath_signal"] = True
+            if candidate["quality_grade"] is None:
+                candidate["quality_grade"] = _strip(row.get("fCDU")) or _strip(row.get("fSegClass")) or None
+            if candidate["condition_grade"] is None:
+                candidate["condition_grade"] = _strip(row.get("fCondition")) or None
+
+    for bucket in summary.values():
+        candidate = _select_fort_bend_primary_residential_candidate(bucket["candidates"].values())
+        if candidate is None:
+            continue
+        bucket["bed_cnt"] = candidate["bed_cnt"]
+        if candidate["has_half_bath_signal"]:
+            bucket["bath_half"] = candidate["bath_half"]
+        elif candidate["has_invalid_half_bath_signal"]:
+            bucket["bath_half"] = None
+        else:
+            bucket["bath_half"] = 0
+        bucket["story_count"] = len(candidate["story_segments"]) or None
+        bucket["quality_grade"] = candidate["quality_grade"]
+        bucket["condition_grade"] = candidate["condition_grade"]
 
     rows = [
         (
@@ -2023,10 +2113,12 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
             bucket["living_area_source"],
             bucket["yr_built"],
             bucket["eff_yr_built"],
-            bucket["bed_cnt"] or None,
-            bucket["bath_half"] or None,
+            bucket["bed_cnt"],
+            bucket["bath_half"],
+            bucket["story_count"],
             bucket["quality_grade"],
             bucket["condition_grade"],
+            bucket["pool_ind"],
         )
         for quick_ref, bucket in summary.items()
     ]
@@ -2041,12 +2133,36 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
             eff_yr_built,
             bed_cnt,
             bath_half,
+            story_count,
             quality_grade,
-            condition_grade
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            condition_grade,
+            pool_ind
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
+
+
+def _fort_bend_has_pool_signal(row: dict[str, str], *, segment_type: str) -> bool:
+    if segment_type in FORT_BEND_POOL_SEGMENT_TYPES:
+        return True
+    pool_value = _as_float(row.get("vTSGRSeg_PoolValue"))
+    return pool_value is not None and pool_value > 0
+
+
+def _select_fort_bend_primary_residential_candidate(
+    candidates: Iterable[dict[str, Any]],
+) -> dict[str, Any] | None:
+    ranked_candidates: list[tuple[int, int, int, dict[str, Any]]] = []
+    for candidate in candidates:
+        story_count = len(candidate["story_segments"])
+        main_area_sqft = int(candidate["main_area_sqft"] or 0)
+        improvement_num = _as_int(candidate["improvement_num"])
+        tie_breaker = improvement_num if improvement_num is not None else 999999
+        ranked_candidates.append((main_area_sqft, story_count, -tie_breaker, candidate))
+    if not ranked_candidates:
+        return None
+    return max(ranked_candidates)[-1]
 
 
 def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, source_path: Path) -> None:
@@ -2500,8 +2616,10 @@ def _build_fort_bend_property_roll_row(
           eff_yr_built,
           bed_cnt,
           bath_half,
+          story_count,
           quality_grade,
-          condition_grade
+          condition_grade,
+          pool_ind
         FROM fort_bend_residential_lookup
         WHERE property_quick_ref_id = ?
         """,
@@ -2558,11 +2676,15 @@ def _build_fort_bend_property_roll_row(
         "bed_cnt": _stringify_optional(_row_value(residential_row, "bed_cnt")),
         "bath_full": "",
         "bath_half": _stringify_optional(_row_value(residential_row, "bath_half")),
-        "story_count": "",
+        "story_count": _stringify_optional(_row_value(residential_row, "story_count")),
         "quality_grade": _row_value(residential_row, "quality_grade") or "",
         "condition_grade": _row_value(residential_row, "condition_grade") or "",
         "garage_capacity": "",
-        "pool_ind": "",
+        "pool_ind": (
+            "Y"
+            if _row_value(residential_row, "pool_ind")
+            else ("N" if residential_row is not None else "")
+        ),
         "land_sqft": _stringify_optional(land_sqft),
         "land_acres": _stringify_optional_float(acres),
         "land_market_value": _stringify_optional(_row_value(owner_row, "land_market_value")),
