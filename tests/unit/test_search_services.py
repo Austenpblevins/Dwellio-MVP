@@ -241,6 +241,7 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
             "bedrooms": 4,
             "full_baths": 2.0,
             "half_baths": 1.0,
+            "total_rooms": 8,
             "stories": 2.0,
             "quality_code": "AVG",
             "condition_code": "GOOD",
@@ -301,6 +302,7 @@ def test_parcel_summary_service_returns_summary_model(monkeypatch) -> None:
     assert summary.data_freshness_label == "current_year"
     assert summary.public_summary_ready_flag is True
     assert summary.owner_name == "A. Example"
+    assert summary.total_rooms == 8
     assert summary.owner_summary is not None
     assert summary.owner_summary.privacy_mode == "masked_individual_name"
     assert summary.tax_summary is not None
@@ -388,5 +390,5 @@ def test_parcel_summary_service_queries_nearest_prior_year(monkeypatch) -> None:
 
     sql, params = connection.cursor_instance.execute_calls[0]
     assert "tax_year <= %s" in sql
-    assert "ORDER BY tax_year DESC" in sql
+    assert "ORDER BY psv.tax_year DESC" in sql
     assert params == ("harris", "1001001001001", 2026)

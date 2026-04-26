@@ -24,6 +24,7 @@ def test_build_parcel_feature_payload_includes_yoy_changes() -> None:
         "bedrooms": 3,
         "full_baths": 2.0,
         "half_baths": 1.0,
+        "total_rooms": 7,
         "land_sf": 7200,
         "land_acres": 0.1653,
         "market_value": 420000,
@@ -83,6 +84,7 @@ def test_build_parcel_feature_payload_includes_yoy_changes() -> None:
     assert payload["history"]["effective_tax_rate_change"]["amount"] == pytest.approx(0.0005)
     assert payload["history"]["exemption_changed_flag"] is True
     assert payload["ratios"]["appraised_to_market_ratio"] == 405000.0 / 420000.0
+    assert payload["subject"]["total_rooms"] == 7
     assert payload["neighborhood_trend"]["median_sale_psf_change"] == 12
 
 

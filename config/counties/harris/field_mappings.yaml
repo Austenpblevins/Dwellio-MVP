@@ -158,6 +158,9 @@ datasets:
           - target_field: half_baths
             canonical_field_code: property_roll.improvements.half_baths
             source_field: half_baths
+          - target_field: total_rooms
+            canonical_field_code: property_roll.improvements.total_rooms
+            source_field: total_rooms
           - target_field: stories
             canonical_field_code: property_roll.improvements.stories
             source_field: stories

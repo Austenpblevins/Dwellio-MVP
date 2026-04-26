@@ -29,6 +29,7 @@ def build_parcel_feature_payload(
             "bedrooms": current_summary.get("bedrooms"),
             "full_baths": current_summary.get("full_baths"),
             "half_baths": current_summary.get("half_baths"),
+            "total_rooms": current_summary.get("total_rooms"),
             "land_sf": current_summary.get("land_sf"),
             "land_acres": current_summary.get("land_acres"),
         },
