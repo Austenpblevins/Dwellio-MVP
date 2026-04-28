@@ -49,6 +49,7 @@ Notes:
 - Fort Bend `WebsiteResidentialSegs.csv` is the authoritative residential-segment family for canonical bedrooms, half baths, stories, and pool support. `Fort Bend_Website_ResidentialSegments.txt` is an accepted alternate filename for that same contract family.
 - Fort Bend `PropertyDataExport4558084.txt` was reviewed during contract expansion, but it is not sufficient alone for canonical pool support because it does not carry `vTSGRSeg_PoolValue`.
 - Fort Bend `WebsiteResidentialSegs.csv` is still used for `gross_component_area_sf` and as a fallback when no authoritative property-summary living area is available.
+- The same Fort Bend residential-segment contract also powers the additive derived bathroom valuation layer after canonical Fort Bend data is already published; rebuild that layer with `job_features`.
 - If the downloaded filename does not match the canonical local name, either rename it into the canonical contract or use `--raw-file-override`.
 
 ## Harris property-characteristics contract
@@ -148,6 +149,7 @@ Important non-go decision:
 See the durable county contract:
 
 - [FORT_BEND_PROPERTY_CHARACTERISTICS_CONTRACT.md](/Users/nblevins/Desktop/dwellio/docs/runbooks/FORT_BEND_PROPERTY_CHARACTERISTICS_CONTRACT.md)
+- [FORT_BEND_DERIVED_BATHROOM_FEATURES.md](/Users/nblevins/Desktop/dwellio/docs/runbooks/FORT_BEND_DERIVED_BATHROOM_FEATURES.md)
 
 ## Harris primary-building area contract
 

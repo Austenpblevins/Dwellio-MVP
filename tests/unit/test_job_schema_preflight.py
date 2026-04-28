@@ -12,15 +12,22 @@ from app.services.quote_generation import QuoteGenerationSummary
 
 def test_job_features_calls_schema_preflight(monkeypatch) -> None:
     observed: list[tuple[str, int | None]] = []
+    materialized: list[tuple[str, int]] = []
     monkeypatch.setattr(
         job_features,
         "assert_job_schema_ready",
         lambda job_name, *, tax_year=None: observed.append((job_name, tax_year)),
     )
+    monkeypatch.setattr(
+        job_features,
+        "FortBendBathroomFeatureService",
+        lambda: _StubFortBendBathroomFeatureService(materialized),
+    )
 
     job_features.run(county_id="harris", tax_year=2026)
 
     assert observed == [("job_features", 2026)]
+    assert materialized == []
 
 
 def test_job_comp_candidates_calls_schema_preflight(monkeypatch) -> None:
@@ -149,3 +156,12 @@ class _StubQuoteGenerationService:
         account_numbers: tuple[str, ...] | None = None,
     ) -> QuoteGenerationSummary:
         return QuoteGenerationSummary(processed_count=1, created_count=1, skipped_count=0)
+
+
+class _StubFortBendBathroomFeatureService:
+    def __init__(self, observed: list[tuple[str, int]]) -> None:
+        self._observed = observed
+
+    def materialize_features(self, *, county_id: str, tax_year: int) -> dict[str, object]:
+        self._observed.append((county_id, tax_year))
+        return {"county_id": county_id, "tax_year": tax_year}

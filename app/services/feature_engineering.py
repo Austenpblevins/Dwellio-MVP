@@ -9,6 +9,7 @@ def build_parcel_feature_payload(
     current_summary: Mapping[str, Any],
     prior_summary: Mapping[str, Any] | None = None,
     neighborhood_trend: Mapping[str, Any] | None = None,
+    valuation_bathroom_features: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_tax_year = int(current_summary["tax_year"])
     prior_tax_year = int(prior_summary["tax_year"]) if prior_summary is not None else None
@@ -128,6 +129,33 @@ def build_parcel_feature_payload(
             "weak_sample_support_flag": bool(
                 neighborhood_trend.get("weak_sample_support_flag", False)
             ),
+        }
+
+    if valuation_bathroom_features is not None:
+        payload["valuation_bathroom_features"] = {
+            "quick_ref_id": valuation_bathroom_features.get("quick_ref_id"),
+            "selected_improvement_number": valuation_bathroom_features.get("selected_improvement_number"),
+            "selected_improvement_rule_version": valuation_bathroom_features.get(
+                "selected_improvement_rule_version"
+            ),
+            "normalization_rule_version": valuation_bathroom_features.get(
+                "normalization_rule_version"
+            ),
+            "source_file_version": valuation_bathroom_features.get("source_file_version"),
+            "plumbing_raw": valuation_bathroom_features.get("plumbing_raw"),
+            "half_baths_raw": valuation_bathroom_features.get("half_baths_raw"),
+            "quarter_baths_raw": valuation_bathroom_features.get("quarter_baths_raw"),
+            "full_baths_derived": valuation_bathroom_features.get("full_baths_derived"),
+            "half_baths_derived": valuation_bathroom_features.get("half_baths_derived"),
+            "quarter_baths_derived": valuation_bathroom_features.get("quarter_baths_derived"),
+            "bathroom_equivalent_derived": valuation_bathroom_features.get(
+                "bathroom_equivalent_derived"
+            ),
+            "bathroom_count_status": valuation_bathroom_features.get("bathroom_count_status"),
+            "bathroom_count_confidence": valuation_bathroom_features.get(
+                "bathroom_count_confidence"
+            ),
+            "bathroom_flags": list(valuation_bathroom_features.get("bathroom_flags", [])),
         }
 
     return payload

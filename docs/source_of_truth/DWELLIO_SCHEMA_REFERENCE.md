@@ -639,9 +639,26 @@ Expected fields:
 - neighborhood stats
 - derived ratios
 - YOY changes
+- additive valuation-only bathroom features when county contracts support them
 
 Critical note:
 - most quote and modeling logic should read from this table
+
+### 53A. `fort_bend_valuation_bathroom_features` — Stage 21 Additive
+Purpose:
+- Fort Bend-only derived bathroom feature store for valuation use
+- preserves raw plumbing / half-bath / quarter-bath lineage without mutating canonical `full_baths`
+
+Expected fields:
+- parcel / county / tax-year linkage
+- selected improvement number and rule version
+- raw plumbing / half / quarter signals
+- derived full / half / quarter / equivalent counts
+- status / confidence / flags
+
+Critical note:
+- this table is additive and valuation-oriented
+- canonical Fort Bend `parcel_improvements.full_baths` stays intentionally null
 
 ---
 
@@ -981,6 +998,7 @@ This is the minimum relational backbone Codex must keep correct.
 -> `parcels`
 -> `parcel_assessments`
 -> `parcel_improvements`
+-> `fort_bend_valuation_bathroom_features`
 -> `parcel_features`
 -> `valuation_runs`
 -> `parcel_savings_estimates`

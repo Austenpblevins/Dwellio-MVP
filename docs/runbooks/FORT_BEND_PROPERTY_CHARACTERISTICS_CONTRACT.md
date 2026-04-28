@@ -10,6 +10,11 @@ This contract is intentionally conservative:
 - `garage_spaces` remains unsupported and stays null
 - `quarter_baths` is reviewed but not promoted into the canonical schema
 
+Related additive contract:
+
+- valuation consumers may use the separate Fort Bend derived bathroom layer documented in [FORT_BEND_DERIVED_BATHROOM_FEATURES.md](/Users/nblevins/Desktop/dwellio/docs/runbooks/FORT_BEND_DERIVED_BATHROOM_FEATURES.md)
+- that layer is additive and does not change canonical Fort Bend `full_baths`
+
 ## Authoritative raw files
 
 Primary Fort Bend files used by the current contract:
