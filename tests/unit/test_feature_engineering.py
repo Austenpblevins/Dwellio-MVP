@@ -123,3 +123,32 @@ def test_build_neighborhood_trend_payload_flags_weak_samples() -> None:
     assert payload["median_sale_psf_change"] == 7.0
     assert payload["median_sale_price_change_pct"] == 15000.0 / 405000.0
     assert payload["weak_sample_support_flag"] is True
+
+
+def test_build_parcel_feature_payload_includes_additive_valuation_bathroom_features() -> None:
+    payload = build_parcel_feature_payload(
+        current_summary={"parcel_id": "parcel-3", "county_id": "fort_bend", "tax_year": 2026},
+        valuation_bathroom_features={
+            "quick_ref_id": "R100",
+            "selected_improvement_number": "1",
+            "selected_improvement_rule_version": "fort_bend_primary_residential_improvement_v1",
+            "normalization_rule_version": "fort_bend_bathroom_features_v1",
+            "source_file_version": "WebsiteResidentialSegs.csv:sha256:test",
+            "plumbing_raw": 2.5,
+            "half_baths_raw": None,
+            "quarter_baths_raw": 0,
+            "full_baths_derived": 2.0,
+            "half_baths_derived": 1.0,
+            "quarter_baths_derived": 0.0,
+            "bathroom_equivalent_derived": 2.5,
+            "bathroom_count_status": "reconciled_fractional_plumbing",
+            "bathroom_count_confidence": "medium",
+            "bathroom_flags": ["fractional_plumbing_source"],
+        },
+    )
+
+    assert payload["valuation_bathroom_features"]["quick_ref_id"] == "R100"
+    assert payload["valuation_bathroom_features"]["full_baths_derived"] == 2.0
+    assert payload["valuation_bathroom_features"]["bathroom_count_status"] == (
+        "reconciled_fractional_plumbing"
+    )

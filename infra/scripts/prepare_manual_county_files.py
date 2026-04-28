@@ -21,6 +21,13 @@ from app.county_adapters.harris.parse import parse_raw_to_staging as parse_harri
 from app.county_adapters.harris.validation import validate_property_roll as validate_harris_property_roll
 from app.county_adapters.harris.validation import validate_tax_rates as validate_harris_tax_rates
 from app.services.exemption_code_dictionary import map_raw_exemption_codes
+from app.services.fort_bend_residential_segments import (
+    FORT_BEND_CHARACTERISTIC_SEGMENT_TYPES,
+    FORT_BEND_EXPLICIT_STORY_SEGMENTS,
+    FORT_BEND_REQUIRED_RESIDENTIAL_SEGMENT_COLUMNS,
+    fort_bend_has_pool_signal as shared_fort_bend_has_pool_signal,
+    select_fort_bend_primary_residential_candidate as shared_select_fort_bend_primary_residential_candidate,
+)
 
 csv.field_size_limit(10_000_000)
 
@@ -103,36 +110,6 @@ FORT_BEND_PROPERTY_HEADERS = [
     "ov65_amt",
     "exemptions_json",
 ]
-
-FORT_BEND_CHARACTERISTIC_SEGMENT_TYPES = {
-    "MA",
-    "MA1.5",
-    "MA2",
-    "MA3",
-    "MA4",
-    "MAA",
-}
-FORT_BEND_EXPLICIT_STORY_SEGMENTS = {
-    "MA",
-    "MA2",
-    "MA3",
-    "MA4",
-}
-FORT_BEND_POOL_SEGMENT_TYPES = {"RP"}
-FORT_BEND_REQUIRED_RESIDENTIAL_SEGMENT_COLUMNS = {
-    "QuickRefID",
-    "fActYear",
-    "fBedrooms",
-    "fCDU",
-    "fCondition",
-    "fEffYear",
-    "fNumHalfBath",
-    "fSegClass",
-    "fSegType",
-    "vTSGRSeg_AdjArea",
-    "vTSGRSeg_ImpNum",
-    "vTSGRSeg_PoolValue",
-}
 
 FORT_BEND_TAX_RATE_HEADERS = [
     "unit_type_code",
@@ -2144,25 +2121,13 @@ def _index_fort_bend_residential_segments(connection: sqlite3.Connection, source
 
 
 def _fort_bend_has_pool_signal(row: dict[str, str], *, segment_type: str) -> bool:
-    if segment_type in FORT_BEND_POOL_SEGMENT_TYPES:
-        return True
-    pool_value = _as_float(row.get("vTSGRSeg_PoolValue"))
-    return pool_value is not None and pool_value > 0
+    return shared_fort_bend_has_pool_signal(row, segment_type=segment_type)
 
 
 def _select_fort_bend_primary_residential_candidate(
     candidates: Iterable[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    ranked_candidates: list[tuple[int, int, int, dict[str, Any]]] = []
-    for candidate in candidates:
-        story_count = len(candidate["story_segments"])
-        main_area_sqft = int(candidate["main_area_sqft"] or 0)
-        improvement_num = _as_int(candidate["improvement_num"])
-        tie_breaker = improvement_num if improvement_num is not None else 999999
-        ranked_candidates.append((main_area_sqft, story_count, -tie_breaker, candidate))
-    if not ranked_candidates:
-        return None
-    return max(ranked_candidates)[-1]
+    return shared_select_fort_bend_primary_residential_candidate(candidates)
 
 
 def _index_fort_bend_property_square_footage(connection: sqlite3.Connection, source_path: Path) -> None:
