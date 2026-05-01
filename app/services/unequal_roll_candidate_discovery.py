@@ -228,28 +228,74 @@ class UnequalRollCandidateDiscoveryService:
         cursor.execute(
             """
             SELECT
-              psv.*,
-              pi.total_rooms
-            FROM parcel_summary_view AS psv
-            LEFT JOIN parcel_improvements AS pi
-              ON pi.parcel_id = psv.parcel_id
-             AND pi.tax_year = psv.tax_year
-            WHERE psv.county_id = %s
-              AND psv.tax_year = %s
-              AND psv.parcel_id <> %s
-              AND lower(coalesce(psv.property_type_code, '')) = 'sfr'
-              AND psv.neighborhood_code = %s
-              AND coalesce(psv.living_area_sf, 0) > 0
-              AND coalesce(psv.appraised_value, 0) > 0
+              pys.parcel_id,
+              pys.county_id,
+              pys.tax_year,
+              pys.account_number,
+              pa.situs_address AS address,
+              pc.neighborhood_code,
+              pc.subdivision_name,
+              pc.property_type_code,
+              pc.property_class_code,
+              pi.living_area_sf,
+              pi.year_built,
+              pi.effective_age,
+              pi.bedrooms,
+              pi.full_baths,
+              pi.half_baths,
+              pi.total_rooms,
+              pi.stories,
+              pi.quality_code,
+              pi.condition_code,
+              pi.pool_flag,
+              pl.land_sf,
+              pl.land_acres,
+              ass.market_value,
+              ass.assessed_value,
+              ass.appraised_value,
+              ass.certified_value,
+              ass.notice_value
+            FROM parcel_year_snapshots AS pys
+            JOIN property_characteristics AS pc
+              ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+            JOIN parcel_assessments AS ass
+              ON ass.parcel_id = pys.parcel_id
+             AND ass.tax_year = pys.tax_year
+            JOIN parcel_improvements AS pi
+              ON pi.parcel_id = pys.parcel_id
+             AND pi.tax_year = pys.tax_year
+            LEFT JOIN parcel_lands AS pl
+              ON pl.parcel_id = pys.parcel_id
+             AND pl.tax_year = pys.tax_year
+            LEFT JOIN LATERAL (
+              SELECT
+                pa.situs_address
+              FROM parcel_addresses AS pa
+              WHERE pa.parcel_id = pys.parcel_id
+                AND pa.is_current = true
+              ORDER BY
+                pa.updated_at DESC,
+                pa.created_at DESC,
+                pa.parcel_address_id DESC
+              LIMIT 1
+            ) AS pa ON true
+            WHERE pys.is_current = true
+              AND pys.county_id = %s
+              AND pys.tax_year = %s
+              AND pys.parcel_id <> %s
+              AND lower(coalesce(pc.property_type_code, '')) = 'sfr'
+              AND pc.neighborhood_code = %s
+              AND coalesce(pi.living_area_sf, 0) > 0
+              AND coalesce(ass.appraised_value, 0) > 0
             ORDER BY
               CASE
                 WHEN %s IS NOT NULL
                   AND btrim(%s) <> ''
-                  AND psv.subdivision_name = %s
+                  AND pc.subdivision_name = %s
                 THEN 0
                 ELSE 1
               END,
-              psv.account_number
+              pys.account_number
             LIMIT %s
             """,
             (
@@ -279,31 +325,77 @@ class UnequalRollCandidateDiscoveryService:
         cursor.execute(
             """
             SELECT
-              psv.*,
-              pi.total_rooms
-            FROM parcel_summary_view AS psv
-            LEFT JOIN parcel_improvements AS pi
-              ON pi.parcel_id = psv.parcel_id
-             AND pi.tax_year = psv.tax_year
-            WHERE psv.county_id = %s
-              AND psv.tax_year = %s
-              AND psv.parcel_id <> %s
-              AND lower(coalesce(psv.property_type_code, '')) = 'sfr'
-              AND coalesce(psv.living_area_sf, 0) > 0
-              AND coalesce(psv.appraised_value, 0) > 0
+              pys.parcel_id,
+              pys.county_id,
+              pys.tax_year,
+              pys.account_number,
+              pa.situs_address AS address,
+              pc.neighborhood_code,
+              pc.subdivision_name,
+              pc.property_type_code,
+              pc.property_class_code,
+              pi.living_area_sf,
+              pi.year_built,
+              pi.effective_age,
+              pi.bedrooms,
+              pi.full_baths,
+              pi.half_baths,
+              pi.total_rooms,
+              pi.stories,
+              pi.quality_code,
+              pi.condition_code,
+              pi.pool_flag,
+              pl.land_sf,
+              pl.land_acres,
+              ass.market_value,
+              ass.assessed_value,
+              ass.appraised_value,
+              ass.certified_value,
+              ass.notice_value
+            FROM parcel_year_snapshots AS pys
+            JOIN property_characteristics AS pc
+              ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+            JOIN parcel_assessments AS ass
+              ON ass.parcel_id = pys.parcel_id
+             AND ass.tax_year = pys.tax_year
+            JOIN parcel_improvements AS pi
+              ON pi.parcel_id = pys.parcel_id
+             AND pi.tax_year = pys.tax_year
+            LEFT JOIN parcel_lands AS pl
+              ON pl.parcel_id = pys.parcel_id
+             AND pl.tax_year = pys.tax_year
+            LEFT JOIN LATERAL (
+              SELECT
+                pa.situs_address
+              FROM parcel_addresses AS pa
+              WHERE pa.parcel_id = pys.parcel_id
+                AND pa.is_current = true
+              ORDER BY
+                pa.updated_at DESC,
+                pa.created_at DESC,
+                pa.parcel_address_id DESC
+              LIMIT 1
+            ) AS pa ON true
+            WHERE pys.is_current = true
+              AND pys.county_id = %s
+              AND pys.tax_year = %s
+              AND pys.parcel_id <> %s
+              AND lower(coalesce(pc.property_type_code, '')) = 'sfr'
+              AND coalesce(pi.living_area_sf, 0) > 0
+              AND coalesce(ass.appraised_value, 0) > 0
               AND (
-                psv.neighborhood_code IS DISTINCT FROM %s
+                pc.neighborhood_code IS DISTINCT FROM %s
               )
             ORDER BY
               CASE
                 WHEN %s IS NOT NULL
                   AND btrim(%s) <> ''
-                  AND psv.subdivision_name = %s
+                  AND pc.subdivision_name = %s
                 THEN 0
                 ELSE 1
               END,
-              psv.neighborhood_code,
-              psv.account_number
+              pc.neighborhood_code,
+              pys.account_number
             LIMIT %s
             """,
             (
