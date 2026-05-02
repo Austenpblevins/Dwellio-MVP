@@ -8,6 +8,7 @@ from infra.scripts.report_unequal_roll_validation_completeness import (
     _attach_downstream_replay_payload,
     _build_canonical_downstream_summary,
     _extract_fallback_candidate_payload,
+    _update_canonical_store_map,
 )
 
 
@@ -164,6 +165,7 @@ def test_attach_downstream_replay_payload_from_run_state() -> None:
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map=run_state_map,
         chunked_state_map={},
         fallback_subject_map={},
@@ -187,6 +189,7 @@ def test_attach_downstream_replay_payload_from_chunked_state_when_run_state_miss
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map={},
         chunked_state_map={
             "acct-chunked": {
@@ -211,6 +214,7 @@ def test_attach_downstream_replay_payload_marks_chunked_source_error_when_status
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map={},
         chunked_state_map={
             "acct-chunked-error": {
@@ -234,6 +238,7 @@ def test_attach_downstream_replay_payload_reconstructs_from_fallback_artifact() 
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map={},
         chunked_state_map={
             "acct-fallback": {
@@ -279,6 +284,7 @@ def test_attach_downstream_replay_payload_emits_partial_source_payload() -> None
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map={},
         chunked_state_map={},
         fallback_subject_map={},
@@ -298,6 +304,7 @@ def test_attach_downstream_replay_payload_emits_chunked_error_state() -> None:
 
     _attach_downstream_replay_payload(
         row,
+        canonical_store_map={},
         run_state_map={},
         chunked_state_map={
             "acct-chunked-fail": {
@@ -365,3 +372,68 @@ def test_extract_fallback_candidate_payload_supports_legacy_subject_result_shape
     assert payload["final_value_status"] == "supported_with_review"
     assert payload["requested_roll_value"] == 250000.0
     assert payload["included_comp_count"] == 8
+
+
+def test_attach_downstream_replay_payload_from_canonical_store() -> None:
+    row = {
+        "subject_identifier": "acct-canon-store",
+        "county": "harris",
+        "current_appraised_value": 300000.0,
+        "discovery_completion_status": "completed",
+        "final_value_status": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        canonical_store_map={
+            "acct-canon-store": {
+                "subject_identifier": "acct-canon-store",
+                "final_value_status": "unsupported",
+                "requested_roll_value": 300000.0,
+                "requested_reduction_amount": 0.0,
+                "requested_reduction_pct": 0.0,
+                "included_comp_count": 3,
+                "excluded_review_heavy_count": 1,
+                "excluded_likely_exclude_count": 0,
+            }
+        },
+        run_state_map={},
+        chunked_state_map={},
+        fallback_subject_map={},
+    )
+
+    assert row["final_value_status"] == "unsupported"
+    assert row["included_comp_count"] == 3
+    assert row["downstream_payload_attachment_status"] == "attached_from_canonical_store"
+
+
+def test_update_canonical_store_prefers_rows_with_final_status() -> None:
+    store: dict[str, dict[str, object]] = {}
+    row_without_status = {
+        "subject_identifier": "acct-update",
+        "county": "harris",
+        "current_appraised_value": 200000.0,
+        "final_value_status": None,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+        "downstream_payload_attachment_status": "emitted_partial_source_payload",
+        "completeness_status_code": "defect:downstream_replay_payload_partial_source_emitted",
+        "completeness_defect_category": "downstream_replay_payload_partial_source_emitted",
+    }
+    _update_canonical_store_map(store, row_without_status)
+    assert store["acct-update"]["final_value_status"] is None
+
+    row_with_status = dict(row_without_status)
+    row_with_status.update(
+        {
+            "final_value_status": "unsupported",
+            "requested_roll_value": 200000.0,
+            "requested_reduction_amount": 0.0,
+            "requested_reduction_pct": 0.0,
+            "included_comp_count": 2,
+            "excluded_review_heavy_count": 0,
+            "excluded_likely_exclude_count": 0,
+        }
+    )
+    _update_canonical_store_map(store, row_with_status)
+    assert store["acct-update"]["final_value_status"] == "unsupported"

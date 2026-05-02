@@ -59,6 +59,22 @@ def main() -> None:
             "can be used as a tertiary payload reconstruction source."
         ),
     )
+    parser.add_argument(
+        "--canonical-store-input",
+        default="",
+        help=(
+            "Optional canonical per-subject payload store JSON path. When provided, "
+            "this source is consulted before run-state/chunked/fallback lookups."
+        ),
+    )
+    parser.add_argument(
+        "--canonical-store-output",
+        default="",
+        help=(
+            "Optional output path to persist the canonical per-subject payload store "
+            "generated during this classification run."
+        ),
+    )
     args = parser.parse_args()
 
     subject_rows: list[dict[str, Any]] = []
@@ -68,6 +84,7 @@ def main() -> None:
     fallback_subject_map = _load_fallback_subject_map(
         args.fallback_runtime_artifacts_glob
     )
+    canonical_store_map = _load_canonical_store_map(args.canonical_store_input)
 
     for artifact in args.artifacts:
         path = Path(artifact)
@@ -78,6 +95,7 @@ def main() -> None:
             enriched = dict(row)
             _attach_downstream_replay_payload(
                 enriched,
+                canonical_store_map=canonical_store_map,
                 run_state_map=run_state_map,
                 chunked_state_map=chunked_state_map,
                 fallback_subject_map=fallback_subject_map,
@@ -96,6 +114,7 @@ def main() -> None:
             enriched["source_chunk_number"] = chunk_number
             enriched["source_artifact"] = str(path)
             subject_rows.append(enriched)
+            _update_canonical_store_map(canonical_store_map, enriched)
 
     report = {
         "source_artifacts": source_artifacts,
@@ -103,6 +122,11 @@ def main() -> None:
         "subjects": subject_rows,
     }
     Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if args.canonical_store_output:
+        Path(args.canonical_store_output).write_text(
+            json.dumps({"subjects": list(canonical_store_map.values())}, indent=2),
+            encoding="utf-8",
+        )
 
 
 def _load_run_state_map(run_state_path: Path) -> dict[str, dict[str, Any]]:
@@ -121,6 +145,7 @@ def _load_run_state_map(run_state_path: Path) -> dict[str, dict[str, Any]]:
 def _attach_downstream_replay_payload(
     row: dict[str, Any],
     *,
+    canonical_store_map: dict[str, dict[str, Any]],
     run_state_map: dict[str, dict[str, Any]],
     chunked_state_map: dict[str, dict[str, Any]],
     fallback_subject_map: dict[str, dict[str, Any]],
@@ -130,6 +155,27 @@ def _attach_downstream_replay_payload(
         return
 
     account = row.get("subject_identifier")
+    canonical_payload = (
+        canonical_store_map.get(str(account)) if account is not None else None
+    )
+    if canonical_payload is not None:
+        for key in (
+            "final_value_status",
+            "requested_roll_value",
+            "requested_reduction_amount",
+            "requested_reduction_pct",
+            "included_comp_count",
+            "excluded_review_heavy_count",
+            "excluded_likely_exclude_count",
+            "discovery_completion_status",
+            "probe_error",
+        ):
+            if row.get(key) is None and canonical_payload.get(key) is not None:
+                row[key] = canonical_payload[key]
+        if row.get("final_value_status") is not None:
+            row["downstream_payload_attachment_status"] = "attached_from_canonical_store"
+            return
+
     run_payload = run_state_map.get(str(account)) if account is not None else None
     if run_payload is not None:
         summary = run_payload.get("summary", {})
@@ -320,6 +366,39 @@ def _can_emit_partial_source_payload(row: dict[str, Any]) -> bool:
         and row.get("current_appraised_value") is not None
         and row.get("discovery_completion_status") is not None
     )
+
+
+def _load_canonical_store_map(path_value: str) -> dict[str, dict[str, Any]]:
+    if not path_value:
+        return {}
+    path = Path(path_value)
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mapping: dict[str, dict[str, Any]] = {}
+    for row in payload.get("subjects", []):
+        sid = row.get("subject_identifier")
+        if sid is not None:
+            mapping[str(sid)] = dict(row)
+    return mapping
+
+
+def _update_canonical_store_map(
+    store_map: dict[str, dict[str, Any]],
+    row: dict[str, Any],
+) -> None:
+    sid = row.get("subject_identifier")
+    if sid is None:
+        return
+    key = str(sid)
+    existing = store_map.get(key, {})
+    candidate = _build_canonical_downstream_summary(row)
+    existing_status = existing.get("final_value_status")
+    candidate_status = candidate.get("final_value_status")
+    if existing_status is None and candidate_status is not None:
+        store_map[key] = candidate
+    elif key not in store_map:
+        store_map[key] = candidate
 
 
 if __name__ == "__main__":
