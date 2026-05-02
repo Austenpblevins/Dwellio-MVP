@@ -209,6 +209,12 @@ def _attach_downstream_replay_payload(
         row["downstream_payload_attachment_status"] = "replay_source_error"
         return
 
+    # Source-time probe rows can still carry useful downstream context even if
+    # full model payload fields were not produced in that run lineage.
+    if _can_emit_partial_source_payload(row):
+        row["downstream_payload_attachment_status"] = "emitted_partial_source_payload"
+        return
+
     row["downstream_payload_attachment_status"] = "missing_in_replay_source"
 
 
@@ -287,6 +293,15 @@ def _build_canonical_downstream_summary(row: dict[str, Any]) -> dict[str, Any]:
         "completeness_status_code": row.get("completeness_status_code"),
         "completeness_defect_category": row.get("completeness_defect_category"),
     }
+
+
+def _can_emit_partial_source_payload(row: dict[str, Any]) -> bool:
+    return (
+        row.get("subject_identifier") is not None
+        and row.get("county") is not None
+        and row.get("current_appraised_value") is not None
+        and row.get("discovery_completion_status") is not None
+    )
 
 
 if __name__ == "__main__":

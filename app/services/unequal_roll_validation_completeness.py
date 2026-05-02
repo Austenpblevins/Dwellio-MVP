@@ -107,6 +107,8 @@ def _classify_defect_category(row: dict[str, Any]) -> str:
     attachment_status = row.get("downstream_payload_attachment_status")
     if attachment_status == "missing_in_replay_source":
         return "downstream_replay_payload_not_generated"
+    if attachment_status == "emitted_partial_source_payload":
+        return "downstream_replay_payload_partial_source_emitted"
     if attachment_status == "replay_tables_unavailable":
         return "downstream_replay_tables_unavailable"
     if attachment_status == "replay_source_error":

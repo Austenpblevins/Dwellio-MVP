@@ -61,6 +61,29 @@ def test_classify_subject_output_marks_missing_replay_source_explicitly() -> Non
     assert classification.defect_category == "downstream_replay_payload_not_generated"
 
 
+def test_classify_subject_output_marks_partial_source_payload_explicitly() -> None:
+    row = {
+        "subject_identifier": "acct-2c",
+        "county": "harris",
+        "current_appraised_value": 250000.0,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+        "final_value_status": None,
+        "downstream_payload_attachment_status": "emitted_partial_source_payload",
+    }
+
+    classification = classify_subject_output(row)
+
+    assert (
+        classification.status_code
+        == "defect:downstream_replay_payload_partial_source_emitted"
+    )
+    assert (
+        classification.defect_category
+        == "downstream_replay_payload_partial_source_emitted"
+    )
+
+
 def test_classify_subject_output_marks_complete_model_outcome() -> None:
     row = {
         "subject_identifier": "acct-3",
@@ -241,6 +264,26 @@ def test_attach_downstream_replay_payload_reconstructs_from_fallback_artifact() 
         row["downstream_payload_attachment_status"]
         == "reconstructed_from_runtime_artifact"
     )
+
+
+def test_attach_downstream_replay_payload_emits_partial_source_payload() -> None:
+    row = {
+        "subject_identifier": "acct-partial",
+        "county": "harris",
+        "current_appraised_value": 315000.0,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+        "final_value_status": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        run_state_map={},
+        chunked_state_map={},
+        fallback_subject_map={},
+    )
+
+    assert row["downstream_payload_attachment_status"] == "emitted_partial_source_payload"
 
 
 def test_attach_downstream_replay_payload_emits_chunked_error_state() -> None:
