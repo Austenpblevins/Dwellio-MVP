@@ -7,6 +7,7 @@ from app.services.unequal_roll_validation_completeness import (
 from infra.scripts.report_unequal_roll_validation_completeness import (
     _attach_downstream_replay_payload,
     _build_canonical_downstream_summary,
+    _extract_fallback_candidate_payload,
 )
 
 
@@ -340,3 +341,27 @@ def test_build_canonical_downstream_summary_contains_defect_state() -> None:
     assert summary["discovery_completion_status"] == "failed"
     assert summary["probe_error"] == "the connection is lost"
     assert summary["completeness_status_code"] == "defect:runtime_or_discovery_failure"
+
+
+def test_extract_fallback_candidate_payload_supports_legacy_subject_result_shape() -> None:
+    row = {
+        "subject": {
+            "account_number": "legacy-1",
+        },
+        "result": {
+            "final_value_status": "supported_with_review",
+            "requested_roll_value": 250000.0,
+            "requested_reduction_amount": 10000.0,
+            "requested_reduction_pct": 0.038462,
+            "included_comp_count": 8,
+            "excluded_review_heavy_count": 1,
+            "excluded_likely_exclude_count": 0,
+        },
+    }
+
+    payload = _extract_fallback_candidate_payload(row)
+
+    assert payload["subject_identifier"] == "legacy-1"
+    assert payload["final_value_status"] == "supported_with_review"
+    assert payload["requested_roll_value"] == 250000.0
+    assert payload["included_comp_count"] == 8

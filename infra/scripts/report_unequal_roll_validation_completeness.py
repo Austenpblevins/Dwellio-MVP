@@ -248,20 +248,12 @@ def _load_fallback_subject_map(
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
         for row in payload.get("subjects", []):
-            account = row.get("subject_identifier")
+            candidate = _extract_fallback_candidate_payload(row)
+            account = candidate.get("subject_identifier")
             if account is None:
                 continue
             account_key = str(account)
             existing = mapping.get(account_key, {})
-            candidate = {
-                "final_value_status": row.get("final_value_status"),
-                "requested_roll_value": row.get("requested_roll_value"),
-                "requested_reduction_amount": row.get("requested_reduction_amount"),
-                "requested_reduction_pct": row.get("requested_reduction_pct"),
-                "included_comp_count": row.get("included_comp_count"),
-                "excluded_review_heavy_count": row.get("excluded_review_heavy_count"),
-                "excluded_likely_exclude_count": row.get("excluded_likely_exclude_count"),
-            }
             # Prefer the first payload that has a concrete final status.
             if existing.get("final_value_status") is None and candidate.get(
                 "final_value_status"
@@ -270,6 +262,32 @@ def _load_fallback_subject_map(
             elif account_key not in mapping:
                 mapping[account_key] = candidate
     return mapping
+
+
+def _extract_fallback_candidate_payload(row: dict[str, Any]) -> dict[str, Any]:
+    account = row.get("subject_identifier")
+    if account is None:
+        account = (row.get("subject") or {}).get("account_number")
+
+    result = row.get("result") or {}
+    return {
+        "subject_identifier": account,
+        "final_value_status": row.get("final_value_status", result.get("final_value_status")),
+        "requested_roll_value": row.get("requested_roll_value", result.get("requested_roll_value")),
+        "requested_reduction_amount": row.get(
+            "requested_reduction_amount", result.get("requested_reduction_amount")
+        ),
+        "requested_reduction_pct": row.get(
+            "requested_reduction_pct", result.get("requested_reduction_pct")
+        ),
+        "included_comp_count": row.get("included_comp_count", result.get("included_comp_count")),
+        "excluded_review_heavy_count": row.get(
+            "excluded_review_heavy_count", result.get("excluded_review_heavy_count")
+        ),
+        "excluded_likely_exclude_count": row.get(
+            "excluded_likely_exclude_count", result.get("excluded_likely_exclude_count")
+        ),
+    }
 
 
 def _build_canonical_downstream_summary(row: dict[str, Any]) -> dict[str, Any]:
