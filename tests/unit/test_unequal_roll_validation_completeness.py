@@ -137,7 +137,9 @@ def test_attach_downstream_replay_payload_from_run_state() -> None:
         }
     }
 
-    _attach_downstream_replay_payload(row, run_state_map=run_state_map)
+    _attach_downstream_replay_payload(
+        row, run_state_map=run_state_map, chunked_state_map={}
+    )
 
     assert row["final_value_status"] == "unsupported"
     assert row["requested_roll_value"] == 300000.0
@@ -146,3 +148,48 @@ def test_attach_downstream_replay_payload_from_run_state() -> None:
     assert row["excluded_review_heavy_count"] == 1
     assert row["excluded_likely_exclude_count"] == 0
     assert row["downstream_payload_attachment_status"] == "attached_from_run_state"
+
+
+def test_attach_downstream_replay_payload_from_chunked_state_when_run_state_missing() -> None:
+    row = {
+        "subject_identifier": "acct-chunked",
+        "current_appraised_value": 310000.0,
+        "final_value_status": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        run_state_map={},
+        chunked_state_map={
+            "acct-chunked": {
+                "status": "supported_with_review",
+                "included": 12,
+            }
+        },
+    )
+
+    assert row["final_value_status"] == "supported_with_review"
+    assert row["included_comp_count"] == 12
+    assert row["downstream_payload_attachment_status"] == "attached_from_chunked_state"
+
+
+def test_attach_downstream_replay_payload_marks_chunked_source_error_when_status_missing() -> None:
+    row = {
+        "subject_identifier": "acct-chunked-error",
+        "current_appraised_value": 310000.0,
+        "final_value_status": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        run_state_map={},
+        chunked_state_map={
+            "acct-chunked-error": {
+                "status": None,
+                "included": None,
+            }
+        },
+    )
+
+    assert row["final_value_status"] is None
+    assert row["downstream_payload_attachment_status"] == "replay_source_error"
