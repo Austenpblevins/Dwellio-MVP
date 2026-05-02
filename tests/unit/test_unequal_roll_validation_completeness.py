@@ -86,6 +86,25 @@ def test_classify_subject_output_marks_partial_source_payload_explicitly() -> No
     )
 
 
+def test_classify_subject_output_marks_attached_producer_partial_payload_explicitly() -> None:
+    row = {
+        "subject_identifier": "acct-2d",
+        "county": "harris",
+        "current_appraised_value": 250000.0,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+        "final_value_status": None,
+        "downstream_payload_attachment_status": "attached_from_producer_payload",
+    }
+
+    classification = classify_subject_output(row)
+
+    assert (
+        classification.status_code
+        == "defect:downstream_replay_payload_partial_source_emitted"
+    )
+
+
 def test_classify_subject_output_marks_complete_model_outcome() -> None:
     row = {
         "subject_identifier": "acct-3",
@@ -437,3 +456,35 @@ def test_update_canonical_store_prefers_rows_with_final_status() -> None:
     )
     _update_canonical_store_map(store, row_with_status)
     assert store["acct-update"]["final_value_status"] == "unsupported"
+
+
+def test_attach_downstream_replay_payload_from_producer_payload() -> None:
+    row = {
+        "subject_identifier": "acct-producer",
+        "county": "harris",
+        "current_appraised_value": 250000.0,
+        "final_value_status": None,
+        "producer_downstream_payload": {
+            "final_value_status": "manual_review_required",
+            "requested_roll_value": 250000.0,
+            "requested_reduction_amount": 0.0,
+            "requested_reduction_pct": 0.0,
+            "included_comp_count": 4,
+            "excluded_review_heavy_count": 2,
+            "excluded_likely_exclude_count": 0,
+            "discovery_completion_status": "completed",
+            "probe_error": None,
+        },
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        canonical_store_map={},
+        run_state_map={},
+        chunked_state_map={},
+        fallback_subject_map={},
+    )
+
+    assert row["final_value_status"] == "manual_review_required"
+    assert row["included_comp_count"] == 4
+    assert row["downstream_payload_attachment_status"] == "attached_from_producer_payload"

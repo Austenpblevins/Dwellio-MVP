@@ -154,6 +154,28 @@ def _attach_downstream_replay_payload(
         row["downstream_payload_attachment_status"] = "already_attached"
         return
 
+    producer_payload = row.get("producer_downstream_payload")
+    if isinstance(producer_payload, dict):
+        for key in (
+            "final_value_status",
+            "requested_roll_value",
+            "requested_reduction_amount",
+            "requested_reduction_pct",
+            "included_comp_count",
+            "excluded_review_heavy_count",
+            "excluded_likely_exclude_count",
+            "discovery_completion_status",
+            "probe_error",
+            "downstream_payload_attachment_status",
+        ):
+            if row.get(key) is None and producer_payload.get(key) is not None:
+                row[key] = producer_payload[key]
+        if row.get("final_value_status") is not None:
+            row["downstream_payload_attachment_status"] = "attached_from_producer_payload"
+            return
+        if row.get("downstream_payload_attachment_status") is None:
+            row["downstream_payload_attachment_status"] = "attached_from_producer_payload"
+
     account = row.get("subject_identifier")
     canonical_payload = (
         canonical_store_map.get(str(account)) if account is not None else None
