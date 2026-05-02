@@ -104,6 +104,13 @@ def _classify_defect_category(row: dict[str, Any]) -> str:
         return "runtime_or_discovery_failure"
     if row.get("probe_error"):
         return "runtime_or_discovery_failure"
+    attachment_status = row.get("downstream_payload_attachment_status")
+    if attachment_status == "missing_in_replay_source":
+        return "downstream_replay_payload_not_generated"
+    if attachment_status == "replay_tables_unavailable":
+        return "downstream_replay_tables_unavailable"
+    if attachment_status == "replay_source_error":
+        return "downstream_replay_source_error"
     if row.get("subject_identifier") is None:
         return "missing_subject_identifier"
     if row.get("county") is None or row.get("current_appraised_value") is None:
