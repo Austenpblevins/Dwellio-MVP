@@ -18,6 +18,8 @@ DISCOVERY_TIER_COUNTY_SFR_FALLBACK = "county_sfr_fallback"
 PREFERRED_RAW_CANDIDATE_POOL = 25
 MAX_AUTO_HARVEST = 100
 SPARSE_UNIVERSE_WARNING_THRESHOLD = 15
+FALLBACK_PREFILTER_MULTIPLIER = 8
+FALLBACK_PREFILTER_MAX_ROWS = 800
 FORT_BEND_AUTO_USABLE_BATHROOM_STATUSES = {
     "exact_supported",
     "reconciled_fractional_plumbing",
@@ -322,8 +324,41 @@ class UnequalRollCandidateDiscoveryService:
         if remaining_limit <= 0:
             return []
 
+        prefilter_limit = min(
+            FALLBACK_PREFILTER_MAX_ROWS,
+            max(remaining_limit, remaining_limit * FALLBACK_PREFILTER_MULTIPLIER),
+        )
         cursor.execute(
             """
+            WITH candidate_keys AS (
+              SELECT
+                pys.parcel_id,
+                pys.tax_year,
+                pys.account_number,
+                pc.neighborhood_code,
+                pc.subdivision_name
+              FROM parcel_year_snapshots AS pys
+              JOIN property_characteristics AS pc
+                ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
+              WHERE pys.is_current = true
+                AND pys.county_id = %s
+                AND pys.tax_year = %s
+                AND pys.parcel_id <> %s
+                AND lower(coalesce(pc.property_type_code, '')) = 'sfr'
+                AND (
+                  pc.neighborhood_code IS DISTINCT FROM %s
+                )
+              ORDER BY
+                CASE
+                  WHEN COALESCE(%s::text, '') <> ''
+                    AND pc.subdivision_name = %s
+                  THEN 0
+                  ELSE 1
+                END,
+                pc.neighborhood_code,
+                pys.account_number
+              LIMIT %s
+            )
             SELECT
               pys.parcel_id,
               pys.county_id,
@@ -352,7 +387,11 @@ class UnequalRollCandidateDiscoveryService:
               ass.appraised_value,
               ass.certified_value,
               ass.notice_value
-            FROM parcel_year_snapshots AS pys
+            FROM candidate_keys AS ck
+            JOIN parcel_year_snapshots AS pys
+              ON pys.parcel_id = ck.parcel_id
+             AND pys.tax_year = ck.tax_year
+             AND pys.is_current = true
             JOIN property_characteristics AS pc
               ON pc.parcel_year_snapshot_id = pys.parcel_year_snapshot_id
             JOIN parcel_assessments AS ass
@@ -376,26 +415,19 @@ class UnequalRollCandidateDiscoveryService:
                 pa.parcel_address_id DESC
               LIMIT 1
             ) AS pa ON true
-            WHERE pys.is_current = true
-              AND pys.county_id = %s
+            WHERE pys.county_id = %s
               AND pys.tax_year = %s
-              AND pys.parcel_id <> %s
-              AND lower(coalesce(pc.property_type_code, '')) = 'sfr'
               AND coalesce(pi.living_area_sf, 0) > 0
               AND coalesce(ass.appraised_value, 0) > 0
-              AND (
-                pc.neighborhood_code IS DISTINCT FROM %s
-              )
             ORDER BY
               CASE
-                WHEN %s IS NOT NULL
-                  AND btrim(%s) <> ''
-                  AND pc.subdivision_name = %s
+                WHEN COALESCE(%s::text, '') <> ''
+                  AND ck.subdivision_name = %s
                 THEN 0
                 ELSE 1
               END,
-              pc.neighborhood_code,
-              pys.account_number
+              ck.neighborhood_code,
+              ck.account_number
             LIMIT %s
             """,
             (
@@ -404,6 +436,10 @@ class UnequalRollCandidateDiscoveryService:
                 subject_snapshot["parcel_id"],
                 subject_snapshot["neighborhood_code"],
                 subject_snapshot.get("subdivision_name"),
+                subject_snapshot.get("subdivision_name"),
+                prefilter_limit,
+                subject_snapshot["county_id"],
+                subject_snapshot["tax_year"],
                 subject_snapshot.get("subdivision_name"),
                 subject_snapshot.get("subdivision_name"),
                 remaining_limit,
