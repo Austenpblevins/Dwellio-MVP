@@ -187,9 +187,10 @@ def test_discover_candidates_persists_same_neighborhood_candidates(monkeypatch) 
     assert len(connection.cursor_instance.execute_calls) == 7
     same_neighborhood_sql = connection.cursor_instance.execute_calls[2][0]
     fallback_sql = connection.cursor_instance.execute_calls[3][0]
-    assert "psv.neighborhood_code = %s" in same_neighborhood_sql
-    assert "lower(coalesce(psv.property_type_code, '')) = 'sfr'" in same_neighborhood_sql
-    assert "lower(coalesce(psv.property_type_code, '')) = 'sfr'" in fallback_sql
+    assert "FROM parcel_year_snapshots AS pys" in same_neighborhood_sql
+    assert "pc.neighborhood_code = %s" in same_neighborhood_sql
+    assert "lower(coalesce(pc.property_type_code, '')) = 'sfr'" in same_neighborhood_sql
+    assert "lower(coalesce(pc.property_type_code, '')) = 'sfr'" in fallback_sql
 
     first_insert_params = connection.cursor_instance.execute_calls[4][1]
     assert first_insert_params[0] == "run-1"
