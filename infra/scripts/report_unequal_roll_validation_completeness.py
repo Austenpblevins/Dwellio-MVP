@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
+import glob
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -50,12 +51,23 @@ def main() -> None:
             "source when run-state payloads are unavailable."
         ),
     )
+    parser.add_argument(
+        "--fallback-runtime-artifacts-glob",
+        default="",
+        help=(
+            "Optional glob for per-subject runtime replay artifacts whose subject rows "
+            "can be used as a tertiary payload reconstruction source."
+        ),
+    )
     args = parser.parse_args()
 
     subject_rows: list[dict[str, Any]] = []
     source_artifacts: list[str] = []
     run_state_map = _load_run_state_map(Path(args.run_state))
     chunked_state_map = _load_chunked_state_map(Path(args.chunked_state))
+    fallback_subject_map = _load_fallback_subject_map(
+        args.fallback_runtime_artifacts_glob
+    )
 
     for artifact in args.artifacts:
         path = Path(artifact)
@@ -68,6 +80,7 @@ def main() -> None:
                 enriched,
                 run_state_map=run_state_map,
                 chunked_state_map=chunked_state_map,
+                fallback_subject_map=fallback_subject_map,
             )
             classification = classify_subject_output(enriched)
             enriched["completeness_status_code"] = classification.status_code
@@ -107,6 +120,7 @@ def _attach_downstream_replay_payload(
     *,
     run_state_map: dict[str, dict[str, Any]],
     chunked_state_map: dict[str, dict[str, Any]],
+    fallback_subject_map: dict[str, dict[str, Any]],
 ) -> None:
     if row.get("final_value_status") is not None:
         row["downstream_payload_attachment_status"] = "already_attached"
@@ -143,6 +157,7 @@ def _attach_downstream_replay_payload(
             return
 
     chunk_payload = chunked_state_map.get(str(account)) if account is not None else None
+    saw_chunk_source_error = False
     if chunk_payload is not None:
         status = chunk_payload.get("status")
         included = chunk_payload.get("included")
@@ -155,7 +170,32 @@ def _attach_downstream_replay_payload(
             if row.get("final_value_status") is not None:
                 return
             row["downstream_payload_attachment_status"] = "replay_source_error"
+            saw_chunk_source_error = True
+            # Continue into tertiary fallback reconstruction path.
+
+    account = row.get("subject_identifier")
+    fallback_payload = (
+        fallback_subject_map.get(str(account)) if account is not None else None
+    )
+    if fallback_payload is not None:
+        for key in (
+            "final_value_status",
+            "requested_roll_value",
+            "requested_reduction_amount",
+            "requested_reduction_pct",
+            "included_comp_count",
+            "excluded_review_heavy_count",
+            "excluded_likely_exclude_count",
+        ):
+            if row.get(key) is None and fallback_payload.get(key) is not None:
+                row[key] = fallback_payload[key]
+        if row.get("final_value_status") is not None:
+            row["downstream_payload_attachment_status"] = "reconstructed_from_runtime_artifact"
             return
+
+    if saw_chunk_source_error:
+        row["downstream_payload_attachment_status"] = "replay_source_error"
+        return
 
     row["downstream_payload_attachment_status"] = "missing_in_replay_source"
 
@@ -173,6 +213,42 @@ def _load_chunked_state_map(chunked_state_path: Path) -> dict[str, dict[str, Any
                     "status": row.get("status"),
                     "included": row.get("included"),
                 }
+    return mapping
+
+
+def _load_fallback_subject_map(
+    artifacts_glob: str,
+) -> dict[str, dict[str, Any]]:
+    if not artifacts_glob:
+        return {}
+    mapping: dict[str, dict[str, Any]] = {}
+    for artifact_path in sorted(glob.glob(artifacts_glob)):
+        path = Path(artifact_path)
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        for row in payload.get("subjects", []):
+            account = row.get("subject_identifier")
+            if account is None:
+                continue
+            account_key = str(account)
+            existing = mapping.get(account_key, {})
+            candidate = {
+                "final_value_status": row.get("final_value_status"),
+                "requested_roll_value": row.get("requested_roll_value"),
+                "requested_reduction_amount": row.get("requested_reduction_amount"),
+                "requested_reduction_pct": row.get("requested_reduction_pct"),
+                "included_comp_count": row.get("included_comp_count"),
+                "excluded_review_heavy_count": row.get("excluded_review_heavy_count"),
+                "excluded_likely_exclude_count": row.get("excluded_likely_exclude_count"),
+            }
+            # Prefer the first payload that has a concrete final status.
+            if existing.get("final_value_status") is None and candidate.get(
+                "final_value_status"
+            ) is not None:
+                mapping[account_key] = candidate
+            elif account_key not in mapping:
+                mapping[account_key] = candidate
     return mapping
 
 

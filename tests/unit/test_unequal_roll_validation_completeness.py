@@ -138,7 +138,10 @@ def test_attach_downstream_replay_payload_from_run_state() -> None:
     }
 
     _attach_downstream_replay_payload(
-        row, run_state_map=run_state_map, chunked_state_map={}
+        row,
+        run_state_map=run_state_map,
+        chunked_state_map={},
+        fallback_subject_map={},
     )
 
     assert row["final_value_status"] == "unsupported"
@@ -166,6 +169,7 @@ def test_attach_downstream_replay_payload_from_chunked_state_when_run_state_miss
                 "included": 12,
             }
         },
+        fallback_subject_map={},
     )
 
     assert row["final_value_status"] == "supported_with_review"
@@ -189,7 +193,50 @@ def test_attach_downstream_replay_payload_marks_chunked_source_error_when_status
                 "included": None,
             }
         },
+        fallback_subject_map={},
     )
 
     assert row["final_value_status"] is None
     assert row["downstream_payload_attachment_status"] == "replay_source_error"
+
+
+def test_attach_downstream_replay_payload_reconstructs_from_fallback_artifact() -> None:
+    row = {
+        "subject_identifier": "acct-fallback",
+        "current_appraised_value": 325000.0,
+        "final_value_status": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        run_state_map={},
+        chunked_state_map={
+            "acct-fallback": {
+                "status": None,
+                "included": None,
+            }
+        },
+        fallback_subject_map={
+            "acct-fallback": {
+                "final_value_status": "supported",
+                "requested_roll_value": 300000.0,
+                "requested_reduction_amount": 25000.0,
+                "requested_reduction_pct": 0.076923,
+                "included_comp_count": 8,
+                "excluded_review_heavy_count": 2,
+                "excluded_likely_exclude_count": 0,
+            }
+        },
+    )
+
+    assert row["final_value_status"] == "supported"
+    assert row["requested_roll_value"] == 300000.0
+    assert row["requested_reduction_amount"] == 25000.0
+    assert row["requested_reduction_pct"] == 0.076923
+    assert row["included_comp_count"] == 8
+    assert row["excluded_review_heavy_count"] == 2
+    assert row["excluded_likely_exclude_count"] == 0
+    assert (
+        row["downstream_payload_attachment_status"]
+        == "reconstructed_from_runtime_artifact"
+    )
