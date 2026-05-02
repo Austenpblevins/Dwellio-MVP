@@ -6,6 +6,7 @@ from app.services.unequal_roll_validation_completeness import (
 )
 from infra.scripts.report_unequal_roll_validation_completeness import (
     _attach_downstream_replay_payload,
+    _build_canonical_downstream_summary,
 )
 
 
@@ -240,3 +241,59 @@ def test_attach_downstream_replay_payload_reconstructs_from_fallback_artifact() 
         row["downstream_payload_attachment_status"]
         == "reconstructed_from_runtime_artifact"
     )
+
+
+def test_attach_downstream_replay_payload_emits_chunked_error_state() -> None:
+    row = {
+        "subject_identifier": "acct-chunked-fail",
+        "current_appraised_value": 320000.0,
+        "final_value_status": None,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+    }
+
+    _attach_downstream_replay_payload(
+        row,
+        run_state_map={},
+        chunked_state_map={
+            "acct-chunked-fail": {
+                "ok": False,
+                "error": "the connection is lost",
+                "status": None,
+                "included": None,
+            }
+        },
+        fallback_subject_map={},
+    )
+
+    assert row["discovery_completion_status"] == "failed"
+    assert row["probe_error"] == "the connection is lost"
+    assert row["downstream_payload_attachment_status"] == "attached_from_chunked_state_error"
+
+
+def test_build_canonical_downstream_summary_contains_defect_state() -> None:
+    row = {
+        "subject_identifier": "acct-canon",
+        "county": "harris",
+        "neighborhood": "229.60",
+        "current_appraised_value": 300000.0,
+        "final_value_status": None,
+        "requested_roll_value": None,
+        "requested_reduction_amount": None,
+        "requested_reduction_pct": None,
+        "included_comp_count": None,
+        "excluded_review_heavy_count": None,
+        "excluded_likely_exclude_count": None,
+        "discovery_completion_status": "failed",
+        "probe_error": "the connection is lost",
+        "downstream_payload_attachment_status": "attached_from_chunked_state_error",
+        "completeness_status_code": "defect:runtime_or_discovery_failure",
+        "completeness_defect_category": "runtime_or_discovery_failure",
+    }
+
+    summary = _build_canonical_downstream_summary(row)
+
+    assert summary["subject_identifier"] == "acct-canon"
+    assert summary["discovery_completion_status"] == "failed"
+    assert summary["probe_error"] == "the connection is lost"
+    assert summary["completeness_status_code"] == "defect:runtime_or_discovery_failure"

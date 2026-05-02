@@ -90,6 +90,9 @@ def main() -> None:
             enriched["missing_required_fields"] = list(
                 classification.missing_required_fields
             )
+            enriched["canonical_downstream_summary"] = _build_canonical_downstream_summary(
+                enriched
+            )
             enriched["source_chunk_number"] = chunk_number
             enriched["source_artifact"] = str(path)
             subject_rows.append(enriched)
@@ -159,12 +162,21 @@ def _attach_downstream_replay_payload(
     chunk_payload = chunked_state_map.get(str(account)) if account is not None else None
     saw_chunk_source_error = False
     if chunk_payload is not None:
+        chunk_ok = chunk_payload.get("ok")
+        chunk_error = chunk_payload.get("error")
         status = chunk_payload.get("status")
         included = chunk_payload.get("included")
         if status is not None:
             row["final_value_status"] = status
         if included is not None:
             row["included_comp_count"] = included
+        if chunk_ok is False:
+            if not row.get("probe_error") and chunk_error:
+                row["probe_error"] = chunk_error
+            if row.get("discovery_completion_status") == "completed":
+                row["discovery_completion_status"] = "failed"
+            row["downstream_payload_attachment_status"] = "attached_from_chunked_state_error"
+            return
         row["downstream_payload_attachment_status"] = "attached_from_chunked_state"
         if row["downstream_payload_attachment_status"] == "attached_from_chunked_state":
             if row.get("final_value_status") is not None:
@@ -212,6 +224,8 @@ def _load_chunked_state_map(chunked_state_path: Path) -> dict[str, dict[str, Any
                 mapping[str(account)] = {
                     "status": row.get("status"),
                     "included": row.get("included"),
+                    "ok": row.get("ok"),
+                    "error": row.get("error"),
                 }
     return mapping
 
@@ -250,6 +264,29 @@ def _load_fallback_subject_map(
             elif account_key not in mapping:
                 mapping[account_key] = candidate
     return mapping
+
+
+def _build_canonical_downstream_summary(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "subject_identifier": row.get("subject_identifier"),
+        "county": row.get("county"),
+        "neighborhood": row.get("neighborhood"),
+        "current_appraised_value": row.get("current_appraised_value"),
+        "final_value_status": row.get("final_value_status"),
+        "requested_roll_value": row.get("requested_roll_value"),
+        "requested_reduction_amount": row.get("requested_reduction_amount"),
+        "requested_reduction_pct": row.get("requested_reduction_pct"),
+        "included_comp_count": row.get("included_comp_count"),
+        "excluded_review_heavy_count": row.get("excluded_review_heavy_count"),
+        "excluded_likely_exclude_count": row.get("excluded_likely_exclude_count"),
+        "discovery_completion_status": row.get("discovery_completion_status"),
+        "probe_error": row.get("probe_error"),
+        "downstream_payload_attachment_status": row.get(
+            "downstream_payload_attachment_status"
+        ),
+        "completeness_status_code": row.get("completeness_status_code"),
+        "completeness_defect_category": row.get("completeness_defect_category"),
+    }
 
 
 if __name__ == "__main__":
