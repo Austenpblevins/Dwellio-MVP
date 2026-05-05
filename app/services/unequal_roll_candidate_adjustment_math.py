@@ -476,8 +476,9 @@ class UnequalRollCandidateAdjustmentMathService:
 
         if adjustment_type == "gla":
             rate = round((raw_value_per_sf or 0.0) * GLA_RATE_SCALE, 2) if raw_value_per_sf else None
-            diff = _as_float(run_context.get("living_area_sf")) - _as_float(
-                candidate.get("living_area_sf")
+            diff = _difference(
+                _as_float(run_context.get("living_area_sf")),
+                _as_float(candidate.get("living_area_sf")),
             )
             return self._monetized_line_item(
                 line_order=line_order,
@@ -513,8 +514,9 @@ class UnequalRollCandidateAdjustmentMathService:
                     run_context.get("effective_age")
                 )
             else:
-                diff = _as_float(run_context.get("year_built")) - _as_float(
-                    candidate.get("year_built")
+                diff = _difference(
+                    _as_float(run_context.get("year_built")),
+                    _as_float(candidate.get("year_built")),
                 )
             return self._monetized_line_item(
                 line_order=line_order,
@@ -681,7 +683,10 @@ class UnequalRollCandidateAdjustmentMathService:
             )
 
         if adjustment_type == "bedroom":
-            diff = _as_float(run_context.get("bedrooms")) - _as_float(candidate.get("bedrooms"))
+            diff = _difference(
+                _as_float(run_context.get("bedrooms")),
+                _as_float(candidate.get("bedrooms")),
+            )
             return self._non_monetized_line_item(
                 line_order=line_order,
                 adjustment_type="bedroom",
@@ -733,7 +738,10 @@ class UnequalRollCandidateAdjustmentMathService:
             )
 
         if adjustment_type == "story":
-            diff = _as_float(run_context.get("stories")) - _as_float(candidate.get("stories"))
+            diff = _difference(
+                _as_float(run_context.get("stories")),
+                _as_float(candidate.get("stories")),
+            )
             rate = (
                 round(subject_raw_value * STORY_RATE_PCT_OF_SUBJECT_RAW_VALUE, 2)
                 if subject_raw_value

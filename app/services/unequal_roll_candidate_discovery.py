@@ -291,9 +291,9 @@ class UnequalRollCandidateDiscoveryService:
               AND coalesce(ass.appraised_value, 0) > 0
             ORDER BY
               CASE
-                WHEN %s IS NOT NULL
-                  AND btrim(%s) <> ''
-                  AND pc.subdivision_name = %s
+                WHEN %s::text IS NOT NULL
+                  AND btrim(%s::text) <> ''
+                  AND pc.subdivision_name = %s::text
                 THEN 0
                 ELSE 1
               END,
