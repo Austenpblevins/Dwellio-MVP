@@ -369,6 +369,39 @@ def test_build_canonical_downstream_summary_contains_defect_state() -> None:
     assert summary["completeness_status_code"] == "defect:runtime_or_discovery_failure"
 
 
+def test_build_canonical_downstream_summary_preserves_compact_review_payload() -> None:
+    row = {
+        "subject_identifier": "acct-compact",
+        "county": "harris",
+        "neighborhood": "229.60",
+        "current_appraised_value": 300000.0,
+        "final_value_status": "supported_with_review",
+        "requested_roll_value": 285000.0,
+        "requested_reduction_amount": 15000.0,
+        "requested_reduction_pct": 0.05,
+        "included_comp_count": 2,
+        "excluded_review_heavy_count": 1,
+        "excluded_likely_exclude_count": 0,
+        "discovery_completion_status": "completed",
+        "probe_error": None,
+        "compact_final_value_review_payload": {
+            "payload_status": "full_from_final_value_detail",
+            "included_comp_rows": [{"candidate_parcel_id": "parcel-1"}],
+            "stability_metrics": {"median_all": 285000.0},
+        },
+    }
+
+    summary = _build_canonical_downstream_summary(row)
+
+    assert summary["compact_final_value_review_payload"]["payload_status"] == (
+        "full_from_final_value_detail"
+    )
+    assert (
+        summary["compact_final_value_review_payload"]["stability_metrics"]["median_all"]
+        == 285000.0
+    )
+
+
 def test_extract_fallback_candidate_payload_supports_legacy_subject_result_shape() -> None:
     row = {
         "subject": {
@@ -414,6 +447,10 @@ def test_attach_downstream_replay_payload_from_canonical_store() -> None:
                 "included_comp_count": 3,
                 "excluded_review_heavy_count": 1,
                 "excluded_likely_exclude_count": 0,
+                "compact_final_value_review_payload": {
+                    "payload_status": "full_from_final_value_detail",
+                    "included_comp_rows": [{"candidate_parcel_id": "parcel-1"}],
+                },
             }
         },
         run_state_map={},
@@ -423,6 +460,9 @@ def test_attach_downstream_replay_payload_from_canonical_store() -> None:
 
     assert row["final_value_status"] == "unsupported"
     assert row["included_comp_count"] == 3
+    assert row["compact_final_value_review_payload"]["payload_status"] == (
+        "full_from_final_value_detail"
+    )
     assert row["downstream_payload_attachment_status"] == "attached_from_canonical_store"
 
 
@@ -474,6 +514,10 @@ def test_attach_downstream_replay_payload_from_producer_payload() -> None:
             "excluded_likely_exclude_count": 0,
             "discovery_completion_status": "completed",
             "probe_error": None,
+            "compact_final_value_review_payload": {
+                "payload_status": "partial_from_selection_log",
+                "stability_metrics": {"median_all": 250000.0},
+            },
         },
     }
 
@@ -487,4 +531,8 @@ def test_attach_downstream_replay_payload_from_producer_payload() -> None:
 
     assert row["final_value_status"] == "manual_review_required"
     assert row["included_comp_count"] == 4
+    assert (
+        row["compact_final_value_review_payload"]["stability_metrics"]["median_all"]
+        == 250000.0
+    )
     assert row["downstream_payload_attachment_status"] == "attached_from_producer_payload"

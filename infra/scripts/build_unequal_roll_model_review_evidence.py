@@ -177,12 +177,20 @@ def main() -> None:
 
         run_state_summary = summarize_run_state_candidates(run_state) if run_state else None
         subject_context = subject_context_by_account.get(account) or {}
-        stability_status = _build_stability_status(run_state)
+        compact_review_payload = _resolve_compact_review_payload(
+            merged_runtime_row=merged_runtime_row,
+            classified_row=classified_row,
+            producer_row=producer_row,
+        )
+        stability_status = _build_stability_status(
+            run_state=run_state,
+            compact_review_payload=compact_review_payload,
+        )
         completeness_grade = evidence_completeness_grade(
             final_reconciled_status=reconciliation.get("final_reconciled_status"),
             model_outcome_complete=bool(reconciliation.get("model_outcome_complete")),
             subject_context_present=bool(subject_context),
-            comp_evidence_present=run_state_summary is not None,
+            comp_evidence_present=bool(compact_review_payload) or run_state_summary is not None,
             stability_metrics_present=stability_status["stability_metrics_present"],
             none_origin=str(reconciliation.get("none_origin") or ""),
         )
@@ -261,18 +269,21 @@ def main() -> None:
                 ),
             },
             "producer_downstream_payload": producer_row.get("producer_downstream_payload"),
+            "compact_final_value_review_payload": compact_review_payload,
             "patterns": pattern_summary,
             "run_state_summary": run_state_summary,
             "stability": stability_status,
             "field_availability": _field_availability_summary(
                 run_state=run_state,
                 subject_context=subject_context,
+                compact_review_payload=compact_review_payload,
             ),
             "evidence_completeness_grade": completeness_grade,
             "missing_evidence": _missing_evidence_list(
                 run_state=run_state,
                 subject_context=subject_context,
                 stability_status=stability_status,
+                compact_review_payload=compact_review_payload,
             ),
             "preliminary_interpretation": _preliminary_interpretation(
                 reconciliation=reconciliation,
@@ -621,18 +632,48 @@ def _pick_best_subject_row(
     return sorted(rows, key=score)[0]
 
 
+def _resolve_compact_review_payload(
+    *,
+    merged_runtime_row: dict[str, Any],
+    classified_row: dict[str, Any],
+    producer_row: dict[str, Any],
+) -> dict[str, Any] | None:
+    for source in (
+        merged_runtime_row,
+        classified_row,
+        producer_row.get("producer_downstream_payload") or {},
+    ):
+        payload = source.get("compact_final_value_review_payload")
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def _field_availability_summary(
-    *, run_state: dict[str, Any] | None, subject_context: dict[str, Any]
+    *,
+    run_state: dict[str, Any] | None,
+    subject_context: dict[str, Any],
+    compact_review_payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    availability = dict((compact_review_payload or {}).get("availability") or {})
     return {
         "subject_context_from_stage21": bool(subject_context),
-        "comp_identity_available": False,
-        "comp_address_available": False,
-        "similarity_scores_available": False,
-        "adjusted_appraised_values_available": False,
-        "included_adjusted_value_list_available": False,
-        "stability_metrics_available": False,
-        "final_value_detail_json_available": False,
+        "comp_identity_available": bool(availability.get("comp_identity_available")),
+        "comp_address_available": bool(availability.get("comp_address_available")),
+        "similarity_scores_available": bool(availability.get("similarity_score_available")),
+        "adjusted_appraised_values_available": bool(
+            availability.get("adjusted_appraised_value_available")
+        ),
+        "included_adjusted_value_list_available": bool(
+            availability.get("ordered_adjusted_values_available")
+        ),
+        "stability_metrics_available": bool(
+            availability.get("stability_metrics_available")
+        ),
+        "final_value_detail_json_available": compact_review_payload is not None,
+        "line_item_summary_available": bool(
+            availability.get("line_item_summary_available")
+        ),
         "run_state_comp_posture_available": run_state is not None,
     }
 
@@ -642,13 +683,14 @@ def _missing_evidence_list(
     run_state: dict[str, Any] | None,
     subject_context: dict[str, Any],
     stability_status: dict[str, Any],
+    compact_review_payload: dict[str, Any] | None,
 ) -> list[str]:
     missing: list[str] = []
     if not subject_context:
         missing.append("subject_context_missing_from_stage21")
-    if run_state is None:
+    if compact_review_payload is None and run_state is None:
         missing.append("comp_level_review_posture_missing")
-    else:
+    elif compact_review_payload is None:
         missing.extend(
             [
                 "comp_identity_not_emitted_in_available_artifacts",
@@ -657,12 +699,40 @@ def _missing_evidence_list(
                 "included_adjusted_value_list_not_emitted_in_available_artifacts",
             ]
         )
+    else:
+        missing.extend(list(compact_review_payload.get("missing_fields") or []))
     if not stability_status.get("stability_metrics_present"):
         missing.append(stability_status.get("stability_recovery_reason"))
     return missing
 
 
-def _build_stability_status(run_state: dict[str, Any] | None) -> dict[str, Any]:
+def _build_stability_status(
+    *,
+    run_state: dict[str, Any] | None,
+    compact_review_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    compact_stability = dict((compact_review_payload or {}).get("stability_metrics") or {})
+    ordered_adjusted_values = list(
+        (compact_review_payload or {}).get("ordered_adjusted_values") or []
+    )
+    if compact_stability:
+        adjusted_values = [
+            row.get("adjusted_appraised_value")
+            for row in ordered_adjusted_values
+            if row.get("adjusted_appraised_value") is not None
+        ]
+        return {
+            "stability_metrics_present": True,
+            "stability_recovery_status": "present_from_compact_review_payload",
+            "stability_recovery_reason": None,
+            "median_all": compact_stability.get("median_all"),
+            "median_minus_high_low": compact_stability.get("median_minus_high_low"),
+            "max_leave_one_out_delta": compact_stability.get("max_leave_one_out_delta"),
+            "adjusted_value_iqr": compact_stability.get("adjusted_value_iqr"),
+            "included_adjusted_values": adjusted_values or None,
+            "included_adjusted_value_count": len(adjusted_values) or None,
+        }
+
     if run_state is None:
         return {
             "stability_metrics_present": False,
@@ -728,7 +798,7 @@ def _preliminary_interpretation(
 
 def _observability_diagnosis() -> dict[str, Any]:
     return {
-        "computed_but_not_emitted_in_review_artifacts": [
+        "computed_upstream_but_absent_in_current_full100_source_artifacts": [
             "final_value_detail_json",
             "included_comp_rows_with_identity_and_adjusted_values",
             "excluded_comp_rows_with_identity_and_adjusted_values",
@@ -742,7 +812,7 @@ def _observability_diagnosis() -> dict[str, Any]:
         ],
         "emitted_then_lost_or_degraded_in_downstream_artifacts": [
             "subject-level pattern booleans were present in chunk runtime artifacts but blank in the full100 aggregate runtime artifact",
-            "unsupported positive reduction semantics were exposed without safe interpretation labels",
+            "unsupported positive reduction semantics were exposed without safe interpretation labels before review-evidence reconciliation",
         ],
         "recoverable_from_read_only_stage21": [
             "subject address",
@@ -754,10 +824,10 @@ def _observability_diagnosis() -> dict[str, Any]:
         "truly_unavailable_without_producer_or_runtime_table_path": [
             "comp account/parcel identity",
             "comp address",
-            "similarity score",
-            "raw comp appraised value",
-            "adjusted comp appraised value",
-            "included adjusted value list",
+            "similarity score when not preserved by final-value source payload",
+            "raw comp appraised value when not preserved by final-value source payload",
+            "adjusted comp appraised value when not preserved by final-value source payload",
+            "included adjusted value list when not preserved by final-value source payload",
             "adjustment line items",
             "final per-comp exclusion reason beyond summarized reason-code counts",
             "final_value_detail_json payload itself",
@@ -830,9 +900,21 @@ def _build_summary(
         "run_state_comp_review_rows_available": sum(
             1 for row in evidence_rows if row.get("run_state_summary") is not None
         ),
-        "comp_identities_available": False,
-        "similarity_scores_available": False,
-        "adjusted_values_available": False,
+        "compact_review_payload_rows_available": sum(
+            1 for row in evidence_rows if row.get("compact_final_value_review_payload")
+        ),
+        "comp_identities_available": any(
+            row["field_availability"].get("comp_identity_available")
+            for row in evidence_rows
+        ),
+        "similarity_scores_available": any(
+            row["field_availability"].get("similarity_scores_available")
+            for row in evidence_rows
+        ),
+        "adjusted_values_available": any(
+            row["field_availability"].get("adjusted_appraised_values_available")
+            for row in evidence_rows
+        ),
         "plus20_runtime_context": plus20_summary,
     }
 
@@ -850,6 +932,7 @@ def _build_focused_packets(evidence_rows: list[dict[str, Any]]) -> dict[str, lis
 
 
 def _focused_packet(row: dict[str, Any]) -> dict[str, Any]:
+    compact_review_payload = row.get("compact_final_value_review_payload") or {}
     return {
         "account": row["account"],
         "county": row["county"],
@@ -867,22 +950,15 @@ def _focused_packet(row: dict[str, Any]) -> dict[str, Any]:
         },
         "final_status_interpretation": row["reconciliation"],
         "safe_vs_diagnostic_value_interpretation": row["value_semantics"],
-        "included_comp_table": (row.get("run_state_summary") or {}).get(
-            "included_comp_rows", []
-        ),
-        "excluded_comp_table": (row.get("run_state_summary") or {}).get(
-            "excluded_comp_rows", []
-        ),
+        "included_comp_table": compact_review_payload.get("included_comp_rows")
+        or (row.get("run_state_summary") or {}).get("included_comp_rows", []),
+        "excluded_comp_table": compact_review_payload.get("excluded_comp_rows")
+        or (row.get("run_state_summary") or {}).get("excluded_comp_rows", []),
         "adjustment_burden_summary": {
-            "reason_code_counts": (row.get("run_state_summary") or {}).get(
-                "reason_code_counts", {}
-            ),
-            "burden_status_counts": (row.get("run_state_summary") or {}).get(
-                "burden_status_counts", {}
-            ),
-            "dominant_adjustment_channels": (row.get("run_state_summary") or {}).get(
-                "dominant_adjustment_channels", []
-            ),
+            "reason_code_counts": (row.get("run_state_summary") or {}).get("reason_code_counts", {}),
+            "burden_status_counts": (row.get("run_state_summary") or {}).get("burden_status_counts", {}),
+            "dominant_adjustment_channels": compact_review_payload.get("dominant_adjustment_channels")
+            or (row.get("run_state_summary") or {}).get("dominant_adjustment_channels", []),
         },
         "source_review_posture": {
             "source_status_counts": (row.get("run_state_summary") or {}).get(
@@ -906,6 +982,7 @@ def _focused_packet(row: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "stability_metrics": row.get("stability"),
+        "compact_final_value_review_payload": compact_review_payload or None,
         "missing_evidence": row.get("missing_evidence"),
         "preliminary_interpretation": row.get("preliminary_interpretation"),
     }
@@ -1075,10 +1152,10 @@ def _build_markdown_summary(package: dict[str, Any]) -> str:
         "",
         "## Observability Diagnosis",
         "",
-        "### Computed But Not Emitted In Review Artifacts",
+        "### Computed Upstream But Absent In Current Full100 Source Artifacts",
         "",
     ])
-    for item in diagnosis["computed_but_not_emitted_in_review_artifacts"]:
+    for item in diagnosis["computed_upstream_but_absent_in_current_full100_source_artifacts"]:
         lines.append(f"- {item}")
     lines.extend([
         "",

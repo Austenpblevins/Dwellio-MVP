@@ -167,6 +167,7 @@ def _attach_downstream_replay_payload(
             "discovery_completion_status",
             "probe_error",
             "downstream_payload_attachment_status",
+            "compact_final_value_review_payload",
         ):
             if row.get(key) is None and producer_payload.get(key) is not None:
                 row[key] = producer_payload[key]
@@ -191,6 +192,7 @@ def _attach_downstream_replay_payload(
             "excluded_likely_exclude_count",
             "discovery_completion_status",
             "probe_error",
+            "compact_final_value_review_payload",
         ):
             if row.get(key) is None and canonical_payload.get(key) is not None:
                 row[key] = canonical_payload[key]
@@ -266,6 +268,7 @@ def _attach_downstream_replay_payload(
             "included_comp_count",
             "excluded_review_heavy_count",
             "excluded_likely_exclude_count",
+            "compact_final_value_review_payload",
         ):
             if row.get(key) is None and fallback_payload.get(key) is not None:
                 row[key] = fallback_payload[key]
@@ -355,6 +358,10 @@ def _extract_fallback_candidate_payload(row: dict[str, Any]) -> dict[str, Any]:
         "excluded_likely_exclude_count": row.get(
             "excluded_likely_exclude_count", result.get("excluded_likely_exclude_count")
         ),
+        "compact_final_value_review_payload": row.get(
+            "compact_final_value_review_payload",
+            result.get("compact_final_value_review_payload"),
+        ),
     }
 
 
@@ -371,6 +378,9 @@ def _build_canonical_downstream_summary(row: dict[str, Any]) -> dict[str, Any]:
         "included_comp_count": row.get("included_comp_count"),
         "excluded_review_heavy_count": row.get("excluded_review_heavy_count"),
         "excluded_likely_exclude_count": row.get("excluded_likely_exclude_count"),
+        "compact_final_value_review_payload": row.get(
+            "compact_final_value_review_payload"
+        ),
         "discovery_completion_status": row.get("discovery_completion_status"),
         "probe_error": row.get("probe_error"),
         "downstream_payload_attachment_status": row.get(
