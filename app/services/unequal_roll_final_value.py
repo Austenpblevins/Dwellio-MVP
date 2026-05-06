@@ -505,6 +505,7 @@ class UnequalRollFinalValueService:
                 "final_comp_count_status": run_context.get("final_comp_count_status"),
                 "support_status": run_context.get("support_status"),
                 "review_visible_no_reduction_refinement": governance_refinement_detail,
+                "no_reduction_governance_tiering_refinement": governance_refinement_detail,
                 "adjustment_math": dict(
                     (run_context.get("selection_log_json") or {}).get("adjustment_math")
                     or {}
@@ -781,6 +782,7 @@ class UnequalRollFinalValueService:
         )
         conflict_metrics = _conflict_divergence_metrics(included_rows)
         max_adjustment_pct = _as_float(stability_metrics.get("max_adjustment_pct"))
+        source_bath_blocking_flag = _has_blocking_source_or_bath_caveat(included_rows)
         no_reduction_requested = (requested_reduction_amount or 0.0) <= 0.0
         checks = {
             "no_reduction_requested": no_reduction_requested,
@@ -793,9 +795,12 @@ class UnequalRollFinalValueService:
                 review_heavy_ratio is not None
                 and review_heavy_ratio <= NO_REDUCTION_REFINEMENT_MAX_REVIEW_HEAVY_RATIO
             ),
-            "burden_mostly_within_thresholds": (
-                burden_within_ratio is not None
-                and burden_within_ratio >= NO_REDUCTION_REFINEMENT_MIN_BURDEN_WITHIN_RATIO
+            "burden_nonblocking_for_no_reduction": (
+                no_reduction_requested
+                or (
+                    burden_within_ratio is not None
+                    and burden_within_ratio >= NO_REDUCTION_REFINEMENT_MIN_BURDEN_WITHIN_RATIO
+                )
             ),
             "leave_one_out_within_limit": (
                 leave_one_out_threshold is not None
@@ -810,6 +815,7 @@ class UnequalRollFinalValueService:
                 max_adjustment_pct is not None
                 and max_adjustment_pct <= NO_REDUCTION_REFINEMENT_MAX_ADJUSTMENT_PCT
             ),
+            "source_bath_not_blocking": not source_bath_blocking_flag,
             "all_included_review_visible": bool(
                 qa_flags.get("all_included_review_visible_flag")
             ),
@@ -838,6 +844,7 @@ class UnequalRollFinalValueService:
             checks["not_high_conflict_or_divergence"]
             or conflict_only_remaining_blocker
         )
+        burden_mode = "warning_visible" if qualifies else "warning_blocking"
         return _governance_refinement_detail(
             qualification_status="applied" if qualifies else "rejected",
             applied_flag=qualifies,
@@ -861,6 +868,7 @@ class UnequalRollFinalValueService:
                 "max_adjustment_pct": max_adjustment_pct,
                 "conflict_affected_comp_count": conflict_metrics["affected_comp_count"],
                 "conflict_affected_ratio": conflict_metrics["affected_ratio"],
+                "burden_mode": burden_mode,
             },
             preserved_caveats={
                 "support_status": run_context.get("support_status"),
@@ -869,6 +877,7 @@ class UnequalRollFinalValueService:
                 ),
                 "fallback_geography_used_flag": qa_flags.get("fallback_geography_used_flag"),
                 "conflict_flag_counts": conflict_metrics["flag_counts"],
+                "source_bath_blocking_flag": source_bath_blocking_flag,
             },
         )
 
@@ -898,6 +907,11 @@ class UnequalRollFinalValueService:
                     "review_visible_no_reduction_refinement"
                 ]
             ),
+            "no_reduction_governance_tiering_refinement": (
+                final_value_output["carried_forward_governance"][
+                    "no_reduction_governance_tiering_refinement"
+                ]
+            ),
         }
         return selection_log_json
 
@@ -922,6 +936,11 @@ class UnequalRollFinalValueService:
             "review_visible_no_reduction_refinement_applied_flag": (
                 final_value_output["carried_forward_governance"][
                     "review_visible_no_reduction_refinement"
+                ]["applied_flag"]
+            ),
+            "no_reduction_governance_tiering_refinement_applied_flag": (
+                final_value_output["carried_forward_governance"][
+                    "no_reduction_governance_tiering_refinement"
                 ]["applied_flag"]
             ),
         }
@@ -1170,13 +1189,15 @@ def _governance_refinement_detail(
     metrics: dict[str, Any] | None = None,
     preserved_caveats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    resolved_metrics = metrics or {}
     return {
         "refinement_name": "review_visible_no_reduction_supported_with_review_v1",
         "qualification_status": qualification_status,
         "applied_flag": applied_flag,
         "reason": reason,
+        "burden_mode": resolved_metrics.get("burden_mode"),
         "checks": checks or {},
-        "metrics": metrics or {},
+        "metrics": resolved_metrics,
         "preserved_caveats": preserved_caveats or {},
     }
 
@@ -1191,3 +1212,27 @@ def _as_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _has_blocking_source_or_bath_caveat(included_rows: list[dict[str, Any]]) -> bool:
+    blocking_source_markers = {"missing", "unsupported", "blocked"}
+    for row in included_rows:
+        source_status = str(row.get("source_governance_status") or "").lower()
+        if any(marker in source_status for marker in blocking_source_markers):
+            return True
+
+        bathroom_context = dict(row.get("bathroom_boundary_context") or {})
+        modifier = dict(bathroom_context.get("fort_bend_bathroom_modifier") or {})
+        if modifier.get("review_required") is True:
+            return True
+        if modifier.get("full_bath_dirty_reason_code") not in {None, ""}:
+            return True
+        if modifier.get("half_bath_dirty_reason_code") not in {None, ""}:
+            return True
+        attachment_status = str(modifier.get("attachment_status") or "").lower()
+        if attachment_status in {"missing", "not_attached", "none"}:
+            return True
+        bathroom_count_status = str(modifier.get("bathroom_count_status") or "").lower()
+        if bathroom_count_status in {"missing", "unresolved", "ambiguous", "unsupported"}:
+            return True
+    return False
