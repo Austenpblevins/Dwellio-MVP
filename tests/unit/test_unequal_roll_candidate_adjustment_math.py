@@ -488,7 +488,7 @@ def test_adjustment_math_uses_warning_for_single_moderate_unresolved_channel(
     assert burden_governance["unresolved_channel_severity_counts"] == {"moderate": 1}
 
 
-def test_adjustment_math_uses_hybrid_source_for_exact_fort_bend_bathroom_basis(
+def test_adjustment_math_uses_validated_source_for_clean_fort_bend_bathroom_basis(
     monkeypatch,
 ) -> None:
     candidates = [
@@ -513,11 +513,9 @@ def test_adjustment_math_uses_hybrid_source_for_exact_fort_bend_bathroom_basis(
                     "subject_value": 3.0,
                     "candidate_value": 2.0,
                     "difference_value": 1.0,
-                    "adjustment_basis_status": "county_secondary_basis_supported",
-                    "basis_source_code": "fort_bend_valuation_bathroom_features_exact",
-                    "basis_source_reason_code": (
-                        "canonical_candidate_missing_county_exact_support_used"
-                    ),
+                    "adjustment_basis_status": "rate_not_evaluated",
+                    "basis_source_code": "fort_bend_validated_bathroom_source",
+                    "basis_source_reason_code": "clean_fort_bend_bathroom_support_normalized",
                     "secondary_source_used_flag": True,
                     "canonical_candidate_missing_flag": True,
                     "valuation_support_basis_field": "full_baths_derived",
@@ -540,10 +538,10 @@ def test_adjustment_math_uses_hybrid_source_for_exact_fort_bend_bathroom_basis(
 
     inserts = _adjustment_insert_params(connection)
     full_bath_insert = next(params for params in inserts if params[4] == "full_bath")
-    assert full_bath_insert[5] == "fort_bend_exact_bath_basis_with_fallback_rate"
+    assert full_bath_insert[5] == "fort_bend_validated_bath_basis_with_fallback_rate"
     assert (
         full_bath_insert[6].obj["source_precedence"]["label"]
-        == "county_supported_secondary_basis_with_fallback_rate"
+        == "county_validated_bathroom_basis_with_fallback_rate"
     )
     assert full_bath_insert[6].obj["basis_source_support"]["secondary_source_used_flag"] is True
     assert full_bath_insert[10] is not None

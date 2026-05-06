@@ -17,6 +17,26 @@ FINAL_VALUE_AUTO_SUPPORTED_MIN_COMP_COUNT = 8
 FINAL_VALUE_LEAVE_ONE_OUT_REVIEW_DELTA = 25000.0
 FINAL_VALUE_HIGH_LOW_REVIEW_DELTA = 15000.0
 FINAL_VALUE_ADJUSTED_VALUE_IQR_REVIEW_THRESHOLD = 60000.0
+NO_REDUCTION_REFINEMENT_MIN_INCLUDED_COUNT = 12
+NO_REDUCTION_REFINEMENT_MAX_REVIEW_HEAVY_COUNT = 2
+NO_REDUCTION_REFINEMENT_MAX_REVIEW_HEAVY_RATIO = 0.15
+NO_REDUCTION_REFINEMENT_MIN_BURDEN_WITHIN_RATIO = 0.80
+NO_REDUCTION_REFINEMENT_MAX_CONFLICT_RATIO = 0.20
+NO_REDUCTION_REFINEMENT_MAX_CONFLICT_COUNT = 3
+NO_REDUCTION_REFINEMENT_MAX_IQR_RATIO = 0.55
+NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_ABSOLUTE = 15000.0
+NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_RATIO = 0.06
+FINAL_VALUE_CONFLICT_FLAG_KEYS = {
+    "raw_adjusted_divergence_flag",
+    "adjusted_conflict_indicator_flag",
+    "divergence_requires_review_flag",
+    "adjusted_outlier_conflict_flag",
+    "adjusted_value_outlier_flag",
+    "adjusted_value_per_sf_outlier_flag",
+    "strong_divergence_flag",
+    "unresolved_review_only_conflict_escalation_flag",
+    "review_carry_forward_unresolved_escalation_flag",
+}
 
 
 @dataclass(frozen=True)
@@ -403,12 +423,14 @@ class UnequalRollFinalValueService:
             excluded_rows=excluded_rows,
             stability_metrics=stability_metrics,
         )
-        final_value_status = self._run_final_value_status(
+        final_value_status, governance_refinement_detail = self._run_final_value_status(
             run_context=run_context,
             requested_roll_value=requested_roll_value,
+            requested_reduction_amount=requested_reduction_amount,
             included_rows=included_rows,
             excluded_rows=excluded_rows,
             qa_flags=qa_flags,
+            stability_metrics=stability_metrics,
         )
 
         ordered_adjusted_values = [
@@ -481,6 +503,7 @@ class UnequalRollFinalValueService:
                 ),
                 "final_comp_count_status": run_context.get("final_comp_count_status"),
                 "support_status": run_context.get("support_status"),
+                "review_visible_no_reduction_refinement": governance_refinement_detail,
                 "adjustment_math": dict(
                     (run_context.get("selection_log_json") or {}).get("adjustment_math")
                     or {}
@@ -654,23 +677,44 @@ class UnequalRollFinalValueService:
         *,
         run_context: dict[str, Any],
         requested_roll_value: float | None,
+        requested_reduction_amount: float | None,
         included_rows: list[dict[str, Any]],
         excluded_rows: list[dict[str, Any]],
         qa_flags: dict[str, Any],
-    ) -> str:
+        stability_metrics: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
         if run_context.get("selection_governance_status") == "unsupported":
-            return "unsupported"
+            return "unsupported", _governance_refinement_detail(
+                qualification_status="not_applicable",
+                applied_flag=False,
+                reason="selection_governance_unsupported",
+            )
         if requested_roll_value is None or len(included_rows) < FINAL_VALUE_UNSUPPORTED_MIN_COMP_COUNT:
-            return "unsupported"
-        if (
+            return "unsupported", _governance_refinement_detail(
+                qualification_status="not_applicable",
+                applied_flag=False,
+                reason="final_value_support_below_minimum",
+            )
+        base_manual_review = (
             run_context.get("selection_governance_status") == "manual_review_required"
             or qa_flags["final_value_set_under_auto_supported_minimum_flag"]
             or qa_flags["leave_one_out_review_flag"]
             or qa_flags["high_low_removal_review_flag"]
             or qa_flags["adjusted_value_iqr_review_flag"]
             or qa_flags["all_included_review_visible_flag"]
-        ):
-            return "manual_review_required"
+        )
+        if base_manual_review:
+            refinement_detail = self._review_visible_no_reduction_refinement_detail(
+                run_context=run_context,
+                requested_reduction_amount=requested_reduction_amount,
+                included_rows=included_rows,
+                excluded_rows=excluded_rows,
+                qa_flags=qa_flags,
+                stability_metrics=stability_metrics,
+            )
+            if refinement_detail["applied_flag"]:
+                return "supported_with_review", refinement_detail
+            return "manual_review_required", refinement_detail
         if (
             any(row["review_visible_flag"] for row in included_rows)
             or qa_flags["fallback_geography_used_flag"]
@@ -679,8 +723,133 @@ class UnequalRollFinalValueService:
             or run_context.get("selection_governance_status") == "supported_with_warnings"
             or run_context.get("support_status") == "supported_with_review"
         ):
-            return "supported_with_review"
-        return "supported"
+            return "supported_with_review", _governance_refinement_detail(
+                qualification_status="not_applicable",
+                applied_flag=False,
+                reason="standard_supported_with_review",
+            )
+        return "supported", _governance_refinement_detail(
+            qualification_status="not_applicable",
+            applied_flag=False,
+            reason="standard_supported",
+        )
+
+    def _review_visible_no_reduction_refinement_detail(
+        self,
+        *,
+        run_context: dict[str, Any],
+        requested_reduction_amount: float | None,
+        included_rows: list[dict[str, Any]],
+        excluded_rows: list[dict[str, Any]],
+        qa_flags: dict[str, Any],
+        stability_metrics: dict[str, Any],
+    ) -> dict[str, Any]:
+        included_count = len(included_rows)
+        review_heavy_count = sum(
+            1 for row in excluded_rows if row["final_value_status"] == "excluded_review_heavy"
+        )
+        likely_exclude_count = sum(
+            1 for row in excluded_rows if row["final_value_status"] == "excluded_likely_exclude"
+        )
+        review_heavy_ratio = (
+            review_heavy_count / included_count if included_count else None
+        )
+        median_all = _as_float(stability_metrics.get("median_all"))
+        max_leave_one_out_delta = _as_float(stability_metrics.get("max_leave_one_out_delta"))
+        adjusted_value_iqr = _as_float(stability_metrics.get("adjusted_value_iqr"))
+        leave_one_out_threshold = (
+            min(
+                NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_ABSOLUTE,
+                median_all * NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_RATIO,
+            )
+            if median_all not in {None, 0.0}
+            else None
+        )
+        adjusted_value_iqr_ratio = (
+            (adjusted_value_iqr / median_all)
+            if adjusted_value_iqr is not None and median_all not in {None, 0.0}
+            else None
+        )
+        burden_within_count = sum(
+            1
+            for row in included_rows
+            if row.get("burden_governance_status") == "within_thresholds"
+        )
+        burden_within_ratio = (
+            burden_within_count / included_count if included_count else None
+        )
+        conflict_metrics = _conflict_divergence_metrics(included_rows)
+        no_reduction_requested = (requested_reduction_amount or 0.0) <= 0.0
+        checks = {
+            "no_reduction_requested": no_reduction_requested,
+            "included_count_gte_12": included_count >= NO_REDUCTION_REFINEMENT_MIN_INCLUDED_COUNT,
+            "likely_exclude_count_zero": likely_exclude_count == 0,
+            "review_heavy_count_lte_2": (
+                review_heavy_count <= NO_REDUCTION_REFINEMENT_MAX_REVIEW_HEAVY_COUNT
+            ),
+            "review_heavy_ratio_lte_15pct": (
+                review_heavy_ratio is not None
+                and review_heavy_ratio <= NO_REDUCTION_REFINEMENT_MAX_REVIEW_HEAVY_RATIO
+            ),
+            "burden_mostly_within_thresholds": (
+                burden_within_ratio is not None
+                and burden_within_ratio >= NO_REDUCTION_REFINEMENT_MIN_BURDEN_WITHIN_RATIO
+            ),
+            "leave_one_out_within_limit": (
+                leave_one_out_threshold is not None
+                and max_leave_one_out_delta is not None
+                and max_leave_one_out_delta <= leave_one_out_threshold
+            ),
+            "adjusted_value_iqr_within_limit": (
+                adjusted_value_iqr_ratio is not None
+                and adjusted_value_iqr_ratio <= NO_REDUCTION_REFINEMENT_MAX_IQR_RATIO
+            ),
+            "all_included_review_visible": bool(
+                qa_flags.get("all_included_review_visible_flag")
+            ),
+            "not_high_conflict_or_divergence": (
+                conflict_metrics["affected_comp_count"]
+                <= NO_REDUCTION_REFINEMENT_MAX_CONFLICT_COUNT
+                and (
+                    conflict_metrics["affected_ratio"] is not None
+                    and conflict_metrics["affected_ratio"]
+                    <= NO_REDUCTION_REFINEMENT_MAX_CONFLICT_RATIO
+                )
+            ),
+        }
+        qualifies = all(checks.values())
+        return _governance_refinement_detail(
+            qualification_status="applied" if qualifies else "rejected",
+            applied_flag=qualifies,
+            reason=(
+                "stable_review_visible_no_reduction_support"
+                if qualifies
+                else "stable_review_visible_no_reduction_support_not_met"
+            ),
+            checks=checks,
+            metrics={
+                "included_count": included_count,
+                "review_heavy_count": review_heavy_count,
+                "likely_exclude_count": likely_exclude_count,
+                "review_heavy_ratio": review_heavy_ratio,
+                "burden_within_ratio": burden_within_ratio,
+                "median_all": median_all,
+                "max_leave_one_out_delta": max_leave_one_out_delta,
+                "leave_one_out_threshold": leave_one_out_threshold,
+                "adjusted_value_iqr": adjusted_value_iqr,
+                "adjusted_value_iqr_ratio": adjusted_value_iqr_ratio,
+                "conflict_affected_comp_count": conflict_metrics["affected_comp_count"],
+                "conflict_affected_ratio": conflict_metrics["affected_ratio"],
+            },
+            preserved_caveats={
+                "support_status": run_context.get("support_status"),
+                "all_included_review_visible_flag": qa_flags.get(
+                    "all_included_review_visible_flag"
+                ),
+                "fallback_geography_used_flag": qa_flags.get("fallback_geography_used_flag"),
+                "conflict_flag_counts": conflict_metrics["flag_counts"],
+            },
+        )
 
     def _build_final_value_selection_log(
         self,
@@ -703,6 +872,11 @@ class UnequalRollFinalValueService:
             "stability_metrics": final_value_output["stability_metrics"],
             "qa_flags": final_value_output["qa_flags"],
             "methodology_guardrails": final_value_output["methodology_guardrails"],
+            "review_visible_no_reduction_refinement": (
+                final_value_output["carried_forward_governance"][
+                    "review_visible_no_reduction_refinement"
+                ]
+            ),
         }
         return selection_log_json
 
@@ -724,6 +898,11 @@ class UnequalRollFinalValueService:
             "included_with_review_count": final_value_output["final_value_set_summary"][
                 "included_with_review_count"
             ],
+            "review_visible_no_reduction_refinement_applied_flag": (
+                final_value_output["carried_forward_governance"][
+                    "review_visible_no_reduction_refinement"
+                ]["applied_flag"]
+            ),
         }
         return summary_json
 
@@ -938,6 +1117,47 @@ def _max_or_none(values: list[float | int]) -> float | int | None:
         return None
     maximum = max(filtered)
     return round(maximum, 6) if isinstance(maximum, float) else maximum
+
+
+def _conflict_divergence_metrics(included_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    flag_counter: Counter[str] = Counter()
+    affected_comp_count = 0
+    for row in included_rows:
+        governance = dict(row.get("conflict_divergence_governance") or {})
+        row_affected = False
+        for key in FINAL_VALUE_CONFLICT_FLAG_KEYS:
+            if governance.get(key) is True:
+                flag_counter[key] += 1
+                row_affected = True
+        if row_affected:
+            affected_comp_count += 1
+    return {
+        "affected_comp_count": affected_comp_count,
+        "affected_ratio": (
+            affected_comp_count / len(included_rows) if included_rows else None
+        ),
+        "flag_counts": dict(flag_counter),
+    }
+
+
+def _governance_refinement_detail(
+    *,
+    qualification_status: str,
+    applied_flag: bool,
+    reason: str,
+    checks: dict[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
+    preserved_caveats: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "refinement_name": "review_visible_no_reduction_supported_with_review_v1",
+        "qualification_status": qualification_status,
+        "applied_flag": applied_flag,
+        "reason": reason,
+        "checks": checks or {},
+        "metrics": metrics or {},
+        "preserved_caveats": preserved_caveats or {},
+    }
 
 
 def _as_float(value: Any) -> float | None:

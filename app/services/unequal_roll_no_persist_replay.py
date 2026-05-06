@@ -40,6 +40,7 @@ from app.services.unequal_roll_review_evidence import (
     summarize_run_state_candidates,
 )
 from app.services.unequal_roll_subject_snapshot import UnequalRollSubjectSnapshotService
+from app.services.unequal_roll_bathroom_support import attach_bathroom_support_context
 from infra.scripts.emit_unequal_roll_producer_downstream_payloads import (
     _compact_from_final_value_detail_json,
 )
@@ -345,9 +346,16 @@ class UnequalRollNoPersistReplayService:
                 tax_year=served_tax_year,
             )
         )
+        valuation_bathroom_features_json = attach_bathroom_support_context(
+            county_id=request.county_id,
+            canonical_full_baths=subject_row.get("full_baths"),
+            canonical_half_baths=subject_row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         support_status, readiness_status, support_blocker_code = (
             self._subject_snapshot_service._derive_support_status(
                 subject_row,
+                county_id=request.county_id,
                 requested_tax_year=request.requested_tax_year,
                 valuation_bathroom_features_json=valuation_bathroom_features_json,
             )
@@ -381,6 +389,7 @@ class UnequalRollNoPersistReplayService:
             requested_tax_year=request.requested_tax_year,
             valuation_bathroom_features_json=valuation_bathroom_features_json,
         )
+        bathroom_support = dict(snapshot_json.get("bathroom_support") or {})
         return {
             **subject_row,
             "requested_tax_year": request.requested_tax_year,
@@ -392,6 +401,8 @@ class UnequalRollNoPersistReplayService:
             "support_blocker_code": support_blocker_code,
             "source_coverage_status": source_coverage_status,
             "subject_snapshot_status": "completed",
+            "full_baths": bathroom_support.get("resolved_full_baths"),
+            "half_baths": bathroom_support.get("resolved_half_baths"),
             "valuation_bathroom_features_json": valuation_bathroom_features_json,
             "summary_json": summary_json,
             "snapshot_json": snapshot_json,
@@ -438,6 +449,12 @@ class UnequalRollNoPersistReplayService:
                     tax_year=int(row["tax_year"]),
                 )
             )
+            valuation_bathroom_features_json = attach_bathroom_support_context(
+                county_id=str(subject_snapshot["county_id"]),
+                canonical_full_baths=row.get("full_baths"),
+                canonical_half_baths=row.get("half_baths"),
+                valuation_bathroom_features_json=valuation_bathroom_features_json,
+            )
             eligibility_status, eligibility_reason_code, eligibility_detail_json = (
                 self._discovery_service._evaluate_candidate_eligibility(
                     subject_snapshot=subject_snapshot,
@@ -469,6 +486,7 @@ class UnequalRollNoPersistReplayService:
                 eligibility_detail_json=eligibility_detail_json,
                 valuation_bathroom_features_json=valuation_bathroom_features_json,
             )
+            candidate_bathroom_support = dict(candidate_snapshot_json.get("bathroom_support") or {})
             candidates.append(
                 {
                     "unequal_roll_candidate_id": str(uuid4()),
@@ -485,8 +503,8 @@ class UnequalRollNoPersistReplayService:
                     "year_built": _as_int(row.get("year_built")),
                     "effective_age": _as_float(row.get("effective_age")),
                     "bedrooms": _as_int(row.get("bedrooms")),
-                    "full_baths": _as_float(row.get("full_baths")),
-                    "half_baths": _as_float(row.get("half_baths")),
+                    "full_baths": _as_float(candidate_bathroom_support.get("resolved_full_baths")),
+                    "half_baths": _as_float(candidate_bathroom_support.get("resolved_half_baths")),
                     "total_rooms": _as_int(row.get("total_rooms")),
                     "stories": _as_float(row.get("stories")),
                     "quality_code": row.get("quality_code"),

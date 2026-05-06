@@ -11,9 +11,6 @@ from app.services.unequal_roll_candidate_normalization import ordinal_gap
 ADJUSTMENT_SUPPORT_VERSION = "unequal_roll_adjustment_support_v1"
 ADJUSTMENT_SUPPORT_CONFIG_VERSION = "unequal_roll_adjustment_support_v1"
 
-FORT_BEND_EXACT_BATHROOM_SUPPORT_STATUSES = {"exact_supported"}
-FORT_BEND_EXACT_BATHROOM_SUPPORT_CONFIDENCES = {"high"}
-
 CRITICAL_ADJUSTMENT_CHANNELS = (
     "gla",
     "age_or_effective_age",
@@ -147,7 +144,9 @@ class UnequalRollCandidateAdjustmentSupportService:
               urss.pool_flag,
               urss.land_sf,
               urss.land_acres,
-              urss.appraised_value
+              urss.appraised_value,
+              urss.snapshot_json,
+              urss.valuation_bathroom_features_json
             FROM unequal_roll_runs AS urr
             JOIN unequal_roll_subject_snapshots AS urss
               ON urss.unequal_roll_run_id = urr.unequal_roll_run_id
@@ -370,6 +369,12 @@ class UnequalRollCandidateAdjustmentSupportService:
             (candidate.get("candidate_snapshot_json") or {}).get("valuation_bathroom_features")
             or {}
         )
+        candidate_bathroom_support = dict(
+            (candidate.get("candidate_snapshot_json") or {}).get("bathroom_support") or {}
+        )
+        subject_bathroom_support = dict(
+            (run_context.get("snapshot_json") or {}).get("bathroom_support") or {}
+        )
         fort_bend_bathroom_modifier = dict(
             (candidate.get("similarity_score_detail_json") or {}).get(
                 "fort_bend_bathroom_modifier"
@@ -472,13 +477,24 @@ class UnequalRollCandidateAdjustmentSupportService:
                         "bathroom_equivalent_derived"
                     ),
                 },
+                "subject_bathroom_support": subject_bathroom_support,
+                "candidate_bathroom_support": candidate_bathroom_support,
                 "fort_bend_bathroom_modifier": fort_bend_bathroom_modifier,
-                "canonical_fields_replaced_by_valuation_only_features_flag": False,
+                "canonical_fields_replaced_by_valuation_only_features_flag": bool(
+                    candidate_bathroom_support.get("normalized_source_codes", {}).get(
+                        "full_bath"
+                    )
+                    == "fort_bend_valuation_bathroom_features"
+                    or candidate_bathroom_support.get("normalized_source_codes", {}).get(
+                        "half_bath"
+                    )
+                    == "fort_bend_valuation_bathroom_features"
+                ),
                 "future_adjustment_guidance": (
-                    "Preserve canonical full_baths/half_baths as the primary bathroom "
-                    "count fields. Fort Bend valuation-only bathroom features remain "
-                    "supporting context for future governed adjustment channels and must "
-                    "not silently replace canonical bathroom counts."
+                    "Preserve explicit bathroom source lineage. Clean Fort Bend bathroom "
+                    "support may be normalized and monetized when canonical counts are "
+                    "dirty or missing, while unresolved bathroom support remains "
+                    "review-visible."
                 ),
             },
             "prior_pipeline_context": {
@@ -603,6 +619,12 @@ class UnequalRollCandidateAdjustmentSupportService:
         run_context: dict[str, Any],
     ) -> dict[str, dict[str, Any]]:
         county_id = str(run_context.get("county_id") or candidate.get("county_id") or "")
+        subject_bathroom_support = dict(
+            (run_context.get("snapshot_json") or {}).get("bathroom_support") or {}
+        )
+        candidate_bathroom_support = dict(
+            (candidate.get("candidate_snapshot_json") or {}).get("bathroom_support") or {}
+        )
         return {
             "gla": self._numeric_channel(
                 subject_value=run_context.get("living_area_sf"),
@@ -620,6 +642,8 @@ class UnequalRollCandidateAdjustmentSupportService:
                 bath_field_name="full_bath",
                 subject_value=run_context.get("full_baths"),
                 candidate_value=candidate.get("full_baths"),
+                subject_bathroom_support=subject_bathroom_support,
+                candidate_bathroom_support=candidate_bathroom_support,
                 valuation_bathroom_features=(
                     (candidate.get("candidate_snapshot_json") or {}).get(
                         "valuation_bathroom_features"
@@ -630,6 +654,8 @@ class UnequalRollCandidateAdjustmentSupportService:
                 bath_field_name="half_bath",
                 subject_value=run_context.get("half_baths"),
                 candidate_value=candidate.get("half_baths"),
+                subject_bathroom_support=subject_bathroom_support,
+                candidate_bathroom_support=candidate_bathroom_support,
                 valuation_bathroom_features=(
                     (candidate.get("candidate_snapshot_json") or {}).get(
                         "valuation_bathroom_features"
@@ -765,95 +791,95 @@ class UnequalRollCandidateAdjustmentSupportService:
         bath_field_name: str,
         subject_value: Any,
         candidate_value: Any,
+        subject_bathroom_support: dict[str, Any],
+        candidate_bathroom_support: dict[str, Any],
         valuation_bathroom_features: Any,
     ) -> dict[str, Any]:
         subject_number = _as_float(subject_value)
         candidate_number = _as_float(candidate_value)
         valuation_bathroom_features_json = dict(valuation_bathroom_features or {})
-        derived_basis = _fort_bend_supported_bath_basis(
-            bath_field_name=bath_field_name,
-            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        support_key = "full_bath" if bath_field_name == "full_bath" else "half_bath"
+        subject_support = dict(subject_bathroom_support.get(support_key) or {})
+        candidate_support = dict(candidate_bathroom_support.get(support_key) or {})
+        effective_subject_value = _as_float(subject_support.get("resolved_value"))
+        if effective_subject_value is None:
+            effective_subject_value = subject_number
+        effective_candidate_value = _as_float(candidate_support.get("resolved_value"))
+        if effective_candidate_value is None:
+            effective_candidate_value = candidate_number
+        basis_source_code = _bath_basis_source_code(
+            subject_support=subject_support,
+            candidate_support=candidate_support,
         )
-        if subject_number is not None and candidate_number is None and derived_basis is not None:
-            difference_value = round(subject_number - derived_basis["candidate_value"], 4)
-            return {
-                "readiness_status": "ready",
-                "subject_value": subject_number,
-                "candidate_value": derived_basis["candidate_value"],
-                "difference_value": difference_value,
-                "potential_adjustment_flag": difference_value != 0.0,
-                "adjustment_basis_status": "county_secondary_basis_supported",
-                "basis_source_code": "fort_bend_valuation_bathroom_features_exact",
-                "basis_source_reason_code": "canonical_candidate_missing_county_exact_support_used",
-                "secondary_source_used_flag": True,
-                "canonical_candidate_missing_flag": True,
-                "valuation_support_present_flag": bool(valuation_bathroom_features_json),
-                "valuation_support_attachment_status": valuation_bathroom_features_json.get(
-                    "attachment_status"
-                ),
-                "valuation_support_auto_usable_flag": True,
-                "valuation_support_basis_field": derived_basis["basis_field"],
-                "valuation_support_basis_value": derived_basis["candidate_value"],
-                "valuation_support_basis_status": derived_basis["bathroom_count_status"],
-                "valuation_support_basis_confidence": derived_basis[
-                    "bathroom_count_confidence"
-                ],
-            }
-        if subject_number is None or candidate_number is None:
+        if effective_subject_value is None or effective_candidate_value is None:
+            dirty_reason_code = (
+                candidate_support.get("dirty_reason_code")
+                or subject_support.get("dirty_reason_code")
+                or "canonical_bathroom_count_missing"
+            )
             return {
                 "readiness_status": "review_required",
-                "subject_value": subject_number,
-                "candidate_value": candidate_number,
+                "subject_value": effective_subject_value,
+                "candidate_value": effective_candidate_value,
                 "difference_value": None,
                 "potential_adjustment_flag": False,
                 "adjustment_basis_status": "rate_not_evaluated",
-                "basis_source_code": "canonical_roll",
-                "basis_source_reason_code": "canonical_bathroom_count_missing",
-                "secondary_source_used_flag": False,
+                "basis_source_code": basis_source_code,
+                "basis_source_reason_code": dirty_reason_code,
+                "secondary_source_used_flag": (
+                    basis_source_code == "fort_bend_validated_bathroom_source"
+                ),
                 "canonical_candidate_missing_flag": candidate_number is None,
                 "valuation_support_present_flag": bool(valuation_bathroom_features_json),
                 "valuation_support_attachment_status": valuation_bathroom_features_json.get(
                     "attachment_status"
                 ),
-                "valuation_support_auto_usable_flag": False,
-                "valuation_support_basis_field": (
-                    derived_basis["basis_field"] if derived_basis is not None else None
-                ),
-                "valuation_support_basis_value": (
-                    derived_basis["candidate_value"] if derived_basis is not None else None
-                ),
+                "valuation_support_auto_usable_flag": bool(candidate_support.get("clean_flag")),
+                "valuation_support_basis_field": _bath_basis_field_name(bath_field_name),
+                "valuation_support_basis_value": effective_candidate_value,
                 "valuation_support_basis_status": valuation_bathroom_features_json.get(
                     "bathroom_count_status"
                 ),
                 "valuation_support_basis_confidence": valuation_bathroom_features_json.get(
                     "bathroom_count_confidence"
                 ),
+                "subject_bathroom_support": subject_support,
+                "candidate_bathroom_support": candidate_support,
+                "bathroom_adjustment_mode": "review_only",
             }
-        difference_value = round(subject_number - candidate_number, 4)
+        difference_value = round(effective_subject_value - effective_candidate_value, 4)
         return {
             "readiness_status": "ready",
-            "subject_value": subject_number,
-            "candidate_value": candidate_number,
+            "subject_value": effective_subject_value,
+            "candidate_value": effective_candidate_value,
             "difference_value": difference_value,
             "potential_adjustment_flag": difference_value != 0.0,
             "adjustment_basis_status": "rate_not_evaluated",
-            "basis_source_code": "canonical_roll",
-            "basis_source_reason_code": "canonical_bathroom_count_available",
-            "secondary_source_used_flag": False,
-            "canonical_candidate_missing_flag": False,
+            "basis_source_code": basis_source_code,
+            "basis_source_reason_code": _bath_basis_reason_code(
+                subject_support=subject_support,
+                candidate_support=candidate_support,
+            ),
+            "secondary_source_used_flag": (
+                basis_source_code == "fort_bend_validated_bathroom_source"
+            ),
+            "canonical_candidate_missing_flag": candidate_number is None,
             "valuation_support_present_flag": bool(valuation_bathroom_features_json),
             "valuation_support_attachment_status": valuation_bathroom_features_json.get(
                 "attachment_status"
             ),
-            "valuation_support_auto_usable_flag": False,
-            "valuation_support_basis_field": None,
-            "valuation_support_basis_value": None,
+            "valuation_support_auto_usable_flag": bool(candidate_support.get("clean_flag")),
+            "valuation_support_basis_field": _bath_basis_field_name(bath_field_name),
+            "valuation_support_basis_value": effective_candidate_value,
             "valuation_support_basis_status": valuation_bathroom_features_json.get(
                 "bathroom_count_status"
             ),
             "valuation_support_basis_confidence": valuation_bathroom_features_json.get(
                 "bathroom_count_confidence"
             ),
+            "subject_bathroom_support": subject_support,
+            "candidate_bathroom_support": candidate_support,
+            "bathroom_adjustment_mode": "monetized",
         }
 
     def _ordinal_channel(
@@ -1045,39 +1071,34 @@ def _pct_diff(subject_value: float | None, candidate_value: float | None) -> flo
     return round(abs(subject_value - candidate_value) / abs(subject_value), 4)
 
 
-def _fort_bend_supported_bath_basis(
-    *,
-    bath_field_name: str,
-    valuation_bathroom_features_json: dict[str, Any],
-) -> dict[str, Any] | None:
-    if valuation_bathroom_features_json.get("attachment_status") != "attached":
-        return None
-    if (
-        valuation_bathroom_features_json.get("bathroom_count_status")
-        not in FORT_BEND_EXACT_BATHROOM_SUPPORT_STATUSES
-    ):
-        return None
-    if (
-        valuation_bathroom_features_json.get("bathroom_count_confidence")
-        not in FORT_BEND_EXACT_BATHROOM_SUPPORT_CONFIDENCES
-    ):
-        return None
-    basis_field = {
+def _bath_basis_field_name(bath_field_name: str) -> str | None:
+    return {
         "full_bath": "full_baths_derived",
         "half_bath": "half_baths_derived",
     }.get(bath_field_name)
-    if basis_field is None:
-        return None
-    candidate_value = _as_float(valuation_bathroom_features_json.get(basis_field))
-    if candidate_value is None:
-        return None
-    return {
-        "basis_field": basis_field,
-        "candidate_value": candidate_value,
-        "bathroom_count_status": valuation_bathroom_features_json.get(
-            "bathroom_count_status"
-        ),
-        "bathroom_count_confidence": valuation_bathroom_features_json.get(
-            "bathroom_count_confidence"
-        ),
-    }
+
+
+def _bath_basis_source_code(
+    *,
+    subject_support: dict[str, Any],
+    candidate_support: dict[str, Any],
+) -> str:
+    if (
+        subject_support.get("source_used") == "fort_bend_valuation_bathroom_features"
+        or candidate_support.get("source_used") == "fort_bend_valuation_bathroom_features"
+    ):
+        return "fort_bend_validated_bathroom_source"
+    return "canonical_roll"
+
+
+def _bath_basis_reason_code(
+    *,
+    subject_support: dict[str, Any],
+    candidate_support: dict[str, Any],
+) -> str:
+    if _bath_basis_source_code(
+        subject_support=subject_support,
+        candidate_support=candidate_support,
+    ) == "fort_bend_validated_bathroom_source":
+        return "clean_fort_bend_bathroom_support_normalized"
+    return "canonical_bathroom_count_available"

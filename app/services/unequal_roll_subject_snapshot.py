@@ -7,10 +7,14 @@ from uuid import uuid4
 from psycopg.types.json import Jsonb
 
 from app.db.connection import get_connection
+from app.services.unequal_roll_bathroom_support import (
+    FORT_BEND_BATHROOM_SOURCE_TABLE,
+    attach_bathroom_support_context,
+    build_bathroom_support_context,
+)
 
 MODEL_VERSION = "unequal_roll_mvp_foundation_v1"
 CONFIG_VERSION = "unequal_roll_mvp_foundation_v1"
-FORT_BEND_BATHROOM_SOURCE_TABLE = "fort_bend_valuation_bathroom_features"
 REVIEW_WARNING_CODES = {
     "missing_address",
     "missing_characteristics",
@@ -104,8 +108,15 @@ class UnequalRollSubjectSnapshotService:
                     parcel_id=parcel_id,
                     tax_year=served_tax_year,
                 )
+                valuation_bathroom_features_json = attach_bathroom_support_context(
+                    county_id=county_id,
+                    canonical_full_baths=row.get("full_baths"),
+                    canonical_half_baths=row.get("half_baths"),
+                    valuation_bathroom_features_json=valuation_bathroom_features_json,
+                )
                 support_status, readiness_status, support_blocker_code = self._derive_support_status(
                     row,
+                    county_id=county_id,
                     requested_tax_year=tax_year,
                     valuation_bathroom_features_json=valuation_bathroom_features_json,
                 )
@@ -228,18 +239,303 @@ class UnequalRollSubjectSnapshotService:
     ) -> dict[str, Any] | None:
         cursor.execute(
             """
+            WITH subject_snapshot AS (
+              SELECT
+                pys.parcel_year_snapshot_id,
+                pys.parcel_id,
+                pys.county_id,
+                pys.tax_year,
+                pys.account_number,
+                pys.cad_owner_name,
+                pys.cad_owner_name_normalized
+              FROM parcel_year_snapshots AS pys
+              WHERE pys.is_current = true
+                AND pys.county_id = %s
+                AND pys.account_number = %s
+                AND pys.tax_year <= %s
+              ORDER BY pys.tax_year DESC
+              LIMIT 1
+            ),
+            current_address AS (
+              SELECT DISTINCT ON (pa.parcel_id)
+                pa.parcel_id,
+                pa.situs_address,
+                pa.situs_city,
+                COALESCE(pa.situs_state, 'TX') AS situs_state,
+                pa.situs_zip,
+                pa.normalized_address
+              FROM parcel_addresses AS pa
+              JOIN subject_snapshot AS ss
+                ON ss.parcel_id = pa.parcel_id
+              WHERE pa.is_current = true
+              ORDER BY pa.parcel_id, pa.updated_at DESC, pa.created_at DESC, pa.parcel_address_id DESC
+            ),
+            exemption_rollup AS (
+              SELECT
+                pe.parcel_id,
+                pe.tax_year,
+                COUNT(*) AS exemption_record_count,
+                COALESCE(
+                  SUM(pe.exemption_amount) FILTER (WHERE pe.granted_flag AND pe.exemption_amount IS NOT NULL),
+                  0::numeric
+                ) AS granted_exemption_amount_total,
+                COALESCE(
+                  array_agg(DISTINCT pe.exemption_type_code ORDER BY pe.exemption_type_code)
+                  FILTER (WHERE pe.exemption_type_code IS NOT NULL),
+                  ARRAY[]::text[]
+                ) AS exemption_type_codes,
+                COALESCE(
+                  array_agg(DISTINCT raw_code ORDER BY raw_code)
+                  FILTER (WHERE btrim(raw_code) <> ''),
+                  ARRAY[]::text[]
+                ) AS raw_exemption_codes,
+                COALESCE(BOOL_OR(
+                  COALESCE((et.metadata_json -> 'summary_flags') ? 'homestead', false)
+                ), false) AS homestead_flag,
+                COALESCE(BOOL_OR(
+                  COALESCE((et.metadata_json -> 'summary_flags') ? 'over65', false)
+                ), false) AS over65_flag,
+                COALESCE(BOOL_OR(
+                  COALESCE((et.metadata_json -> 'summary_flags') ? 'disabled', false)
+                ), false) AS disabled_flag,
+                COALESCE(BOOL_OR(
+                  COALESCE((et.metadata_json -> 'summary_flags') ? 'disabled_veteran', false)
+                ), false) AS disabled_veteran_flag,
+                COALESCE(BOOL_OR(
+                  COALESCE((et.metadata_json -> 'summary_flags') ? 'freeze', false)
+                ), false) AS freeze_flag,
+                COALESCE(
+                  BOOL_OR(pe.amount_missing_flag OR (pe.granted_flag AND pe.exemption_amount IS NULL)),
+                  false
+                ) AS missing_exemption_amount_flag
+              FROM parcel_exemptions AS pe
+              JOIN subject_snapshot AS ss
+                ON ss.parcel_id = pe.parcel_id
+               AND ss.tax_year = pe.tax_year
+              LEFT JOIN exemption_types AS et
+                ON et.exemption_type_code = pe.exemption_type_code
+              CROSS JOIN LATERAL unnest(
+                CASE
+                  WHEN pe.raw_exemption_codes IS NULL OR cardinality(pe.raw_exemption_codes) = 0
+                    THEN ARRAY[COALESCE(pe.exemption_type_code, '')]
+                  ELSE pe.raw_exemption_codes
+                END
+              ) AS raw_code
+              GROUP BY pe.parcel_id, pe.tax_year
+            ),
+            taxing_assignment_counts AS (
+              SELECT
+                ptu.parcel_id,
+                ptu.tax_year,
+                COUNT(*) FILTER (WHERE tu.unit_type_code = 'county') AS county_assignment_count,
+                COUNT(*) FILTER (WHERE tu.unit_type_code = 'school') AS school_assignment_count
+              FROM parcel_taxing_units AS ptu
+              JOIN subject_snapshot AS ss
+                ON ss.parcel_id = ptu.parcel_id
+               AND ss.tax_year = ptu.tax_year
+              JOIN taxing_units AS tu
+                ON tu.taxing_unit_id = ptu.taxing_unit_id
+               AND tu.tax_year = ptu.tax_year
+              GROUP BY ptu.parcel_id, ptu.tax_year
+            ),
+            geometry_flags AS (
+              SELECT
+                pg.parcel_id,
+                pg.tax_year,
+                BOOL_OR(pg.geometry_role = 'parcel_polygon' AND pg.is_current) AS has_parcel_polygon,
+                BOOL_OR(pg.geometry_role = 'parcel_centroid' AND pg.is_current) AS has_parcel_centroid
+              FROM parcel_geometries AS pg
+              JOIN subject_snapshot AS ss
+                ON ss.parcel_id = pg.parcel_id
+               AND ss.tax_year = pg.tax_year
+              GROUP BY pg.parcel_id, pg.tax_year
+            )
             SELECT
-              psv.*,
-              pi.total_rooms
-            FROM parcel_summary_view AS psv
+              ss.county_id,
+              ss.parcel_id,
+              ss.tax_year,
+              ss.account_number,
+              p.cad_property_id,
+              COALESCE(ca.situs_address, p.situs_address) AS situs_address,
+              COALESCE(ca.situs_city, p.situs_city) AS situs_city,
+              COALESCE(ca.situs_state, COALESCE(p.situs_state, 'TX')) AS situs_state,
+              COALESCE(ca.situs_zip, p.situs_zip) AS situs_zip,
+              COALESCE(
+                ca.normalized_address,
+                upper(regexp_replace(COALESCE(ca.situs_address, p.situs_address, ''), '[^A-Za-z0-9 ]', '', 'g'))
+              ) AS normalized_address,
+              concat_ws(
+                ', ',
+                COALESCE(ca.situs_address, p.situs_address),
+                COALESCE(ca.situs_city, p.situs_city),
+                concat_ws(' ', COALESCE(ca.situs_state, COALESCE(p.situs_state, 'TX')), COALESCE(ca.situs_zip, p.situs_zip))
+              ) AS address,
+              COALESCE(cor.owner_name, ss.cad_owner_name, p.owner_name) AS owner_name,
+              COALESCE(cor.owner_name_normalized, ss.cad_owner_name_normalized) AS owner_name_normalized,
+              cor.source_basis AS owner_source_basis,
+              cor.confidence_score AS owner_confidence_score,
+              COALESCE(cor.override_flag, false) AS owner_override_flag,
+              ss.cad_owner_name,
+              ss.cad_owner_name_normalized,
+              COALESCE(pc.property_type_code, p.property_type_code) AS property_type_code,
+              COALESCE(pc.property_class_code, p.property_class_code) AS property_class_code,
+              COALESCE(pc.neighborhood_code, p.neighborhood_code) AS neighborhood_code,
+              COALESCE(pc.subdivision_name, p.subdivision_name) AS subdivision_name,
+              COALESCE(pc.school_district_name, p.school_district_name) AS school_district_name,
+              pi.living_area_sf,
+              pi.year_built,
+              pi.effective_year_built,
+              COALESCE(pi.effective_age, pc.effective_age) AS effective_age,
+              pi.bedrooms,
+              pi.full_baths,
+              pi.half_baths,
+              pi.total_rooms,
+              pi.stories,
+              pi.quality_code,
+              pi.condition_code,
+              pi.garage_spaces,
+              pi.pool_flag,
+              pl.land_sf,
+              pl.land_acres,
+              pl.frontage_sf,
+              pl.depth_sf,
+              pa.market_value,
+              pa.assessed_value,
+              pa.capped_value,
+              pa.appraised_value,
+              pa.certified_value,
+              pa.notice_value,
+              pa.exemption_value_total,
+              COALESCE(er.exemption_record_count, 0) AS exemption_record_count,
+              COALESCE(er.exemption_type_codes, ARRAY[]::text[]) AS exemption_type_codes,
+              COALESCE(er.raw_exemption_codes, ARRAY[]::text[]) AS raw_exemption_codes,
+              COALESCE(er.homestead_flag, false) AS homestead_flag,
+              COALESCE(er.over65_flag, false) AS over65_flag,
+              COALESCE(er.disabled_flag, false) AS disabled_flag,
+              COALESCE(er.disabled_veteran_flag, false) AS disabled_veteran_flag,
+              COALESCE(er.freeze_flag, false) AS freeze_flag,
+              etr.effective_tax_rate,
+              COALESCE(gf.has_parcel_polygon, false) AS has_parcel_polygon,
+              COALESCE(gf.has_parcel_centroid, false) AS has_parcel_centroid,
+              CASE
+                WHEN COALESCE(pa.certified_value, pa.appraised_value, pa.assessed_value, pa.market_value, pa.notice_value) IS NULL
+                  THEN NULL
+                ELSE GREATEST(
+                  COALESCE(pa.certified_value, pa.appraised_value, pa.assessed_value, pa.market_value, pa.notice_value)
+                  - COALESCE(pa.exemption_value_total, 0),
+                  0
+                )
+              END AS estimated_taxable_value,
+              CASE
+                WHEN etr.effective_tax_rate IS NULL
+                  OR COALESCE(pa.certified_value, pa.appraised_value, pa.assessed_value, pa.market_value, pa.notice_value) IS NULL
+                  THEN NULL
+                ELSE GREATEST(
+                  COALESCE(pa.certified_value, pa.appraised_value, pa.assessed_value, pa.market_value, pa.notice_value)
+                  - COALESCE(pa.exemption_value_total, 0),
+                  0
+                ) * etr.effective_tax_rate
+              END AS estimated_annual_tax,
+              ROUND(
+                (
+                  (
+                    (CASE WHEN COALESCE(ca.situs_address, p.situs_address) IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN pc.property_characteristic_id IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN pi.parcel_improvement_id IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN pl.parcel_land_id IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN pa.parcel_assessment_id IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN COALESCE(er.exemption_record_count, 0) > 0 OR pa.exemption_value_total IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN COALESCE(tac.county_assignment_count, 0) > 0 OR COALESCE(tac.school_assignment_count, 0) > 0 THEN 1 ELSE 0 END) +
+                    (CASE WHEN etr.effective_tax_rate IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN cor.current_owner_rollup_id IS NOT NULL THEN 1 ELSE 0 END) +
+                    (CASE WHEN COALESCE(gf.has_parcel_polygon, false) OR COALESCE(gf.has_parcel_centroid, false) THEN 1 ELSE 0 END)
+                  )::numeric / 10::numeric
+                ) * 100.0,
+                2
+              ) AS completeness_score,
+              (
+                COALESCE(ca.situs_address, p.situs_address) IS NOT NULL
+                AND pa.parcel_assessment_id IS NOT NULL
+                AND etr.effective_tax_rate IS NOT NULL
+                AND cor.current_owner_rollup_id IS NOT NULL
+              ) AS public_summary_ready_flag,
+              ARRAY_REMOVE(
+                ARRAY[
+                  CASE WHEN COALESCE(ca.situs_address, p.situs_address) IS NULL THEN 'missing_address' END,
+                  CASE WHEN pc.property_characteristic_id IS NULL THEN 'missing_characteristics' END,
+                  CASE WHEN pi.parcel_improvement_id IS NULL THEN 'missing_improvement' END,
+                  CASE WHEN pl.parcel_land_id IS NULL THEN 'missing_land' END,
+                  CASE WHEN pa.parcel_assessment_id IS NULL THEN 'missing_assessment' END,
+                  CASE WHEN COALESCE(er.exemption_record_count, 0) = 0 AND pa.exemption_value_total IS NULL THEN 'missing_exemption_data' END,
+                  CASE WHEN COALESCE(tac.county_assignment_count, 0) = 0 THEN 'missing_county_assignment' END,
+                  CASE WHEN COALESCE(tac.school_assignment_count, 0) = 0 THEN 'missing_school_assignment' END,
+                  CASE WHEN etr.effective_tax_rate IS NULL THEN 'missing_effective_tax_rate' END,
+                  CASE WHEN cor.current_owner_rollup_id IS NULL THEN 'missing_owner_rollup' END,
+                  CASE
+                    WHEN cor.owner_name IS NOT NULL
+                      AND ss.cad_owner_name IS NOT NULL
+                      AND cor.owner_name IS DISTINCT FROM ss.cad_owner_name
+                      AND COALESCE(cor.override_flag, false) = false
+                    THEN 'cad_owner_mismatch'
+                  END,
+                  CASE WHEN COALESCE(er.missing_exemption_amount_flag, false) THEN 'missing_exemption_amount' END,
+                  CASE
+                    WHEN pa.exemption_value_total IS NOT NULL
+                      AND ABS(COALESCE(er.granted_exemption_amount_total, 0) - pa.exemption_value_total) > 0.01
+                    THEN 'assessment_exemption_total_mismatch'
+                  END,
+                  CASE
+                    WHEN pa.homestead_flag IS NOT NULL
+                      AND pa.homestead_flag IS DISTINCT FROM COALESCE(er.homestead_flag, false)
+                    THEN 'homestead_flag_mismatch'
+                  END,
+                  CASE
+                    WHEN COALESCE(er.freeze_flag, false)
+                      AND NOT (
+                        COALESCE(er.over65_flag, false)
+                        OR COALESCE(er.disabled_flag, false)
+                        OR COALESCE(er.disabled_veteran_flag, false)
+                      )
+                    THEN 'freeze_without_qualifying_exemption'
+                  END,
+                  CASE
+                    WHEN NOT (COALESCE(gf.has_parcel_polygon, false) OR COALESCE(gf.has_parcel_centroid, false))
+                    THEN 'missing_geometry'
+                  END
+                ],
+                NULL
+              ) AS warning_codes
+            FROM subject_snapshot AS ss
+            JOIN parcels AS p
+              ON p.parcel_id = ss.parcel_id
+            LEFT JOIN current_address AS ca
+              ON ca.parcel_id = ss.parcel_id
+            LEFT JOIN property_characteristics AS pc
+              ON pc.parcel_year_snapshot_id = ss.parcel_year_snapshot_id
             LEFT JOIN parcel_improvements AS pi
-              ON pi.parcel_id = psv.parcel_id
-             AND pi.tax_year = psv.tax_year
-            WHERE psv.county_id = %s
-              AND psv.account_number = %s
-              AND psv.tax_year <= %s
-            ORDER BY psv.tax_year DESC
-            LIMIT 1
+              ON pi.parcel_id = ss.parcel_id
+             AND pi.tax_year = ss.tax_year
+            LEFT JOIN parcel_lands AS pl
+              ON pl.parcel_id = ss.parcel_id
+             AND pl.tax_year = ss.tax_year
+            LEFT JOIN parcel_assessments AS pa
+              ON pa.parcel_id = ss.parcel_id
+             AND pa.tax_year = ss.tax_year
+            LEFT JOIN exemption_rollup AS er
+              ON er.parcel_id = ss.parcel_id
+             AND er.tax_year = ss.tax_year
+            LEFT JOIN effective_tax_rates AS etr
+              ON etr.parcel_id = ss.parcel_id
+             AND etr.tax_year = ss.tax_year
+            LEFT JOIN taxing_assignment_counts AS tac
+              ON tac.parcel_id = ss.parcel_id
+             AND tac.tax_year = ss.tax_year
+            LEFT JOIN current_owner_rollups AS cor
+              ON cor.parcel_id = ss.parcel_id
+             AND cor.tax_year = ss.tax_year
+            LEFT JOIN geometry_flags AS gf
+              ON gf.parcel_id = ss.parcel_id
+             AND gf.tax_year = ss.tax_year
             """,
             (county_id, account_number, requested_tax_year),
         )
@@ -328,6 +624,7 @@ class UnequalRollSubjectSnapshotService:
         self,
         row: dict[str, Any],
         *,
+        county_id: str,
         requested_tax_year: int,
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> tuple[str, str, str | None]:
@@ -353,10 +650,13 @@ class UnequalRollSubjectSnapshotService:
             return "manual_review_required", "not_ready", "subject_source_requires_review"
         if served_tax_year != requested_tax_year:
             return "supported_with_review", "ready", None
-        if (
-            valuation_bathroom_features_json is not None
-            and valuation_bathroom_features_json.get("attachment_status") == "missing"
-        ):
+        bathroom_support = build_bathroom_support_context(
+            county_id=county_id,
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
+        if county_id == "fort_bend" and bathroom_support["unresolved_bathroom_support_flag"]:
             return "supported_with_review", "ready", None
         return "supported", "ready", None
 
@@ -384,6 +684,12 @@ class UnequalRollSubjectSnapshotService:
         snapshot_json: dict[str, Any],
         source_provenance_json: dict[str, Any],
     ) -> None:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(row.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         cursor.execute(
             """
             INSERT INTO unequal_roll_subject_snapshots (
@@ -450,8 +756,8 @@ class UnequalRollSubjectSnapshotService:
                 _as_int(row.get("year_built")),
                 _as_float(row.get("effective_age")),
                 _as_int(row.get("bedrooms")),
-                _as_float(row.get("full_baths")),
-                _as_float(row.get("half_baths")),
+                _as_float(bathroom_support["resolved_full_baths"]),
+                _as_float(bathroom_support["resolved_half_baths"]),
                 _as_int(row.get("total_rooms")),
                 _as_float(row.get("stories")),
                 row.get("quality_code"),
@@ -527,6 +833,12 @@ class UnequalRollSubjectSnapshotService:
         requested_tax_year: int,
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(row.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         return {
             "requested_tax_year": requested_tax_year,
             "served_tax_year": int(row["tax_year"]),
@@ -548,8 +860,8 @@ class UnequalRollSubjectSnapshotService:
                 "year_built": _as_int(row.get("year_built")),
                 "effective_age": _as_float(row.get("effective_age")),
                 "bedrooms": _as_int(row.get("bedrooms")),
-                "full_baths": _as_float(row.get("full_baths")),
-                "half_baths": _as_float(row.get("half_baths")),
+                "full_baths": _as_float(bathroom_support["resolved_full_baths"]),
+                "half_baths": _as_float(bathroom_support["resolved_half_baths"]),
                 "total_rooms": _as_int(row.get("total_rooms")),
                 "stories": _as_float(row.get("stories")),
                 "quality_code": row.get("quality_code"),
@@ -570,6 +882,7 @@ class UnequalRollSubjectSnapshotService:
                 "freeze_flag": _as_bool(row.get("freeze_flag")),
                 "subject_appraised_psf": _subject_appraised_psf(row),
             },
+            "bathroom_support": bathroom_support,
             "valuation_bathroom_features": valuation_bathroom_features_json,
         }
 
@@ -580,21 +893,34 @@ class UnequalRollSubjectSnapshotService:
         requested_tax_year: int,
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(row.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         return {
             "requested_tax_year": requested_tax_year,
             "served_tax_year": int(row["tax_year"]),
             "tax_year_fallback_applied": int(row["tax_year"]) != requested_tax_year,
             "subject_source": {
-                "type": "derived_view",
-                "name": "parcel_summary_view",
+                "type": "derived_query",
+                "name": "subject_snapshot_base_rollup",
                 "lookup_rule": "county_id + account_number + tax_year <= requested_tax_year",
                 "backing_tables": [
                     "parcel_year_snapshots",
+                    "parcels",
                     "parcel_addresses",
+                    "property_characteristics",
                     "parcel_improvements",
                     "parcel_lands",
                     "parcel_assessments",
                     "parcel_exemptions",
+                    "effective_tax_rates",
+                    "current_owner_rollups",
+                    "parcel_taxing_units",
+                    "taxing_units",
+                    "parcel_geometries",
                 ],
             },
             "total_rooms_source": "parcel_improvements",
@@ -606,6 +932,7 @@ class UnequalRollSubjectSnapshotService:
                 if valuation_bathroom_features_json is not None
                 else None
             ),
+            "bathroom_support": bathroom_support,
             "valuation_bathroom_attachment_status": (
                 valuation_bathroom_features_json.get("attachment_status")
                 if valuation_bathroom_features_json is not None

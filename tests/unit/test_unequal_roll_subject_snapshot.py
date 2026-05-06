@@ -132,7 +132,8 @@ def test_create_run_with_subject_snapshot_persists_harris_snapshot(monkeypatch) 
     update_run_sql, update_run_params = connection.cursor_instance.execute_calls[3]
 
     assert "INSERT INTO unequal_roll_runs" in insert_run_sql
-    assert "FROM parcel_summary_view AS psv" in subject_select_sql
+    assert "WITH subject_snapshot AS" in subject_select_sql
+    assert "FROM parcel_year_snapshots AS pys" in subject_select_sql
     assert subject_select_params == ("harris", "1001001001001", 2026)
     assert "INSERT INTO unequal_roll_subject_snapshots" in insert_snapshot_sql
     assert insert_snapshot_params[5] == "1001001001001"
@@ -142,7 +143,7 @@ def test_create_run_with_subject_snapshot_persists_harris_snapshot(monkeypatch) 
     assert insert_snapshot_params[36] == pytest.approx(202.5)
     assert insert_snapshot_params[37] is None
     assert insert_snapshot_params[38].obj["subject"]["property_type_code"] == "sfr"
-    assert insert_snapshot_params[39].obj["subject_source"]["name"] == "parcel_summary_view"
+    assert insert_snapshot_params[39].obj["subject_source"]["name"] == "subject_snapshot_base_rollup"
     assert "UPDATE unequal_roll_runs" in update_run_sql
     assert update_run_params[1] == "completed"
     assert update_run_params[2] == "ready"
@@ -200,10 +201,17 @@ def test_create_run_with_subject_snapshot_attaches_fort_bend_bathroom_metadata(m
     assert len(connection.cursor_instance.execute_calls) == 5
     insert_snapshot_params = connection.cursor_instance.execute_calls[3][1]
     bathroom_json = insert_snapshot_params[37].obj
+    snapshot_json = insert_snapshot_params[38].obj
     assert bathroom_json["attachment_status"] == "attached"
     assert bathroom_json["bathroom_count_status"] == "reconciled_fractional_plumbing"
     assert bathroom_json["bathroom_count_confidence"] == "medium"
     assert bathroom_json["full_baths_derived"] == 2.0
+    assert insert_snapshot_params[16] == 2.0
+    assert insert_snapshot_params[17] == 1.0
+    assert snapshot_json["bathroom_support"]["full_bath"]["source_used"] == (
+        "fort_bend_valuation_bathroom_features"
+    )
+    assert snapshot_json["bathroom_support"]["full_bath"]["clean_flag"] is True
 
     update_run_params = connection.cursor_instance.execute_calls[4][1]
     assert update_run_params[5] == "canonical_snapshot_with_additive_bathroom_metadata"
@@ -229,7 +237,7 @@ def test_create_run_with_subject_snapshot_preserves_missing_fort_bend_bathroom_m
     assert result.source_coverage_status == (
         "canonical_snapshot_with_missing_additive_bathroom_metadata"
     )
-    assert result.support_status == "supported_with_review"
+    assert result.support_status == "supported"
 
     assert len(connection.cursor_instance.execute_calls) == 5
     insert_snapshot_params = connection.cursor_instance.execute_calls[3][1]
@@ -238,9 +246,58 @@ def test_create_run_with_subject_snapshot_preserves_missing_fort_bend_bathroom_m
     assert bathroom_json["source_table"] == "fort_bend_valuation_bathroom_features"
 
     update_run_params = connection.cursor_instance.execute_calls[4][1]
-    assert update_run_params[3] == "supported_with_review"
+    assert update_run_params[3] == "supported"
     assert update_run_params[5] == "canonical_snapshot_with_missing_additive_bathroom_metadata"
     assert update_run_params[7].obj["valuation_bathroom_attachment_status"] == "missing"
+
+
+def test_create_run_with_subject_snapshot_keeps_dirty_fort_bend_bathroom_counts_review_visible(
+    monkeypatch,
+) -> None:
+    subject_row = _base_subject_row(county_id="fort_bend")
+    subject_row["full_baths"] = None
+    bathroom_row = {
+        "quick_ref_id": "QR-1",
+        "account_number": "1001001001001",
+        "selected_improvement_number": "1",
+        "selected_improvement_rule_version": "fort_bend_primary_residential_improvement_v1",
+        "normalization_rule_version": "fort_bend_bathroom_features_v1",
+        "source_file_version": "WebsiteResidentialSegs.csv:sha256:test",
+        "source_file_name": "WebsiteResidentialSegs.csv",
+        "selected_improvement_source_row_count": 1,
+        "plumbing_raw": 3.5,
+        "half_baths_raw": 1.0,
+        "quarter_baths_raw": 0.0,
+        "plumbing_raw_values": [3.5],
+        "half_baths_raw_values": [1.0],
+        "quarter_baths_raw_values": [0.0],
+        "full_baths_derived": 3.5,
+        "half_baths_derived": 1.0,
+        "quarter_baths_derived": 0.0,
+        "bathroom_equivalent_derived": 4.0,
+        "bathroom_count_status": "ambiguous_bathroom_count",
+        "bathroom_count_confidence": "medium",
+        "bathroom_flags": ["fractional_plumbing_source"],
+    }
+    connection = SequenceConnection([subject_row, bathroom_row])
+    monkeypatch.setattr(
+        "app.services.unequal_roll_subject_snapshot.get_connection",
+        connection_factory(connection),
+    )
+
+    result = UnequalRollSubjectSnapshotService().create_run_with_subject_snapshot(
+        county_id="fort_bend",
+        tax_year=2026,
+        account_number="1001001001001",
+    )
+
+    assert result.support_status == "supported_with_review"
+    insert_snapshot_params = connection.cursor_instance.execute_calls[3][1]
+    snapshot_json = insert_snapshot_params[38].obj
+    assert snapshot_json["bathroom_support"]["full_bath"]["clean_flag"] is False
+    assert snapshot_json["bathroom_support"]["full_bath"]["dirty_reason_code"] == (
+        "fractional_full_bath_count"
+    )
 
 
 def test_create_run_with_subject_snapshot_marks_missing_subject_source(monkeypatch) -> None:

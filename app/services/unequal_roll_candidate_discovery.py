@@ -6,6 +6,10 @@ from typing import Any
 from psycopg.types.json import Jsonb
 
 from app.db.connection import get_connection
+from app.services.unequal_roll_bathroom_support import (
+    attach_bathroom_support_context,
+    build_bathroom_support_context,
+)
 from app.services.unequal_roll_candidate_normalization import (
     ordinal_gap,
     property_class_relation,
@@ -20,12 +24,6 @@ MAX_AUTO_HARVEST = 100
 SPARSE_UNIVERSE_WARNING_THRESHOLD = 15
 FALLBACK_PREFILTER_MULTIPLIER = 8
 FALLBACK_PREFILTER_MAX_ROWS = 800
-FORT_BEND_AUTO_USABLE_BATHROOM_STATUSES = {
-    "exact_supported",
-    "reconciled_fractional_plumbing",
-    "quarter_bath_present",
-}
-
 @dataclass(frozen=True)
 class UnequalRollCandidateDiscoveryResult:
     unequal_roll_run_id: str
@@ -93,6 +91,12 @@ class UnequalRollCandidateDiscoveryService:
                             candidate_parcel_id=str(row["parcel_id"]),
                             tax_year=int(row["tax_year"]),
                         )
+                    )
+                    valuation_bathroom_features_json = attach_bathroom_support_context(
+                        county_id=str(subject_snapshot["county_id"]),
+                        canonical_full_baths=row.get("full_baths"),
+                        canonical_half_baths=row.get("half_baths"),
+                        valuation_bathroom_features_json=valuation_bathroom_features_json,
                     )
                     eligibility_status, eligibility_reason_code, eligibility_detail_json = (
                         self._evaluate_candidate_eligibility(
@@ -541,6 +545,12 @@ class UnequalRollCandidateDiscoveryService:
         similarity_score_result: Any,
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> None:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(subject_snapshot.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         source_provenance_json = self._build_source_provenance_json(
             subject_snapshot=subject_snapshot,
             row=row,
@@ -621,8 +631,8 @@ class UnequalRollCandidateDiscoveryService:
                 _as_int(row.get("year_built")),
                 _as_float(row.get("effective_age")),
                 _as_int(row.get("bedrooms")),
-                _as_float(row.get("full_baths")),
-                _as_float(row.get("half_baths")),
+                _as_float(bathroom_support.get("resolved_full_baths")),
+                _as_float(bathroom_support.get("resolved_half_baths")),
                 _as_int(row.get("total_rooms")),
                 _as_float(row.get("stories")),
                 row.get("quality_code"),
@@ -658,6 +668,12 @@ class UnequalRollCandidateDiscoveryService:
         discovery_tier: str,
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(subject_snapshot.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         return {
             "discovery_tier": discovery_tier,
             "subject_source": "unequal_roll_subject_snapshots",
@@ -686,6 +702,7 @@ class UnequalRollCandidateDiscoveryService:
                 if valuation_bathroom_features_json is not None
                 else "not_applicable"
             ),
+            "bathroom_support": bathroom_support,
         }
 
     def _build_candidate_snapshot_json(
@@ -699,6 +716,12 @@ class UnequalRollCandidateDiscoveryService:
         eligibility_detail_json: dict[str, Any],
         valuation_bathroom_features_json: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        bathroom_support = build_bathroom_support_context(
+            county_id=str(subject_snapshot.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         return {
             "discovery_tier": discovery_tier,
             "candidate": {
@@ -715,8 +738,8 @@ class UnequalRollCandidateDiscoveryService:
                 "year_built": _as_int(row.get("year_built")),
                 "effective_age": _as_float(row.get("effective_age")),
                 "bedrooms": _as_int(row.get("bedrooms")),
-                "full_baths": _as_float(row.get("full_baths")),
-                "half_baths": _as_float(row.get("half_baths")),
+                "full_baths": _as_float(bathroom_support.get("resolved_full_baths")),
+                "half_baths": _as_float(bathroom_support.get("resolved_half_baths")),
                 "total_rooms": _as_int(row.get("total_rooms")),
                 "stories": _as_float(row.get("stories")),
                 "quality_code": row.get("quality_code"),
@@ -749,6 +772,7 @@ class UnequalRollCandidateDiscoveryService:
                 "eligibility_reason_code": eligibility_reason_code,
                 **eligibility_detail_json,
             },
+            "bathroom_support": bathroom_support,
             "valuation_bathroom_features": valuation_bathroom_features_json,
         }
 
@@ -778,20 +802,20 @@ class UnequalRollCandidateDiscoveryService:
         subject_bedrooms = _as_int(subject_snapshot.get("bedrooms"))
         candidate_bedrooms = _as_int(row.get("bedrooms"))
         bedroom_diff_abs = _abs_diff(subject_bedrooms, candidate_bedrooms)
+        candidate_bathroom_support = build_bathroom_support_context(
+            county_id=str(subject_snapshot.get("county_id") or ""),
+            canonical_full_baths=row.get("full_baths"),
+            canonical_half_baths=row.get("half_baths"),
+            valuation_bathroom_features_json=valuation_bathroom_features_json,
+        )
         subject_effective_baths = _effective_baths(
             subject_snapshot.get("full_baths"),
             subject_snapshot.get("half_baths"),
         )
-        if (
-            valuation_bathroom_features_json is not None
-            and _as_float(row.get("full_baths")) is None
-        ):
-            candidate_effective_baths = None
-        else:
-            candidate_effective_baths = _effective_baths(
-                row.get("full_baths"),
-                row.get("half_baths"),
-            )
+        candidate_effective_baths = _effective_baths(
+            candidate_bathroom_support.get("resolved_full_baths"),
+            candidate_bathroom_support.get("resolved_half_baths"),
+        )
         effective_bath_diff = _abs_diff(subject_effective_baths, candidate_effective_baths)
         subject_stories = _as_float(subject_snapshot.get("stories"))
         candidate_stories = _as_float(row.get("stories"))
@@ -814,7 +838,8 @@ class UnequalRollCandidateDiscoveryService:
             candidate_value=row.get("condition_code"),
         )
         fort_bend_bathroom_review = _fort_bend_bathroom_review(
-            valuation_bathroom_features_json
+            candidate_bathroom_support,
+            valuation_bathroom_features_json,
         )
 
         threshold_observations = {
@@ -1057,6 +1082,7 @@ def _acreage_profile_mismatch(subject_snapshot: dict[str, Any], row: dict[str, A
 
 
 def _fort_bend_bathroom_review(
+    bathroom_support: dict[str, Any],
     valuation_bathroom_features_json: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if valuation_bathroom_features_json is None:
@@ -1064,11 +1090,15 @@ def _fort_bend_bathroom_review(
             "attachment_status": "not_applicable",
             "review_required": False,
         }
-
+    full_support = dict(bathroom_support.get("full_bath") or {})
+    half_support = dict(bathroom_support.get("half_bath") or {})
     bathroom_count_status = valuation_bathroom_features_json.get("bathroom_count_status")
-    review_required = (
+    review_required = bool(
         valuation_bathroom_features_json.get("attachment_status") == "attached"
-        and bathroom_count_status not in FORT_BEND_AUTO_USABLE_BATHROOM_STATUSES
+        and (
+            not bool(full_support.get("clean_flag"))
+            or not bool(half_support.get("clean_flag"))
+        )
     )
     return {
         "attachment_status": valuation_bathroom_features_json.get("attachment_status"),
@@ -1076,6 +1106,10 @@ def _fort_bend_bathroom_review(
         "bathroom_count_confidence": valuation_bathroom_features_json.get(
             "bathroom_count_confidence"
         ),
+        "full_bath_clean_flag": full_support.get("clean_flag"),
+        "half_bath_clean_flag": half_support.get("clean_flag"),
+        "full_bath_dirty_reason_code": full_support.get("dirty_reason_code"),
+        "half_bath_dirty_reason_code": half_support.get("dirty_reason_code"),
         "review_required": review_required,
     }
 
@@ -1085,8 +1119,8 @@ def _has_usable_fort_bend_bathroom_support(
 ) -> bool:
     if valuation_bathroom_features_json is None:
         return False
-    return (
+    bathroom_support = dict(valuation_bathroom_features_json.get("bathroom_support") or {})
+    return bool(
         valuation_bathroom_features_json.get("attachment_status") == "attached"
-        and valuation_bathroom_features_json.get("bathroom_count_status")
-        in FORT_BEND_AUTO_USABLE_BATHROOM_STATUSES
+        and bathroom_support.get("resolved_bathroom_support_flag")
     )

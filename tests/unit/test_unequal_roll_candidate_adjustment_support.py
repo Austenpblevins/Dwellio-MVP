@@ -9,6 +9,7 @@ from app.services.unequal_roll_candidate_adjustment_support import (
     ADJUSTMENT_SUPPORT_VERSION,
     UnequalRollCandidateAdjustmentSupportService,
 )
+from app.services.unequal_roll_bathroom_support import build_bathroom_support_context
 
 
 class SequenceCursor:
@@ -89,6 +90,15 @@ def _run_context() -> dict[str, object]:
         "land_sf": 7200.0,
         "land_acres": 0.165,
         "appraised_value": 410000.0,
+        "snapshot_json": {
+            "bathroom_support": build_bathroom_support_context(
+                county_id="fort_bend",
+                canonical_full_baths=3.0,
+                canonical_half_baths=1.0,
+                valuation_bathroom_features_json=None,
+            )
+        },
+        "valuation_bathroom_features_json": None,
     }
 
 
@@ -113,6 +123,29 @@ def _candidate(
     acceptable_zone_admitted_flag: bool = False,
 ) -> dict[str, object]:
     return {
+        **{
+            "candidate_snapshot_json": {
+                "bathroom_support": build_bathroom_support_context(
+                    county_id="fort_bend",
+                    canonical_full_baths=full_baths,
+                    canonical_half_baths=half_baths,
+                    valuation_bathroom_features_json=valuation_bathroom_features
+                    or {
+                        "attachment_status": "attached",
+                        "bathroom_count_status": "exact_supported",
+                        "bathroom_count_confidence": "high",
+                        "bathroom_equivalent_derived": 2.5,
+                    },
+                ),
+                "valuation_bathroom_features": valuation_bathroom_features
+                or {
+                    "attachment_status": "attached",
+                    "bathroom_count_status": "exact_supported",
+                    "bathroom_count_confidence": "high",
+                    "bathroom_equivalent_derived": 2.5,
+                },
+            }
+        },
         "unequal_roll_candidate_id": unequal_roll_candidate_id,
         "unequal_roll_run_id": "run-1",
         "candidate_parcel_id": str(uuid4()),
@@ -134,15 +167,6 @@ def _candidate(
         "land_acres": 0.16,
         "appraised_value": 385000.0,
         "source_provenance_json": {},
-        "candidate_snapshot_json": {
-            "valuation_bathroom_features": valuation_bathroom_features
-            or {
-                "attachment_status": "attached",
-                "bathroom_count_status": "exact_supported",
-                "bathroom_count_confidence": "high",
-                "bathroom_equivalent_derived": 2.5,
-            }
-        },
         "chosen_comp_position": chosen_comp_position,
         "chosen_comp_status": chosen_comp_status,
         "chosen_comp_version": "unequal_roll_chosen_comp_v5",
@@ -359,7 +383,7 @@ def test_adjustment_support_preserves_fort_bend_bathroom_boundary_context(
     assert detail["adjustment_channels"]["full_bath"]["readiness_status"] == "review_required"
 
 
-def test_adjustment_support_uses_exact_fort_bend_bathroom_support_as_secondary_basis(
+def test_adjustment_support_uses_clean_fort_bend_bathroom_support_as_monetized_basis(
     monkeypatch,
 ) -> None:
     candidates = [
@@ -396,16 +420,53 @@ def test_adjustment_support_uses_exact_fort_bend_bathroom_support_as_secondary_b
     full_bath_channel = detail["adjustment_channels"]["full_bath"]
     assert updates["cand-bath-exact"][1] == "adjustment_ready_with_review"
     assert full_bath_channel["readiness_status"] == "ready"
-    assert full_bath_channel["basis_source_code"] == (
-        "fort_bend_valuation_bathroom_features_exact"
-    )
+    assert full_bath_channel["basis_source_code"] == "fort_bend_validated_bathroom_source"
     assert full_bath_channel["secondary_source_used_flag"] is True
     assert full_bath_channel["valuation_support_auto_usable_flag"] is True
     assert full_bath_channel["valuation_support_basis_field"] == "full_baths_derived"
     assert full_bath_channel["candidate_value"] == 2.0
+    assert full_bath_channel["bathroom_adjustment_mode"] == "monetized"
     assert (
         detail["bathroom_boundary_context"][
             "canonical_fields_replaced_by_valuation_only_features_flag"
         ]
-        is False
+        is True
     )
+
+
+def test_adjustment_support_uses_reconciled_clean_fort_bend_bathroom_support_as_monetized_basis(
+    monkeypatch,
+) -> None:
+    candidates = [
+        _candidate(
+            unequal_roll_candidate_id="cand-bath-reconciled",
+            chosen_comp_status="review_chosen_comp",
+            chosen_comp_position=1,
+            full_baths=None,
+            half_baths=None,
+            valuation_bathroom_features={
+                "attachment_status": "attached",
+                "bathroom_count_status": "reconciled_fractional_plumbing",
+                "bathroom_count_confidence": "medium",
+                "full_baths_derived": 2.0,
+                "half_baths_derived": 1.0,
+                "bathroom_equivalent_derived": 2.5,
+            },
+        )
+    ]
+    connection = SequenceConnection(fetchall_results=[[_run_context()], candidates])
+    monkeypatch.setattr(
+        "app.services.unequal_roll_candidate_adjustment_support.get_connection",
+        connection_factory(connection),
+    )
+
+    UnequalRollCandidateAdjustmentSupportService().build_adjustment_support_for_run(
+        unequal_roll_run_id="run-1"
+    )
+
+    updates = _candidate_updates_by_id(connection)
+    detail = updates["cand-bath-reconciled"][4].obj
+    full_bath_channel = detail["adjustment_channels"]["full_bath"]
+    assert full_bath_channel["readiness_status"] == "ready"
+    assert full_bath_channel["basis_source_code"] == "fort_bend_validated_bathroom_source"
+    assert full_bath_channel["candidate_value"] == 2.0

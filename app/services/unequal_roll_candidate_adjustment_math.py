@@ -558,13 +558,13 @@ class UnequalRollCandidateAdjustmentMathService:
             )
             source_method_code = "subject_raw_value_pct_fallback"
             source_precedence_override = None
-            if channel_detail.get("basis_source_code") == "fort_bend_valuation_bathroom_features_exact":
-                source_method_code = "fort_bend_exact_bath_basis_with_fallback_rate"
+            if channel_detail.get("basis_source_code") == "fort_bend_validated_bathroom_source":
+                source_method_code = "fort_bend_validated_bath_basis_with_fallback_rate"
                 source_precedence_override = {
                     "rank": 3,
-                    "label": "county_supported_secondary_basis_with_fallback_rate",
-                    "quality_tier": "county_supported_basis_with_fallback_rate",
-                    "resolution_status": "monetized_basis_supported_fallback_rate",
+                    "label": "county_validated_bathroom_basis_with_fallback_rate",
+                    "quality_tier": "county_validated_basis_with_fallback_rate",
+                    "resolution_status": "monetized_validated_bathroom_basis",
                 }
             return self._monetized_line_item(
                 line_order=line_order,
@@ -626,13 +626,13 @@ class UnequalRollCandidateAdjustmentMathService:
             )
             source_method_code = "subject_raw_value_pct_fallback"
             source_precedence_override = None
-            if channel_detail.get("basis_source_code") == "fort_bend_valuation_bathroom_features_exact":
-                source_method_code = "fort_bend_exact_bath_basis_with_fallback_rate"
+            if channel_detail.get("basis_source_code") == "fort_bend_validated_bathroom_source":
+                source_method_code = "fort_bend_validated_bath_basis_with_fallback_rate"
                 source_precedence_override = {
                     "rank": 3,
-                    "label": "county_supported_secondary_basis_with_fallback_rate",
-                    "quality_tier": "county_supported_basis_with_fallback_rate",
-                    "resolution_status": "monetized_basis_supported_fallback_rate",
+                    "label": "county_validated_bathroom_basis_with_fallback_rate",
+                    "quality_tier": "county_validated_basis_with_fallback_rate",
+                    "resolution_status": "monetized_validated_bathroom_basis",
                 }
             return self._monetized_line_item(
                 line_order=line_order,

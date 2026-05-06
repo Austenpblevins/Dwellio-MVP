@@ -345,14 +345,19 @@ def _fort_bend_bathroom_modifier_detail(
 
     attachment_status = valuation_bathroom_features_json.get("attachment_status")
     bathroom_count_status = valuation_bathroom_features_json.get("bathroom_count_status")
-    review_required = (
+    bathroom_support = dict(valuation_bathroom_features_json.get("bathroom_support") or {})
+    full_support = dict(bathroom_support.get("full_bath") or {})
+    half_support = dict(bathroom_support.get("half_bath") or {})
+    review_required = bool(
         attachment_status == "attached"
-        and bathroom_count_status
-        not in {"exact_supported", "reconciled_fractional_plumbing", "quarter_bath_present"}
+        and (
+            not bool(full_support.get("clean_flag"))
+            or not bool(half_support.get("clean_flag"))
+        )
     )
 
     value = 1.0
-    if attachment_status == "missing":
+    if attachment_status == "missing" and bathroom_support.get("resolved_bathroom_support_flag") is not True:
         value = 0.98
     elif review_required:
         value = 0.95
@@ -364,6 +369,10 @@ def _fort_bend_bathroom_modifier_detail(
         "bathroom_count_confidence": valuation_bathroom_features_json.get(
             "bathroom_count_confidence"
         ),
+        "full_bath_clean_flag": full_support.get("clean_flag"),
+        "half_bath_clean_flag": half_support.get("clean_flag"),
+        "full_bath_dirty_reason_code": full_support.get("dirty_reason_code"),
+        "half_bath_dirty_reason_code": half_support.get("dirty_reason_code"),
         "review_required": review_required,
     }
 
