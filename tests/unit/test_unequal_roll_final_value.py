@@ -642,3 +642,180 @@ def test_final_value_keeps_positive_reduction_review_visible_set_manual_review_r
     ]
     assert refinement["applied_flag"] is False
     assert refinement["checks"]["no_reduction_requested"] is False
+
+
+def test_final_value_refines_no_reduction_when_conflict_is_only_remaining_blocker(
+    monkeypatch,
+) -> None:
+    values = [
+        360000.0,
+        362000.0,
+        364000.0,
+        366000.0,
+        368000.0,
+        370000.0,
+        372000.0,
+        374000.0,
+        376000.0,
+        378000.0,
+        380000.0,
+        382000.0,
+    ]
+    candidates = [
+        _candidate(
+            unequal_roll_candidate_id=f"cand-{index}",
+            adjusted_appraised_value=value,
+            appraised_value=value - 6000.0,
+            adjusted_set_status="usable_with_review_adjusted_comp",
+            chosen_comp_status="review_chosen_comp",
+            chosen_comp_position=index,
+            review_carry_forward_flag=True,
+            adjusted_set_reason_codes=["review_carry_forward_requires_review_visibility"],
+            source_status="mixed_with_unresolved_review_only",
+            burden_status="within_thresholds",
+            adjustment_pct_of_raw_value=0.03,
+            material_adjustment_count=1,
+            nontrivial_adjustment_sources_count=1,
+            conflict_divergence_governance=(
+                {
+                    "raw_adjusted_divergence_flag": True,
+                }
+                if index <= 4
+                else {
+                    "raw_adjusted_divergence_flag": False,
+                }
+            ),
+        )
+        for index, value in enumerate(values, start=1)
+    ]
+    adjustment_lines = [
+        _adjustment_line(f"cand-{index}", "gla", 6000.0)
+        for index in range(1, 13)
+    ]
+    connection = SequenceConnection(
+        fetchall_results=[
+            [
+                _run_context(
+                    selection_governance_status="supported_with_warnings",
+                    support_status="supported_with_review",
+                    subject_appraised_value=350000.0,
+                )
+            ],
+            candidates,
+            adjustment_lines,
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.unequal_roll_final_value.get_connection",
+        connection_factory(connection),
+    )
+
+    result = UnequalRollFinalValueService().build_final_value_for_run(
+        unequal_roll_run_id="run-1"
+    )
+
+    assert result.final_value_status == "supported_with_review"
+    run_update = _run_update_params(connection)
+    final_value_detail = run_update[6].obj
+    refinement = final_value_detail["carried_forward_governance"][
+        "review_visible_no_reduction_refinement"
+    ]
+    assert refinement["applied_flag"] is True
+    assert refinement["checks"]["not_high_conflict_or_divergence"] is False
+    assert refinement["checks"]["conflict_only_remaining_blocker"] is True
+    assert (
+        refinement["reason"]
+        == "review_visible_no_reduction_stable_conflict_override"
+    )
+    assert (
+        refinement["preserved_caveats"]["conflict_flag_counts"][
+            "raw_adjusted_divergence_flag"
+        ]
+        == 4
+    )
+
+
+def test_final_value_does_not_refine_no_reduction_when_likely_exclude_present(
+    monkeypatch,
+) -> None:
+    values = [
+        360000.0,
+        362000.0,
+        364000.0,
+        366000.0,
+        368000.0,
+        370000.0,
+        372000.0,
+        374000.0,
+        376000.0,
+        378000.0,
+        380000.0,
+        382000.0,
+    ]
+    candidates = [
+        _candidate(
+            unequal_roll_candidate_id=f"cand-{index}",
+            adjusted_appraised_value=value,
+            appraised_value=value - 6000.0,
+            adjusted_set_status="usable_with_review_adjusted_comp",
+            chosen_comp_status="review_chosen_comp",
+            chosen_comp_position=index,
+            review_carry_forward_flag=True,
+            adjusted_set_reason_codes=["review_carry_forward_requires_review_visibility"],
+            source_status="mixed_with_unresolved_review_only",
+            burden_status="within_thresholds",
+            adjustment_pct_of_raw_value=0.03,
+            material_adjustment_count=1,
+            nontrivial_adjustment_sources_count=1,
+        )
+        for index, value in enumerate(values, start=1)
+    ]
+    candidates.append(
+        _candidate(
+            unequal_roll_candidate_id="cand-excluded",
+            adjusted_appraised_value=410000.0,
+            appraised_value=400000.0,
+            adjusted_set_status="likely_exclude_adjusted_comp",
+            chosen_comp_status="review_chosen_comp",
+            chosen_comp_position=99,
+            review_carry_forward_flag=True,
+            adjusted_set_reason_codes=["exclude_recommended"],
+            source_status="mixed_with_unresolved_review_only",
+            burden_status="warning",
+            adjustment_pct_of_raw_value=0.04,
+        )
+    )
+    adjustment_lines = [
+        _adjustment_line(f"cand-{index}", "gla", 6000.0)
+        for index in range(1, 13)
+    ]
+    connection = SequenceConnection(
+        fetchall_results=[
+            [
+                _run_context(
+                    selection_governance_status="supported_with_warnings",
+                    support_status="supported_with_review",
+                    subject_appraised_value=350000.0,
+                )
+            ],
+            candidates,
+            adjustment_lines,
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.unequal_roll_final_value.get_connection",
+        connection_factory(connection),
+    )
+
+    result = UnequalRollFinalValueService().build_final_value_for_run(
+        unequal_roll_run_id="run-1"
+    )
+
+    assert result.final_value_status == "manual_review_required"
+    run_update = _run_update_params(connection)
+    final_value_detail = run_update[6].obj
+    refinement = final_value_detail["carried_forward_governance"][
+        "review_visible_no_reduction_refinement"
+    ]
+    assert refinement["applied_flag"] is False
+    assert refinement["checks"]["likely_exclude_count_zero"] is False

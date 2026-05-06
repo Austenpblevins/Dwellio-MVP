@@ -26,6 +26,7 @@ NO_REDUCTION_REFINEMENT_MAX_CONFLICT_COUNT = 3
 NO_REDUCTION_REFINEMENT_MAX_IQR_RATIO = 0.55
 NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_ABSOLUTE = 15000.0
 NO_REDUCTION_REFINEMENT_MAX_LEAVE_ONE_OUT_RATIO = 0.06
+NO_REDUCTION_REFINEMENT_MAX_ADJUSTMENT_PCT = 0.15
 FINAL_VALUE_CONFLICT_FLAG_KEYS = {
     "raw_adjusted_divergence_flag",
     "adjusted_conflict_indicator_flag",
@@ -779,6 +780,7 @@ class UnequalRollFinalValueService:
             burden_within_count / included_count if included_count else None
         )
         conflict_metrics = _conflict_divergence_metrics(included_rows)
+        max_adjustment_pct = _as_float(stability_metrics.get("max_adjustment_pct"))
         no_reduction_requested = (requested_reduction_amount or 0.0) <= 0.0
         checks = {
             "no_reduction_requested": no_reduction_requested,
@@ -804,6 +806,10 @@ class UnequalRollFinalValueService:
                 adjusted_value_iqr_ratio is not None
                 and adjusted_value_iqr_ratio <= NO_REDUCTION_REFINEMENT_MAX_IQR_RATIO
             ),
+            "max_adjustment_pct_within_limit": (
+                max_adjustment_pct is not None
+                and max_adjustment_pct <= NO_REDUCTION_REFINEMENT_MAX_ADJUSTMENT_PCT
+            ),
             "all_included_review_visible": bool(
                 qa_flags.get("all_included_review_visible_flag")
             ),
@@ -817,14 +823,28 @@ class UnequalRollFinalValueService:
                 )
             ),
         }
-        qualifies = all(checks.values())
+        checks_excluding_conflict = {
+            key: value
+            for key, value in checks.items()
+            if key != "not_high_conflict_or_divergence"
+        }
+        all_non_conflict_checks_pass = all(checks_excluding_conflict.values())
+        conflict_only_remaining_blocker = bool(
+            all_non_conflict_checks_pass
+            and not checks["not_high_conflict_or_divergence"]
+        )
+        checks["conflict_only_remaining_blocker"] = conflict_only_remaining_blocker
+        qualifies = all_non_conflict_checks_pass and (
+            checks["not_high_conflict_or_divergence"]
+            or conflict_only_remaining_blocker
+        )
         return _governance_refinement_detail(
             qualification_status="applied" if qualifies else "rejected",
             applied_flag=qualifies,
             reason=(
-                "stable_review_visible_no_reduction_support"
+                "review_visible_no_reduction_stable_conflict_override"
                 if qualifies
-                else "stable_review_visible_no_reduction_support_not_met"
+                else "review_visible_no_reduction_stable_conflict_override_not_met"
             ),
             checks=checks,
             metrics={
@@ -838,6 +858,7 @@ class UnequalRollFinalValueService:
                 "leave_one_out_threshold": leave_one_out_threshold,
                 "adjusted_value_iqr": adjusted_value_iqr,
                 "adjusted_value_iqr_ratio": adjusted_value_iqr_ratio,
+                "max_adjustment_pct": max_adjustment_pct,
                 "conflict_affected_comp_count": conflict_metrics["affected_comp_count"],
                 "conflict_affected_ratio": conflict_metrics["affected_ratio"],
             },
