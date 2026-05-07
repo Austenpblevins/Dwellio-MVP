@@ -1012,6 +1012,28 @@ class IngestionRepository:
             return 0
         return int(row["count"] or 0)
 
+    def count_property_roll_land_rows_for_import_batch(
+        self,
+        *,
+        import_batch_id: str,
+        tax_year: int,
+    ) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_lands pl
+            JOIN parcel_year_snapshots pys
+              ON pys.parcel_id = pl.parcel_id
+             AND pys.tax_year = pl.tax_year
+            WHERE pys.import_batch_id = %s
+              AND pys.tax_year = %s
+            """,
+            (import_batch_id, tax_year),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def summarize_property_roll_exemption_collapse(
         self,
         *,
