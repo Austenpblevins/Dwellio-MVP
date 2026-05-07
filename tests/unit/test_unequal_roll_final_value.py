@@ -68,6 +68,8 @@ def _run_context(
     fallback_used: bool = False,
     raw_sf_divergence_check_flag: bool = False,
     subject_appraised_value: float = 500000.0,
+    subject_land_sf: float | None = 12000.0,
+    subject_land_acres: float | None = 0.2755,
 ) -> dict[str, object]:
     return {
         "unequal_roll_run_id": "run-1",
@@ -90,6 +92,8 @@ def _run_context(
         "tax_year": 2026,
         "appraised_value": subject_appraised_value,
         "living_area_sf": 2500.0,
+        "land_sf": subject_land_sf,
+        "land_acres": subject_land_acres,
         "full_baths": 3.0,
         "half_baths": 1.0,
     }
@@ -119,6 +123,8 @@ def _candidate(
     nontrivial_adjustment_sources_count: int = 2,
     dominant_adjustment_channel: str = "gla",
     address: str | None = None,
+    land_sf: float | None = 9600.0,
+    land_acres: float | None = 0.2204,
 ) -> dict[str, object]:
     return {
         "unequal_roll_candidate_id": unequal_roll_candidate_id,
@@ -128,6 +134,8 @@ def _candidate(
         "county_id": "fort_bend",
         "tax_year": 2026,
         "living_area_sf": 2400.0,
+        "land_sf": land_sf,
+        "land_acres": land_acres,
         "full_baths": 2.0,
         "half_baths": 1.0,
         "appraised_value": appraised_value,
@@ -382,6 +390,13 @@ def test_final_value_persists_median_and_governance_detail(monkeypatch) -> None:
     )
     assert len(final_value_detail["included_comp_rows"]) == 8
     assert len(final_value_detail["excluded_comp_rows"]) == 2
+    included_row = final_value_detail["included_comp_rows"][0]
+    assert included_row["land_sf"] == 9600.0
+    assert included_row["land_acres"] == 0.2204
+    assert included_row["subject_land_sf"] == 12000.0
+    assert included_row["subject_land_acres"] == 0.2755
+    assert included_row["land_sf_delta"] == 2400.0
+    assert included_row["land_acres_delta"] == 0.0551
     assert (
         final_value_detail["carried_forward_governance"]["adjustment_math"][
             "dispersion_scaffolding"
@@ -392,6 +407,57 @@ def test_final_value_persists_median_and_governance_detail(monkeypatch) -> None:
     assert selection_log_json["final_value"]["requested_roll_value"] == 366000.0
     summary_json = run_update[8].obj
     assert summary_json["final_value_summary"]["requested_reduction_amount"] == 134000.0
+
+
+def test_final_value_emits_null_land_fields_when_candidate_land_missing(monkeypatch) -> None:
+    candidates = [
+        _candidate(
+            unequal_roll_candidate_id="cand-1",
+            adjusted_appraised_value=352000.0,
+            appraised_value=342000.0,
+            adjusted_set_status="usable_adjusted_comp",
+            chosen_comp_position=1,
+            land_sf=None,
+            land_acres=None,
+        ),
+        _candidate(
+            unequal_roll_candidate_id="cand-2",
+            adjusted_appraised_value=356000.0,
+            appraised_value=346000.0,
+            adjusted_set_status="review_heavy_adjusted_comp",
+            chosen_comp_position=2,
+            burden_status="manual_review_recommended",
+            land_sf=None,
+            land_acres=None,
+        ),
+    ]
+    adjustment_lines = [
+        _adjustment_line("cand-1", "gla", 10000.0),
+        _adjustment_line("cand-2", "condition", 30000.0),
+    ]
+    fetch_results = [
+        [_run_context()],
+        candidates,
+        adjustment_lines,
+    ]
+    connection = SequenceConnection(fetchall_results=fetch_results)
+    monkeypatch.setattr(
+        "app.services.unequal_roll_final_value.get_connection",
+        connection_factory(connection),
+    )
+
+    result = UnequalRollFinalValueService().build_final_value_for_run(
+        unequal_roll_run_id="run-1"
+    )
+
+    assert result.final_value_status == "unsupported"
+    run_update = _run_update_params(connection)
+    final_value_detail = run_update[6].obj
+    included_row = final_value_detail["included_comp_rows"][0]
+    assert included_row["land_sf"] is None
+    assert included_row["land_acres"] is None
+    assert included_row["land_sf_delta"] is None
+    assert included_row["land_acres_delta"] is None
 
 
 def test_final_value_uses_manual_review_for_all_review_visible_minimum_set(

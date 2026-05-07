@@ -153,6 +153,8 @@ class UnequalRollFinalValueService:
               urss.tax_year,
               urss.appraised_value,
               urss.living_area_sf,
+              urss.land_sf,
+              urss.land_acres,
               urss.full_baths,
               urss.half_baths
             FROM unequal_roll_runs AS urr
@@ -181,6 +183,8 @@ class UnequalRollFinalValueService:
               county_id,
               tax_year,
               living_area_sf,
+              land_sf,
+              land_acres,
               full_baths,
               half_baths,
               appraised_value,
@@ -269,6 +273,10 @@ class UnequalRollFinalValueService:
             adjusted_appraised_value = _as_float(candidate.get("adjusted_appraised_value"))
             raw_appraised_value = _as_float(candidate.get("appraised_value"))
             living_area_sf = _as_float(candidate.get("living_area_sf"))
+            candidate_land_sf = _as_float(candidate.get("land_sf"))
+            candidate_land_acres = _as_float(candidate.get("land_acres"))
+            subject_land_sf = _as_float(run_context.get("land_sf"))
+            subject_land_acres = _as_float(run_context.get("land_acres"))
             adjusted_appraised_value_per_sf = _value_per_sf(
                 adjusted_appraised_value,
                 living_area_sf,
@@ -287,6 +295,12 @@ class UnequalRollFinalValueService:
                 "adjusted_appraised_value_per_sf": adjusted_appraised_value_per_sf,
                 "raw_appraised_value": raw_appraised_value,
                 "raw_appraised_value_per_sf": raw_appraised_value_per_sf,
+                "land_sf": candidate_land_sf,
+                "land_acres": candidate_land_acres,
+                "subject_land_sf": subject_land_sf,
+                "subject_land_acres": subject_land_acres,
+                "land_sf_delta": _difference(subject_land_sf, candidate_land_sf),
+                "land_acres_delta": _difference(subject_land_acres, candidate_land_acres),
                 "adjustment_math_status": candidate.get("adjustment_math_status"),
                 "adjusted_set_governance_status": adjusted_set_governance.get("status"),
                 "adjusted_set_governance_reason_codes": list(
@@ -1078,6 +1092,12 @@ def _value_per_sf(value: float | None, living_area_sf: float | None) -> float | 
     if value is None or living_area_sf in {None, 0.0}:
         return None
     return round(value / living_area_sf, 2)
+
+
+def _difference(left: float | None, right: float | None) -> float | None:
+    if left is None or right is None:
+        return None
+    return round(left - right, 4)
 
 
 def _iqr_stats(values: list[float]) -> dict[str, float | None]:
