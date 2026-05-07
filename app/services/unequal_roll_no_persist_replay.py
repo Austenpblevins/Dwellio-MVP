@@ -31,6 +31,12 @@ from app.services.unequal_roll_candidate_final_selection_support import (
 )
 from app.services.unequal_roll_candidate_ranking import UnequalRollCandidateRankingService
 from app.services.unequal_roll_candidate_scoring import compute_similarity_score
+from app.services.unequal_roll_smart_harvest import (
+    CURRENT_ORDER_CAP_100,
+    DEFAULT_HARVEST_STRATEGY,
+    SameNeighborhoodHarvestSelection,
+    select_same_neighborhood_harvest,
+)
 from app.services.unequal_roll_candidate_shortlist import UnequalRollCandidateShortlistService
 from app.services.unequal_roll_final_value import UnequalRollFinalValueService
 from app.services.unequal_roll_review_evidence import (
@@ -82,6 +88,8 @@ class UnequalRollNoPersistReplayService:
         request: UnequalRollReplayRequest,
         statement_timeout: str = "120s",
         max_parallel_workers_per_gather: int = 0,
+        same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
+        include_discovery_debug: bool = False,
     ) -> dict[str, Any]:
         start = monotonic()
         cursor.execute(f"SET LOCAL statement_timeout = '{statement_timeout}'")
@@ -127,6 +135,7 @@ class UnequalRollNoPersistReplayService:
         candidates, discovery_summary = self._discover_candidates(
             cursor,
             subject_snapshot=subject_snapshot,
+            same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
         )
 
         if not candidates:
@@ -327,6 +336,8 @@ class UnequalRollNoPersistReplayService:
             ),
             "elapsed_total_s": round(monotonic() - start, 4),
         }
+        if include_discovery_debug:
+            result["discovery_debug"] = discovery_summary.get("discovery_debug")
         return result
 
     def _build_subject_snapshot(
@@ -414,11 +425,14 @@ class UnequalRollNoPersistReplayService:
         cursor: Any,
         *,
         subject_snapshot: dict[str, Any],
+        same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        same_neighborhood_rows = self._discovery_service._fetch_same_neighborhood_candidates(
+        selection = self._select_same_neighborhood_rows(
             cursor,
             subject_snapshot=subject_snapshot,
+            same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
         )
+        same_neighborhood_rows = selection.selected_rows
         rows_to_persist: list[tuple[str, dict[str, Any]]] = [
             (DISCOVERY_TIER_SAME_NEIGHBORHOOD, row) for row in same_neighborhood_rows
         ]
@@ -547,6 +561,10 @@ class UnequalRollNoPersistReplayService:
         discovery_summary = {
             "discovered_count": discovered_count,
             "same_neighborhood_count": same_neighborhood_count,
+            "same_neighborhood_universe_count": selection.universe_count,
+            "same_neighborhood_harvest_strategy": selection.strategy,
+            "same_neighborhood_harvest_cap": selection.cap_used,
+            "same_neighborhood_candidates_excluded_by_cap": selection.excluded_by_cap,
             "county_sfr_fallback_count": county_sfr_fallback_count,
             "eligible_count": eligible_count,
             "review_count": review_count,
@@ -567,8 +585,52 @@ class UnequalRollNoPersistReplayService:
                 )
                 if flag
             ],
+            "discovery_debug": {
+                "same_neighborhood_harvest_strategy": selection.strategy,
+                "same_neighborhood_universe_count": selection.universe_count,
+                "same_neighborhood_harvested_count": selection.selected_count,
+                "same_neighborhood_harvest_cap": selection.cap_used,
+                "same_neighborhood_excluded_by_cap": selection.excluded_by_cap,
+                "same_neighborhood_harvest_accounts": [
+                    str(row.get("account_number") or "") for row in selection.selected_rows
+                ],
+                "same_neighborhood_cheap_similarity_top20": selection.scored_universe[:20],
+            },
         }
         return candidates, discovery_summary
+
+    def _select_same_neighborhood_rows(
+        self,
+        cursor: Any,
+        *,
+        subject_snapshot: dict[str, Any],
+        same_neighborhood_harvest_strategy: str,
+    ) -> SameNeighborhoodHarvestSelection:
+        if same_neighborhood_harvest_strategy == CURRENT_ORDER_CAP_100:
+            current_rows = self._discovery_service._fetch_same_neighborhood_candidates(
+                cursor,
+                subject_snapshot=subject_snapshot,
+            )
+            return SameNeighborhoodHarvestSelection(
+                strategy=CURRENT_ORDER_CAP_100,
+                universe_count=len(current_rows),
+                selected_count=len(current_rows),
+                cap_used=MAX_AUTO_HARVEST,
+                excluded_by_cap=max(0, len(current_rows) - MAX_AUTO_HARVEST),
+                scored_universe=[],
+                selected_rows=current_rows,
+            )
+
+        universe_rows = self._discovery_service._fetch_same_neighborhood_candidates(
+            cursor,
+            subject_snapshot=subject_snapshot,
+            limit=None,
+        )
+        return select_same_neighborhood_harvest(
+            subject_snapshot=subject_snapshot,
+            same_neighborhood_rows=universe_rows,
+            strategy=same_neighborhood_harvest_strategy,
+        )
 
     def _build_initial_run_context(
         self,

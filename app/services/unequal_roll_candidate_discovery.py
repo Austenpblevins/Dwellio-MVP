@@ -230,9 +230,9 @@ class UnequalRollCandidateDiscoveryService:
         cursor: Any,
         *,
         subject_snapshot: dict[str, Any],
+        limit: int | None = MAX_AUTO_HARVEST,
     ) -> list[dict[str, Any]]:
-        cursor.execute(
-            """
+        query = """
             SELECT
               pys.parcel_id,
               pys.county_id,
@@ -302,19 +302,23 @@ class UnequalRollCandidateDiscoveryService:
                 ELSE 1
               END,
               pys.account_number
-            LIMIT %s
-            """,
-            (
-                subject_snapshot["county_id"],
-                subject_snapshot["tax_year"],
-                subject_snapshot["parcel_id"],
-                subject_snapshot["neighborhood_code"],
-                subject_snapshot.get("subdivision_name"),
-                subject_snapshot.get("subdivision_name"),
-                subject_snapshot.get("subdivision_name"),
-                MAX_AUTO_HARVEST,
-            ),
+        """
+        params: tuple[Any, ...]
+        base_params = (
+            subject_snapshot["county_id"],
+            subject_snapshot["tax_year"],
+            subject_snapshot["parcel_id"],
+            subject_snapshot["neighborhood_code"],
+            subject_snapshot.get("subdivision_name"),
+            subject_snapshot.get("subdivision_name"),
+            subject_snapshot.get("subdivision_name"),
         )
+        if limit is None:
+            params = base_params
+        else:
+            query += "\n            LIMIT %s"
+            params = (*base_params, limit)
+        cursor.execute(query, params)
         return list(cursor.fetchall())
 
     def _fetch_county_sfr_fallback_candidates(

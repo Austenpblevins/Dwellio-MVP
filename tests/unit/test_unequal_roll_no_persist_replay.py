@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import MagicMock
 
 from app.services.unequal_roll_no_persist_replay import (
     UnequalRollNoPersistReplayService,
     subject_requests_from_runtime_artifact,
 )
+from app.services.unequal_roll_smart_harvest import SIMILARITY_TOP_100
 
 
 def test_subject_requests_from_runtime_artifact_extracts_requests(tmp_path) -> None:
@@ -119,3 +121,27 @@ def test_build_full_final_value_detail_preserves_similarity_and_line_items() -> 
     assert included_row["similarity_score"] == 0.9812
     assert len(included_row["line_items"]) == 2
     assert ordered_row["similarity_score"] == 0.9812
+
+
+def test_select_same_neighborhood_rows_uses_unbounded_fetch_for_smart_strategy() -> None:
+    service = UnequalRollNoPersistReplayService()
+    subject_snapshot = {"county_id": "harris", "neighborhood_code": "N1"}
+    cursor = object()
+    service._discovery_service = MagicMock()
+    service._discovery_service._fetch_same_neighborhood_candidates.return_value = [
+        {"account_number": "100"},
+        {"account_number": "101"},
+    ]
+
+    selection = service._select_same_neighborhood_rows(
+        cursor=cursor,
+        subject_snapshot=subject_snapshot,
+        same_neighborhood_harvest_strategy=SIMILARITY_TOP_100,
+    )
+
+    assert selection.strategy == SIMILARITY_TOP_100
+    service._discovery_service._fetch_same_neighborhood_candidates.assert_called_once_with(
+        cursor,
+        subject_snapshot=subject_snapshot,
+        limit=None,
+    )
