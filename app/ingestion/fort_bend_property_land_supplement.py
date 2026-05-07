@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,18 @@ class CanonicalLandRow:
     land_acres: float | None
     frontage_sf: float | None
     depth_sf: float | None
+
+
+@dataclass(frozen=True)
+class LandApplyAction:
+    parcel_id: str
+    account_number: str
+    tax_year: int
+    land_sf: float | None
+    land_acres: float | None
+    frontage_sf: float | None
+    depth_sf: float | None
+    source_record_hash: str
 
 
 def _as_float(value: Any) -> float | None:
@@ -309,3 +322,128 @@ def build_fill_only_plan(
         "preserve_samples": preserve_samples,
         "conflict_samples": conflict_samples,
     }
+
+
+def build_fill_only_apply_actions(
+    canonical_by_account: dict[str, CanonicalLandRow],
+    supplemental_by_account: dict[str, AggregatedSupplementalLand],
+    *,
+    tax_year: int = 2026,
+) -> list[LandApplyAction]:
+    actions: list[LandApplyAction] = []
+    matches = set(canonical_by_account).intersection(supplemental_by_account)
+    for account_number in sorted(matches):
+        canonical = canonical_by_account[account_number]
+        supplemental = supplemental_by_account[account_number]
+
+        candidate_land_sf = (
+            supplemental.primary_land_sf
+            if not _positive(canonical.land_sf) and _positive(supplemental.primary_land_sf)
+            else canonical.land_sf
+        )
+        candidate_land_acres = (
+            supplemental.primary_land_acres
+            if not _positive(canonical.land_acres) and _positive(supplemental.primary_land_acres)
+            else canonical.land_acres
+        )
+        candidate_frontage = (
+            supplemental.primary_frontage_sf
+            if not _positive(canonical.frontage_sf) and _positive(supplemental.primary_frontage_sf)
+            else canonical.frontage_sf
+        )
+        candidate_depth = (
+            supplemental.primary_depth_sf
+            if not _positive(canonical.depth_sf) and _positive(supplemental.primary_depth_sf)
+            else canonical.depth_sf
+        )
+
+        changed = (
+            candidate_land_sf != canonical.land_sf
+            or candidate_land_acres != canonical.land_acres
+            or candidate_frontage != canonical.frontage_sf
+            or candidate_depth != canonical.depth_sf
+        )
+        if not changed:
+            continue
+
+        hash_payload = "|".join(
+            [
+                account_number,
+                str(tax_year),
+                str(supplemental.primary_land_sf),
+                str(supplemental.primary_land_acres),
+                str(supplemental.primary_frontage_sf),
+                str(supplemental.primary_depth_sf),
+            ]
+        )
+        actions.append(
+            LandApplyAction(
+                parcel_id=canonical.parcel_id,
+                account_number=account_number,
+                tax_year=tax_year,
+                land_sf=candidate_land_sf,
+                land_acres=candidate_land_acres,
+                frontage_sf=candidate_frontage,
+                depth_sf=candidate_depth,
+                source_record_hash=hashlib.sha256(hash_payload.encode("utf-8")).hexdigest(),
+            )
+        )
+    return actions
+
+
+def apply_fill_only_actions(
+    actions: list[LandApplyAction],
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    summary = {
+        "dry_run": dry_run,
+        "row_count": len(actions),
+        "mutated_row_count": 0,
+        "sample_accounts": [action.account_number for action in actions[:25]],
+    }
+    if dry_run or not actions:
+        return summary
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = 120000")
+            cursor.execute("SET max_parallel_workers_per_gather = 0")
+            cursor.executemany(
+                """
+                INSERT INTO parcel_lands (
+                  parcel_id,
+                  tax_year,
+                  land_sf,
+                  land_acres,
+                  frontage_sf,
+                  depth_sf,
+                  source_system_id,
+                  source_record_hash
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, NULL, %s)
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_sf = EXCLUDED.land_sf,
+                  land_acres = EXCLUDED.land_acres,
+                  frontage_sf = EXCLUDED.frontage_sf,
+                  depth_sf = EXCLUDED.depth_sf,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                """,
+                [
+                    (
+                        action.parcel_id,
+                        action.tax_year,
+                        action.land_sf,
+                        action.land_acres,
+                        action.frontage_sf,
+                        action.depth_sf,
+                        action.source_record_hash,
+                    )
+                    for action in actions
+                ],
+            )
+        connection.commit()
+    summary["mutated_row_count"] = len(actions)
+    return summary
