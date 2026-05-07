@@ -214,6 +214,108 @@ def test_bulk_property_roll_upsert_populates_parcel_improvements_summary() -> No
     assert connection.cursor_instance.copy_rows[0][34] == 8
 
 
+def test_bulk_property_roll_upsert_populates_parcel_lands_summary() -> None:
+    connection = RecordingConnection()
+    repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]
+
+    repository._bulk_upsert_property_roll_core_records(
+        county_id="fort_bend",
+        tax_year=2026,
+        import_batch_id="batch-1",
+        job_run_id="job-1",
+        source_system_id="source-1",
+        appraisal_district_id="district-1",
+        normalized_records=[
+            {
+                "parcel": {
+                    "account_number": "5922-00-013-0050-907",
+                    "cad_property_id": "cad-1",
+                    "situs_address": "3118 Cherry Hills DR",
+                    "situs_city": "Missouri City",
+                    "situs_zip": "77459",
+                    "owner_name": "Jane Doe",
+                    "property_type_code": "sfr",
+                    "property_class_code": "A1",
+                    "neighborhood_code": "5922-00",
+                    "subdivision_name": "Quail Valley",
+                    "school_district_name": "Fort Bend ISD",
+                    "source_record_hash": "hash-1",
+                },
+                "address": {
+                    "normalized_address": "3118 CHERRY HILLS DR MISSOURI CITY TX 77459",
+                },
+                "characteristics": {
+                    "property_type_code": "sfr",
+                    "property_class_code": "A1",
+                    "neighborhood_code": "5922-00",
+                    "subdivision_name": "Quail Valley",
+                    "school_district_name": "Fort Bend ISD",
+                    "homestead_flag": True,
+                    "owner_occupied_flag": True,
+                    "primary_use_code": "residential",
+                    "neighborhood_group": "5922-00",
+                    "effective_age": 10,
+                },
+                "improvements": [
+                    {
+                        "living_area_sf": 2150,
+                        "year_built": 2004,
+                        "effective_year_built": 2012,
+                        "effective_age": 10,
+                        "bedrooms": 4,
+                        "full_baths": 2,
+                        "half_baths": 1,
+                        "total_rooms": 8,
+                        "stories": 2,
+                        "quality_code": "AVG",
+                        "condition_code": "GOOD",
+                        "garage_spaces": 2,
+                        "pool_flag": False,
+                    }
+                ],
+                "land_segments": [
+                    {
+                        "segment_num": 1,
+                        "land_type_code": "R",
+                        "land_sf": 6400,
+                        "land_acres": 0.1469,
+                        "frontage_sf": 64,
+                        "depth_sf": 100,
+                        "market_value": 95000,
+                    }
+                ],
+                "assessment": {
+                    "land_value": 120000,
+                    "improvement_value": 180000,
+                    "market_value": 300000,
+                    "assessed_value": 300000,
+                    "capped_value": 290000,
+                    "appraised_value": 300000,
+                    "exemption_value_total": 40000,
+                    "notice_value": 300000,
+                    "certified_value": 295000,
+                    "prior_year_market_value": 280000,
+                    "prior_year_assessed_value": 270000,
+                },
+                "exemptions": [],
+            }
+        ],
+    )
+
+    joined_queries = "\n".join(connection.cursor_instance.queries)
+    assert "INSERT INTO parcel_lands" in joined_queries
+    assert "WHERE t.land_sf IS NOT NULL" in joined_queries
+    assert "t.land_acres" in joined_queries
+    assert "t.frontage_sf" in joined_queries
+    assert "t.depth_sf" in joined_queries
+
+    copied_row = connection.cursor_instance.copy_rows[0]
+    assert copied_row[40] == 6400
+    assert copied_row[41] == 0.1469
+    assert copied_row[42] == 64
+    assert copied_row[43] == 100
+
+
 def test_bulk_property_roll_upsert_materializes_target_ids_and_skips_unchanged_addresses() -> None:
     connection = RecordingConnection()
     repository = IngestionRepository(connection=connection)  # type: ignore[arg-type]
