@@ -99,6 +99,53 @@ def _read_only_query(cursor: Any, query: str, params: tuple[Any, ...]) -> list[d
     return list(cursor.fetchall())
 
 
+def build_value_spread_order(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            _as_float(row.get("appraised_value")) or 0.0,
+            str(row.get("account_number") or ""),
+        ),
+    )
+    if not sorted_rows:
+        return []
+    ordered: list[dict[str, Any]] = []
+    used: set[int] = set()
+    mid = (len(sorted_rows) - 1) // 2
+    left = mid
+    right = mid + 1
+    low = 0
+    high = len(sorted_rows) - 1
+    while len(ordered) < len(sorted_rows):
+        for index in (left, right, low, high):
+            if 0 <= index < len(sorted_rows) and index not in used:
+                ordered.append(sorted_rows[index])
+                used.add(index)
+        left -= 1
+        right += 1
+        low += 1
+        high -= 1
+    return ordered
+
+
+def interleave_neighborhood_subjects(
+    rows_by_neighborhood: dict[str, list[SelectedSubject]],
+    neighborhood_order: list[str],
+) -> list[SelectedSubject]:
+    queues = {key: list(rows_by_neighborhood.get(key) or []) for key in neighborhood_order}
+    interleaved: list[SelectedSubject] = []
+    while True:
+        emitted = False
+        for neighborhood_code in neighborhood_order:
+            queue = queues.get(neighborhood_code) or []
+            if queue:
+                interleaved.append(queue.pop(0))
+                emitted = True
+        if not emitted:
+            break
+    return interleaved
+
+
 def select_ranked_subjects(
     cursor: Any,
     *,
@@ -114,47 +161,39 @@ def select_ranked_subjects(
     rows = _read_only_query(
         cursor,
         """
-        WITH ranked AS (
-          SELECT
-            county_id,
-            account_number,
-            neighborhood_code,
-            ROW_NUMBER() OVER (
-              PARTITION BY neighborhood_code
-              ORDER BY appraised_value DESC NULLS LAST, account_number
-            ) AS row_rank
-          FROM parcel_summary_view
-          WHERE county_id = %s
-            AND tax_year = %s
-            AND property_type_code = 'sfr'
-            AND COALESCE(neighborhood_code, '') <> ''
-            AND neighborhood_code = ANY(%s)
-            AND COALESCE(appraised_value, 0) > 0
-            AND COALESCE(living_area_sf, 0) > 0
-        )
-        SELECT county_id, account_number, neighborhood_code
-        FROM ranked
-        WHERE row_rank <= %s
-        ORDER BY neighborhood_code, row_rank, account_number
-        LIMIT %s
+        SELECT county_id, account_number, neighborhood_code, appraised_value
+        FROM parcel_summary_view
+        WHERE county_id = %s
+          AND tax_year = %s
+          AND property_type_code = 'sfr'
+          AND COALESCE(neighborhood_code, '') <> ''
+          AND neighborhood_code = ANY(%s)
+          AND COALESCE(appraised_value, 0) > 0
+          AND COALESCE(living_area_sf, 0) > 0
+        ORDER BY neighborhood_code, appraised_value NULLS LAST, account_number
         """,
         (
             county_id,
             requested_tax_year,
             neighborhoods,
-            max_subjects_per_neighborhood,
-            limit_total,
         ),
     )
-    return [
-        SelectedSubject(
-            county_id=str(row["county_id"]),
-            account_number=str(row["account_number"]),
-            neighborhood_code=str(row["neighborhood_code"]),
-            selection_source=selection_source,
-        )
-        for row in rows
-    ]
+    rows_by_neighborhood: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        rows_by_neighborhood[str(row["neighborhood_code"])].append(row)
+    selected_by_neighborhood: dict[str, list[SelectedSubject]] = {}
+    for neighborhood_code in neighborhoods:
+        ordered_rows = build_value_spread_order(rows_by_neighborhood.get(neighborhood_code) or [])
+        selected_by_neighborhood[neighborhood_code] = [
+            SelectedSubject(
+                county_id=str(row["county_id"]),
+                account_number=str(row["account_number"]),
+                neighborhood_code=str(row["neighborhood_code"]),
+                selection_source=selection_source,
+            )
+            for row in ordered_rows[:max_subjects_per_neighborhood]
+        ]
+    return interleave_neighborhood_subjects(selected_by_neighborhood, neighborhoods)[:limit_total]
 
 
 def discover_fort_bend_neighborhoods(
@@ -239,16 +278,24 @@ def select_validation_cohort(
         "max_subjects_per_neighborhood": max_subjects_per_neighborhood,
         "max_total_subjects": max_total_subjects,
         "smoke_limit": smoke_limit,
+        "selection_rank_strategy": "deterministic_round_robin_with_value_spread",
         "selection_criteria": [
             "parcel_summary_view read-only sampling",
             "property_type_code = sfr",
             "appraised_value > 0",
             "living_area_sf > 0",
             "nonblank neighborhood_code",
-            "Harris seeded neighborhoods plus Fort Bend neighborhoods with strong land_sf coverage",
+            "Harris seeded neighborhoods are sampled fairly via per-neighborhood caps plus deterministic round-robin interleaving before truncation.",
+            "Within each neighborhood, subject selection uses a deterministic appraised-value spread rather than appraised_value DESC only.",
+            "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage and form a land-repaired validation cohort, not a countywide-representative sample.",
         ],
         "harris_seeded_neighborhoods": harris_neighborhoods,
         "fort_bend_selected_neighborhoods": fort_bend_neighborhoods,
+        "fort_bend_selection_bias": {
+            "intentionally_land_repaired_biased": True,
+            "countywide_representative": False,
+            "disclosure": "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage after the repaired 2026 land baseline; results should be interpreted as a land-repaired validation cohort rather than a countywide-representative sample.",
+        },
         "selected_subject_count": len(combined),
     }
     return combined, summary
@@ -561,8 +608,12 @@ def build_subject_validation_row(
         - (current_result.get("excluded_review_heavy_count") or 0),
         "likely_exclude_delta": (smart_result.get("excluded_likely_exclude_count") or 0)
         - (current_result.get("excluded_likely_exclude_count") or 0),
+        "current_support_status": current_result.get("support_status"),
+        "smart_support_status": smart_result.get("support_status"),
         "support_status_drift": str(smart_result.get("support_status") or "")
         != str(current_result.get("support_status") or ""),
+        "current_final_value_status": current_result.get("final_value_status"),
+        "smart_final_value_status": smart_result.get("final_value_status"),
         "final_status_drift": str(smart_result.get("final_value_status") or "")
         != str(current_result.get("final_value_status") or ""),
         "no_reduction_change_flag": (
@@ -622,6 +673,25 @@ def build_automation_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def build_transition_counts(
+    rows: list[dict[str, Any]],
+    *,
+    from_key: str,
+    to_key: str,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        if not row.get("comparison_ready"):
+            continue
+        source = str(row.get(from_key) or "")
+        target = str(row.get(to_key) or "")
+        if not source or not target or source == target:
+            continue
+        transition = f"{source} -> {target}"
+        counts[transition] = counts.get(transition, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def build_group_summary(
     rows: list[dict[str, Any]],
     *,
@@ -671,7 +741,17 @@ def build_group_summary(
         "review_heavy_delta": avg_value([row.get("review_heavy_delta") for row in comparable]),
         "likely_exclude_delta": avg_value([row.get("likely_exclude_delta") for row in comparable]),
         "support_status_drift_count": sum(1 for row in comparable if row.get("support_status_drift")),
+        "support_status_transition_counts": build_transition_counts(
+            comparable,
+            from_key="current_support_status",
+            to_key="smart_support_status",
+        ),
         "final_status_drift_count": sum(1 for row in comparable if row.get("final_status_drift")),
+        "final_status_transition_counts": build_transition_counts(
+            comparable,
+            from_key="current_final_value_status",
+            to_key="smart_final_value_status",
+        ),
         "no_reduction_change_count": sum(1 for row in comparable if row.get("no_reduction_change_flag")),
         "post_selection_recovery_amount": round(strategy_recovery, 2),
         "recovery_as_pct_of_smart_harvest_taxpayer_loss": None
@@ -760,8 +840,18 @@ def build_payload(
             "support_status_drift_count": sum(
                 1 for row in comparable if row.get("support_status_drift")
             ),
+            "support_status_transition_counts": build_transition_counts(
+                comparable,
+                from_key="current_support_status",
+                to_key="smart_support_status",
+            ),
             "final_status_drift_count": sum(
                 1 for row in comparable if row.get("final_status_drift")
+            ),
+            "final_status_transition_counts": build_transition_counts(
+                comparable,
+                from_key="current_final_value_status",
+                to_key="smart_final_value_status",
             ),
             "loss_with_improved_similarity_cases": [
                 {
@@ -901,10 +991,21 @@ def write_md(path: Path, payload: dict[str, Any]) -> None:
         f"- Cohort size: {payload['cohort_size']}",
         f"- Recommendation for full reranking experiment: `{payload['recommendation_for_full_reranking_experiment']}`",
         "",
+        "## Method Boundary",
+        "- Validation/reporting only",
+        "- No DB writes",
+        "- No production scoring changes",
+        "- Not full candidate reranking",
+        "- Post-selection swap only for sensitivity strategies",
+        "- Smart harvest remains non-default",
+        "- Cohort is bounded and not necessarily representative",
+        "",
         "## Cohort Selection Summary",
         f"- Selected subject count: `{payload['cohort_selection_summary']['selected_subject_count']}`",
+        f"- Selection rank strategy: `{payload['cohort_selection_summary']['selection_rank_strategy']}`",
         f"- Harris seeded neighborhoods: `{payload['cohort_selection_summary']['harris_seeded_neighborhoods']}`",
         f"- Fort Bend selected neighborhoods: `{payload['cohort_selection_summary']['fort_bend_selected_neighborhoods']}`",
+        f"- Fort Bend cohort disclosure: `{payload['cohort_selection_summary']['fort_bend_selection_bias']['disclosure']}`",
         "",
         "## County Summary",
     ]
@@ -916,10 +1017,20 @@ def write_md(path: Path, payload: dict[str, Any]) -> None:
                 f"- Net taxpayer impact current vs smart: `{row['net_taxpayer_impact_current_vs_smart']}`",
                 f"- Post-selection recovery amount: `{row['post_selection_recovery_amount']}`",
                 f"- Support drift: `{row['support_status_drift_count']}`",
+                f"- Support transitions: `{row['support_status_transition_counts']}`",
                 f"- Final drift: `{row['final_status_drift_count']}`",
+                f"- Final transitions: `{row['final_status_transition_counts']}`",
                 "",
             ]
         )
+    lines.extend(
+        [
+            "## Overall Drift Transitions",
+            f"- Support transitions: `{payload['defensibility_support_drift_summary']['support_status_transition_counts']}`",
+            f"- Final transitions: `{payload['defensibility_support_drift_summary']['final_status_transition_counts']}`",
+            "",
+        ]
+    )
     lines.append("## Strategy Summary")
     for row in payload["post_selection_swap_strategy_summary"]:
         lines.extend(
