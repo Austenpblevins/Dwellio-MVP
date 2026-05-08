@@ -145,3 +145,54 @@ def test_select_same_neighborhood_rows_uses_unbounded_fetch_for_smart_strategy()
         subject_snapshot=subject_snapshot,
         limit=None,
     )
+
+
+def test_summarize_taxpayer_favorable_tiebreak_review_preserves_not_evaluated() -> None:
+    service = UnequalRollNoPersistReplayService()
+    result = service._build_taxpayer_favorable_tiebreak_review(
+        cursor=object(),
+        request=type("Req", (), {"county_id": "harris", "account_number": "A1", "requested_tax_year": 2026})(),
+        smart_result={"replay_status": "completed", "final_value_detail_json": {"included_comp_rows": []}},
+        same_neighborhood_harvest_strategy="current_order_cap_100",
+        statement_timeout="120s",
+        max_parallel_workers_per_gather=0,
+        include_discovery_debug=False,
+    )
+
+    assert result["taxpayer_favorable_tiebreak_class"] == "not_evaluated"
+    assert result["taxpayer_favorable_tiebreak_primary_reason"] == "current_strategy_not_similarity_top_100"
+
+
+def test_summarize_taxpayer_favorable_tiebreak_review_is_null_safe_and_uses_primary_one_swap() -> None:
+    service = UnequalRollNoPersistReplayService()
+    review = service._summarize_taxpayer_favorable_tiebreak_review(
+        current_result={"requested_reduction_amount": 10000.0},
+        smart_result={"requested_reduction_amount": 2000.0},
+        one_swap_result={
+            "requested_reduction_amount": 2600.0,
+            "accepted_swaps": [{"swapped_in_candidate_parcel_id": "p1", "swapped_out_candidate_parcel_id": "p2"}],
+            "rejected_alternatives": [{"rejection_reasons": ["similarity_below_equal_credibility_band"]}],
+            "automation_assessment": {
+                "automation_status": "manual_review_only",
+                "automation_reasons": ["accepted_swap_requires_review_visible_comp"],
+            },
+        },
+        two_swap_result={
+            "requested_reduction_amount": 3200.0,
+            "accepted_swaps": [{"swapped_in_candidate_parcel_id": "p1", "swapped_out_candidate_parcel_id": "p2"}],
+            "rejected_alternatives": [],
+            "automation_assessment": {
+                "automation_status": "safe_automated_candidate",
+                "automation_reasons": [],
+            },
+        },
+        parcel_account_map={"p1": "A-IN", "p2": "A-OUT"},
+    )
+
+    assert review["taxpayer_favorable_tiebreak_class"] == "manual_review_only"
+    assert review["taxpayer_favorable_tiebreak_primary_reason"] == "accepted_swap_requires_review_visible_comp"
+    assert review["taxpayer_favorable_tiebreak_swapped_in_accounts"] == ["A-IN"]
+    assert review["taxpayer_favorable_tiebreak_rejected_reason_counts"] == {
+        "similarity_below_equal_credibility_band": 1
+    }
+    assert review["taxpayer_favorable_tiebreak_two_swap_comparison"]["taxpayer_favorable_tiebreak_class"] == "safe_automated_candidate"

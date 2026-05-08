@@ -34,6 +34,7 @@ from app.services.unequal_roll_candidate_scoring import compute_similarity_score
 from app.services.unequal_roll_smart_harvest import (
     CURRENT_ORDER_CAP_100,
     DEFAULT_HARVEST_STRATEGY,
+    SIMILARITY_TOP_100,
     SameNeighborhoodHarvestSelection,
     select_same_neighborhood_harvest,
 )
@@ -43,7 +44,12 @@ from app.services.unequal_roll_review_evidence import (
     MODEL_OUTCOME_STATUSES,
     classify_unsupported_value_semantics,
     evidence_completeness_grade,
+    normalize_taxpayer_favorable_tiebreak_review,
     summarize_run_state_candidates,
+)
+from app.services.unequal_roll_taxpayer_favorable_tiebreak import (
+    TaxpayerFavorableTieBreakConfig,
+    UnequalRollTaxpayerFavorableTieBreakService,
 )
 from app.services.unequal_roll_subject_snapshot import UnequalRollSubjectSnapshotService
 from app.services.unequal_roll_bathroom_support import attach_bathroom_support_context
@@ -75,6 +81,9 @@ class UnequalRollNoPersistReplayService:
         self._adjustment_support_service = UnequalRollCandidateAdjustmentSupportService()
         self._adjustment_math_service = UnequalRollCandidateAdjustmentMathService()
         self._final_value_service = UnequalRollFinalValueService()
+        self._taxpayer_favorable_tiebreak_service = (
+            UnequalRollTaxpayerFavorableTieBreakService()
+        )
 
     def connect_read_only(self, database_url: str) -> Any:
         connection = psycopg.connect(database_url, row_factory=dict_row)
@@ -90,6 +99,7 @@ class UnequalRollNoPersistReplayService:
         max_parallel_workers_per_gather: int = 0,
         same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
         include_discovery_debug: bool = False,
+        include_taxpayer_favorable_tiebreak_reporting: bool = False,
     ) -> dict[str, Any]:
         start = monotonic()
         cursor.execute(f"SET LOCAL statement_timeout = '{statement_timeout}'")
@@ -336,6 +346,20 @@ class UnequalRollNoPersistReplayService:
             ),
             "elapsed_total_s": round(monotonic() - start, 4),
         }
+        if include_taxpayer_favorable_tiebreak_reporting:
+            tiebreak_review = self._build_taxpayer_favorable_tiebreak_review(
+                cursor,
+                request=request,
+                smart_result=result,
+                same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
+                statement_timeout=statement_timeout,
+                max_parallel_workers_per_gather=max_parallel_workers_per_gather,
+                include_discovery_debug=include_discovery_debug,
+            )
+            result["taxpayer_favorable_tiebreak_review"] = tiebreak_review
+            compact_review_payload = dict(result.get("compact_final_value_review_payload") or {})
+            compact_review_payload["taxpayer_favorable_tiebreak_review"] = tiebreak_review
+            result["compact_final_value_review_payload"] = compact_review_payload
         if include_discovery_debug:
             result["discovery_debug"] = discovery_summary.get("discovery_debug")
         return result
@@ -791,6 +815,8 @@ class UnequalRollNoPersistReplayService:
                 {
                     "final_value_status": candidate.get("final_value_status"),
                     "chosen_comp_status": candidate.get("chosen_comp_status"),
+                    "candidate_parcel_id": candidate.get("candidate_parcel_id"),
+                    "account_number": candidate.get("account_number"),
                     "county_id": candidate.get("county_id"),
                     "source_status": source_governance.get("source_governance_status"),
                     "burden_status": burden_governance.get("status"),
@@ -805,6 +831,219 @@ class UnequalRollNoPersistReplayService:
                 }
             )
         return {"candidates": rows}
+
+    def _build_taxpayer_favorable_tiebreak_review(
+        self,
+        cursor: Any,
+        *,
+        request: UnequalRollReplayRequest,
+        smart_result: dict[str, Any],
+        same_neighborhood_harvest_strategy: str,
+        statement_timeout: str,
+        max_parallel_workers_per_gather: int,
+        include_discovery_debug: bool,
+    ) -> dict[str, Any]:
+        if same_neighborhood_harvest_strategy != SIMILARITY_TOP_100:
+            return normalize_taxpayer_favorable_tiebreak_review(
+                {
+                    "taxpayer_favorable_tiebreak_class": "not_evaluated",
+                    "taxpayer_favorable_tiebreak_primary_reason": "current_strategy_not_similarity_top_100",
+                    "taxpayer_favorable_tiebreak_review_note": (
+                        "Review-only tie-break screening only runs for similarity_top_100 no-persist replays."
+                    ),
+                }
+            )
+
+        if smart_result.get("replay_status") != "completed" or not smart_result.get("final_value_detail_json"):
+            return normalize_taxpayer_favorable_tiebreak_review(
+                {
+                    "taxpayer_favorable_tiebreak_class": "not_evaluated",
+                    "taxpayer_favorable_tiebreak_primary_reason": "smart_result_not_completed",
+                    "taxpayer_favorable_tiebreak_review_note": (
+                        "Tie-break opportunity screening requires a completed similarity_top_100 replay."
+                    ),
+                }
+            )
+
+        current_result = self.replay_subject(
+            cursor,
+            request=request,
+            statement_timeout=statement_timeout,
+            max_parallel_workers_per_gather=max_parallel_workers_per_gather,
+            same_neighborhood_harvest_strategy=CURRENT_ORDER_CAP_100,
+            include_discovery_debug=include_discovery_debug,
+            include_taxpayer_favorable_tiebreak_reporting=False,
+        )
+        if current_result.get("replay_status") != "completed" or not current_result.get("final_value_detail_json"):
+            return normalize_taxpayer_favorable_tiebreak_review(
+                {
+                    "taxpayer_favorable_tiebreak_class": "not_evaluated",
+                    "taxpayer_favorable_tiebreak_primary_reason": "current_strategy_baseline_unavailable",
+                    "taxpayer_favorable_tiebreak_review_note": (
+                        "Tie-break opportunity screening requires a completed current-order baseline replay."
+                    ),
+                }
+            )
+
+        one_swap = self._taxpayer_favorable_tiebreak_service.simulate(
+            current_result=current_result,
+            smart_result=smart_result,
+            config=TaxpayerFavorableTieBreakConfig(max_swaps=1),
+        )
+        two_swap = self._taxpayer_favorable_tiebreak_service.simulate(
+            current_result=current_result,
+            smart_result=smart_result,
+            config=TaxpayerFavorableTieBreakConfig(max_swaps=2),
+        )
+        parcel_account_map = self._candidate_account_map(
+            current_result=current_result,
+            smart_result=smart_result,
+        )
+        return self._summarize_taxpayer_favorable_tiebreak_review(
+            current_result=current_result,
+            smart_result=smart_result,
+            one_swap_result=one_swap,
+            two_swap_result=two_swap,
+            parcel_account_map=parcel_account_map,
+        )
+
+    def _candidate_account_map(
+        self,
+        *,
+        current_result: dict[str, Any],
+        smart_result: dict[str, Any],
+    ) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for result in (current_result, smart_result):
+            for row in list((result.get("run_state_payload") or {}).get("candidates") or []):
+                parcel_id = str(row.get("candidate_parcel_id") or "").strip()
+                account_number = str(row.get("account_number") or "").strip()
+                if parcel_id and account_number and parcel_id not in mapping:
+                    mapping[parcel_id] = account_number
+        return mapping
+
+    def _summarize_taxpayer_favorable_tiebreak_review(
+        self,
+        *,
+        current_result: dict[str, Any],
+        smart_result: dict[str, Any],
+        one_swap_result: dict[str, Any],
+        two_swap_result: dict[str, Any],
+        parcel_account_map: dict[str, str],
+    ) -> dict[str, Any]:
+        one_swap_summary = self._summarize_taxpayer_favorable_tiebreak_result(
+            result=one_swap_result,
+            smart_result=smart_result,
+            current_result=current_result,
+            parcel_account_map=parcel_account_map,
+        )
+        two_swap_summary = self._summarize_taxpayer_favorable_tiebreak_result(
+            result=two_swap_result,
+            smart_result=smart_result,
+            current_result=current_result,
+            parcel_account_map=parcel_account_map,
+        )
+        review_note = self._taxpayer_favorable_tiebreak_review_note(
+            one_swap_summary=one_swap_summary,
+            two_swap_summary=two_swap_summary,
+        )
+        return normalize_taxpayer_favorable_tiebreak_review(
+            {
+                "taxpayer_favorable_tiebreak_opportunity_flag": (
+                    one_swap_summary["automation_status"] != "no_safe_opportunity"
+                ),
+                "taxpayer_favorable_tiebreak_class": one_swap_summary["automation_status"],
+                "taxpayer_favorable_tiebreak_primary_reason": one_swap_summary["primary_reason"],
+                "taxpayer_favorable_tiebreak_secondary_reasons": one_swap_summary["secondary_reasons"],
+                "taxpayer_favorable_tiebreak_swap_count": one_swap_summary["swap_count"],
+                "taxpayer_favorable_tiebreak_estimated_reduction_impact": one_swap_summary["estimated_reduction_impact"],
+                "taxpayer_favorable_tiebreak_benefit_threshold_flags": one_swap_summary["benefit_threshold_flags"],
+                "taxpayer_favorable_tiebreak_swapped_in_accounts": one_swap_summary["swapped_in_accounts"],
+                "taxpayer_favorable_tiebreak_swapped_out_accounts": one_swap_summary["swapped_out_accounts"],
+                "taxpayer_favorable_tiebreak_rejected_reason_counts": one_swap_summary["rejected_reason_counts"],
+                "taxpayer_favorable_tiebreak_review_note": review_note,
+                "taxpayer_favorable_tiebreak_two_swap_comparison": {
+                    "taxpayer_favorable_tiebreak_class": two_swap_summary["automation_status"],
+                    "estimated_reduction_impact": two_swap_summary["estimated_reduction_impact"],
+                    "swap_count": two_swap_summary["swap_count"],
+                    "additional_impact_vs_one_swap": round(
+                        two_swap_summary["estimated_reduction_impact"] - one_swap_summary["estimated_reduction_impact"],
+                        2,
+                    ),
+                },
+            }
+        )
+
+    def _summarize_taxpayer_favorable_tiebreak_result(
+        self,
+        *,
+        result: dict[str, Any],
+        smart_result: dict[str, Any],
+        current_result: dict[str, Any],
+        parcel_account_map: dict[str, str],
+    ) -> dict[str, Any]:
+        automation = dict(result.get("automation_assessment") or {})
+        accepted_swaps = list(result.get("accepted_swaps") or [])
+        rejected_reason_counts: dict[str, int] = {}
+        for row in list(result.get("rejected_alternatives") or []):
+            for reason in row.get("rejection_reasons") or []:
+                rejected_reason_counts[reason] = rejected_reason_counts.get(reason, 0) + 1
+        estimated_reduction_impact = round(
+            (_as_float(result.get("requested_reduction_amount")) or 0.0)
+            - (_as_float(smart_result.get("requested_reduction_amount")) or 0.0),
+            2,
+        )
+        return {
+            "automation_status": automation.get("automation_status") or "not_evaluated",
+            "primary_reason": (
+                (list(automation.get("automation_reasons") or []) or ["meets_safe_automation_screen"])[0]
+                if (automation.get("automation_status") or "not_evaluated") == "safe_automated_candidate"
+                else (list(automation.get("automation_reasons") or []) or ["not_evaluated"])[0]
+            ),
+            "secondary_reasons": list(automation.get("automation_reasons") or [])[1:],
+            "swap_count": len(accepted_swaps),
+            "estimated_reduction_impact": estimated_reduction_impact,
+            "benefit_threshold_flags": {
+                "lt_500": estimated_reduction_impact < 500,
+                "lt_1000": estimated_reduction_impact < 1000,
+                "lt_2500": estimated_reduction_impact < 2500,
+            },
+            "swapped_in_accounts": [
+                parcel_account_map.get(
+                    str(row.get("swapped_in_candidate_parcel_id") or ""),
+                    str(row.get("swapped_in_candidate_parcel_id") or ""),
+                )
+                for row in accepted_swaps
+            ],
+            "swapped_out_accounts": [
+                parcel_account_map.get(
+                    str(row.get("swapped_out_candidate_parcel_id") or ""),
+                    str(row.get("swapped_out_candidate_parcel_id") or ""),
+                )
+                for row in accepted_swaps
+            ],
+            "rejected_reason_counts": rejected_reason_counts,
+            "current_requested_reduction_amount": current_result.get("requested_reduction_amount"),
+        }
+
+    def _taxpayer_favorable_tiebreak_review_note(
+        self,
+        *,
+        one_swap_summary: dict[str, Any],
+        two_swap_summary: dict[str, Any],
+    ) -> str:
+        if one_swap_summary["automation_status"] == "safe_automated_candidate":
+            if (
+                two_swap_summary["automation_status"] == "safe_automated_candidate"
+                and two_swap_summary["estimated_reduction_impact"] > one_swap_summary["estimated_reduction_impact"]
+            ):
+                return "One-swap appears review-safe; two-swap improves estimated benefit further while remaining safe in prototype screening."
+            return "One-swap appears review-safe under prototype screening; no production tie-break is applied."
+        if one_swap_summary["automation_status"] == "manual_review_only":
+            return "Equally credible lower-value alternatives exist, but prototype screening requires manual review before any swap would be acceptable."
+        if one_swap_summary["estimated_reduction_impact"] <= 0:
+            return "Prototype screening found no meaningful taxpayer-favorable opportunity under the current equal-credibility safeguards."
+        return "Prototype screening did not identify a safe automated opportunity under the current equal-credibility safeguards."
 
     def _blocked_subject_result(
         self,

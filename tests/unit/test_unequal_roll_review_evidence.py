@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.services.unequal_roll_review_evidence import (
     classify_unsupported_value_semantics,
     evidence_completeness_grade,
+    normalize_taxpayer_favorable_tiebreak_review,
     reconcile_outcome_row,
     summarize_run_state_candidates,
 )
@@ -155,3 +156,36 @@ def test_summarize_run_state_candidates_projects_review_signals() -> None:
     assert result["bedroom_signal"]["bedroom_difference"] == -1
     assert result["reason_code_counts"]["manual_review_recommended"] == 1
     assert result["fort_bend_bathroom_source_posture"][0]["bath_reason"] == "canonical_bathroom_count_missing"
+
+
+def test_normalize_taxpayer_favorable_tiebreak_review_defaults_to_not_evaluated() -> None:
+    result = normalize_taxpayer_favorable_tiebreak_review(None)
+
+    assert result["taxpayer_favorable_tiebreak_class"] == "not_evaluated"
+    assert result["taxpayer_favorable_tiebreak_primary_reason"] == "not_evaluated"
+    assert result["taxpayer_favorable_tiebreak_benefit_threshold_flags"] == {
+        "lt_500": False,
+        "lt_1000": False,
+        "lt_2500": False,
+    }
+
+
+def test_normalize_taxpayer_favorable_tiebreak_review_preserves_manual_review_fields() -> None:
+    result = normalize_taxpayer_favorable_tiebreak_review(
+        {
+            "taxpayer_favorable_tiebreak_opportunity_flag": True,
+            "taxpayer_favorable_tiebreak_class": "manual_review_only",
+            "taxpayer_favorable_tiebreak_primary_reason": "accepted_swap_requires_review_visible_comp",
+            "taxpayer_favorable_tiebreak_secondary_reasons": ["benefit_below_minimum"],
+            "taxpayer_favorable_tiebreak_swap_count": 1,
+            "taxpayer_favorable_tiebreak_estimated_reduction_impact": 462.21,
+            "taxpayer_favorable_tiebreak_benefit_threshold_flags": {"lt_500": True},
+            "taxpayer_favorable_tiebreak_swapped_in_accounts": ["1193500020019"],
+            "taxpayer_favorable_tiebreak_rejected_reason_counts": {"similarity_below_equal_credibility_band": 2},
+        }
+    )
+
+    assert result["taxpayer_favorable_tiebreak_class"] == "manual_review_only"
+    assert result["taxpayer_favorable_tiebreak_secondary_reasons"] == ["benefit_below_minimum"]
+    assert result["taxpayer_favorable_tiebreak_benefit_threshold_flags"]["lt_500"] is True
+    assert result["taxpayer_favorable_tiebreak_swapped_in_accounts"] == ["1193500020019"]

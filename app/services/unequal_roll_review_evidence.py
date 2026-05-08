@@ -11,6 +11,13 @@ MODEL_OUTCOME_STATUSES = {
     "unsupported",
 }
 
+TAXPAYER_FAVORABLE_TIEBREAK_CLASSES = {
+    "safe_automated_candidate",
+    "manual_review_only",
+    "no_safe_opportunity",
+    "not_evaluated",
+}
+
 
 def reconcile_outcome_row(
     *,
@@ -272,6 +279,65 @@ def summarize_run_state_candidates(run_state_payload: dict[str, Any]) -> dict[st
             _candidate_summary_row(row) for row in excluded[:10]
         ],
     }
+
+
+def normalize_taxpayer_favorable_tiebreak_review(
+    review_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    review_payload = dict(review_payload or {})
+    review_class = str(review_payload.get("taxpayer_favorable_tiebreak_class") or "").strip()
+    if review_class not in TAXPAYER_FAVORABLE_TIEBREAK_CLASSES:
+        review_class = "not_evaluated"
+
+    benefit_flags = dict(
+        review_payload.get("taxpayer_favorable_tiebreak_benefit_threshold_flags") or {}
+    )
+    normalized = {
+        "taxpayer_favorable_tiebreak_opportunity_flag": bool(
+            review_payload.get("taxpayer_favorable_tiebreak_opportunity_flag")
+        )
+        if review_class != "not_evaluated"
+        else False,
+        "taxpayer_favorable_tiebreak_class": review_class,
+        "taxpayer_favorable_tiebreak_primary_reason": review_payload.get(
+            "taxpayer_favorable_tiebreak_primary_reason"
+        ),
+        "taxpayer_favorable_tiebreak_secondary_reasons": list(
+            review_payload.get("taxpayer_favorable_tiebreak_secondary_reasons") or []
+        ),
+        "taxpayer_favorable_tiebreak_swap_count": review_payload.get(
+            "taxpayer_favorable_tiebreak_swap_count"
+        ),
+        "taxpayer_favorable_tiebreak_estimated_reduction_impact": review_payload.get(
+            "taxpayer_favorable_tiebreak_estimated_reduction_impact"
+        ),
+        "taxpayer_favorable_tiebreak_benefit_threshold_flags": {
+            "lt_500": bool(benefit_flags.get("lt_500")),
+            "lt_1000": bool(benefit_flags.get("lt_1000")),
+            "lt_2500": bool(benefit_flags.get("lt_2500")),
+        },
+        "taxpayer_favorable_tiebreak_swapped_in_accounts": list(
+            review_payload.get("taxpayer_favorable_tiebreak_swapped_in_accounts") or []
+        ),
+        "taxpayer_favorable_tiebreak_swapped_out_accounts": list(
+            review_payload.get("taxpayer_favorable_tiebreak_swapped_out_accounts") or []
+        ),
+        "taxpayer_favorable_tiebreak_rejected_reason_counts": dict(
+            review_payload.get("taxpayer_favorable_tiebreak_rejected_reason_counts") or {}
+        ),
+        "taxpayer_favorable_tiebreak_review_note": review_payload.get(
+            "taxpayer_favorable_tiebreak_review_note"
+        ),
+        "taxpayer_favorable_tiebreak_two_swap_comparison": dict(
+            review_payload.get("taxpayer_favorable_tiebreak_two_swap_comparison") or {}
+        ),
+    }
+    if (
+        review_class == "not_evaluated"
+        and normalized["taxpayer_favorable_tiebreak_primary_reason"] is None
+    ):
+        normalized["taxpayer_favorable_tiebreak_primary_reason"] = "not_evaluated"
+    return normalized
 
 
 def _candidate_summary_row(row: dict[str, Any]) -> dict[str, Any]:

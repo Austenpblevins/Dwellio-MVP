@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.services.unequal_roll_review_evidence import (
     classify_unsupported_value_semantics,
     evidence_completeness_grade,
+    normalize_taxpayer_favorable_tiebreak_review,
     reconcile_outcome_row,
     summarize_run_state_candidates,
 )
@@ -979,6 +980,9 @@ def _focused_packet(row: dict[str, Any]) -> dict[str, Any]:
             "bedroom_signal": (row.get("run_state_summary") or {}).get("bedroom_signal"),
             "land_site_signal_present": (row.get("run_state_summary") or {}).get(
                 "land_site_signal_present"
+            ),
+            "taxpayer_favorable_tiebreak_review": normalize_taxpayer_favorable_tiebreak_review(
+                compact_review_payload.get("taxpayer_favorable_tiebreak_review")
             ),
         },
         "stability_metrics": row.get("stability"),
