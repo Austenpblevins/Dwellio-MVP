@@ -70,6 +70,8 @@ def _run_context(
     subject_appraised_value: float = 500000.0,
     subject_land_sf: float | None = 12000.0,
     subject_land_acres: float | None = 0.2755,
+    subject_frontage_sf: float | None = 80.0,
+    subject_depth_sf: float | None = 130.0,
 ) -> dict[str, object]:
     return {
         "unequal_roll_run_id": "run-1",
@@ -92,8 +94,12 @@ def _run_context(
         "tax_year": 2026,
         "appraised_value": subject_appraised_value,
         "living_area_sf": 2500.0,
+        "year_built": 2002,
+        "effective_age": 9.0,
         "land_sf": subject_land_sf,
         "land_acres": subject_land_acres,
+        "frontage_sf": subject_frontage_sf,
+        "depth_sf": subject_depth_sf,
         "full_baths": 3.0,
         "half_baths": 1.0,
     }
@@ -125,6 +131,10 @@ def _candidate(
     address: str | None = None,
     land_sf: float | None = 9600.0,
     land_acres: float | None = 0.2204,
+    frontage_sf: float | None = 70.0,
+    depth_sf: float | None = 118.0,
+    year_built: int | None = 2005,
+    effective_age: float | None = 6.0,
 ) -> dict[str, object]:
     return {
         "unequal_roll_candidate_id": unequal_roll_candidate_id,
@@ -134,8 +144,12 @@ def _candidate(
         "county_id": "fort_bend",
         "tax_year": 2026,
         "living_area_sf": 2400.0,
+        "year_built": year_built,
+        "effective_age": effective_age,
         "land_sf": land_sf,
         "land_acres": land_acres,
+        "frontage_sf": frontage_sf,
+        "depth_sf": depth_sf,
         "full_baths": 2.0,
         "half_baths": 1.0,
         "appraised_value": appraised_value,
@@ -393,10 +407,18 @@ def test_final_value_persists_median_and_governance_detail(monkeypatch) -> None:
     included_row = final_value_detail["included_comp_rows"][0]
     assert included_row["land_sf"] == 9600.0
     assert included_row["land_acres"] == 0.2204
+    assert included_row["frontage_sf"] == 70.0
+    assert included_row["depth_sf"] == 118.0
+    assert included_row["year_built"] == 2005
+    assert included_row["effective_age"] == 6.0
     assert included_row["subject_land_sf"] == 12000.0
     assert included_row["subject_land_acres"] == 0.2755
+    assert included_row["subject_frontage_sf"] == 80.0
+    assert included_row["subject_depth_sf"] == 130.0
     assert included_row["land_sf_delta"] == 2400.0
     assert included_row["land_acres_delta"] == 0.0551
+    assert included_row["frontage_sf_delta"] == 10.0
+    assert included_row["depth_sf_delta"] == 12.0
     assert (
         final_value_detail["carried_forward_governance"]["adjustment_math"][
             "dispersion_scaffolding"
@@ -419,6 +441,8 @@ def test_final_value_emits_null_land_fields_when_candidate_land_missing(monkeypa
             chosen_comp_position=1,
             land_sf=None,
             land_acres=None,
+            frontage_sf=None,
+            depth_sf=None,
         ),
         _candidate(
             unequal_roll_candidate_id="cand-2",
@@ -429,6 +453,8 @@ def test_final_value_emits_null_land_fields_when_candidate_land_missing(monkeypa
             burden_status="manual_review_recommended",
             land_sf=None,
             land_acres=None,
+            frontage_sf=None,
+            depth_sf=None,
         ),
     ]
     adjustment_lines = [
@@ -456,8 +482,12 @@ def test_final_value_emits_null_land_fields_when_candidate_land_missing(monkeypa
     included_row = final_value_detail["included_comp_rows"][0]
     assert included_row["land_sf"] is None
     assert included_row["land_acres"] is None
+    assert included_row["frontage_sf"] is None
+    assert included_row["depth_sf"] is None
     assert included_row["land_sf_delta"] is None
     assert included_row["land_acres_delta"] is None
+    assert included_row["frontage_sf_delta"] is None
+    assert included_row["depth_sf_delta"] is None
 
 
 def test_final_value_uses_manual_review_for_all_review_visible_minimum_set(

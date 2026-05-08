@@ -345,6 +345,10 @@ def _candidate_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "final_comp_status": row.get("final_value_status"),
         "chosen_comp_status": row.get("chosen_comp_status"),
+        "year_built": row.get("year_built"),
+        "effective_age": row.get("effective_age"),
+        "frontage_sf": row.get("frontage_sf"),
+        "depth_sf": row.get("depth_sf"),
         "source_status": row.get("source_status"),
         "burden_status": row.get("burden_status"),
         "adjusted_set_status": row.get("adjusted_set_status"),

@@ -273,10 +273,18 @@ class UnequalRollFinalValueService:
             adjusted_appraised_value = _as_float(candidate.get("adjusted_appraised_value"))
             raw_appraised_value = _as_float(candidate.get("appraised_value"))
             living_area_sf = _as_float(candidate.get("living_area_sf"))
+            candidate_year_built = _as_int(candidate.get("year_built"))
+            candidate_effective_age = _as_float(candidate.get("effective_age"))
             candidate_land_sf = _as_float(candidate.get("land_sf"))
             candidate_land_acres = _as_float(candidate.get("land_acres"))
+            candidate_frontage_sf = _as_float(candidate.get("frontage_sf"))
+            candidate_depth_sf = _as_float(candidate.get("depth_sf"))
+            subject_year_built = _as_int(run_context.get("year_built"))
+            subject_effective_age = _as_float(run_context.get("effective_age"))
             subject_land_sf = _as_float(run_context.get("land_sf"))
             subject_land_acres = _as_float(run_context.get("land_acres"))
+            subject_frontage_sf = _as_float(run_context.get("frontage_sf"))
+            subject_depth_sf = _as_float(run_context.get("depth_sf"))
             adjusted_appraised_value_per_sf = _value_per_sf(
                 adjusted_appraised_value,
                 living_area_sf,
@@ -295,12 +303,22 @@ class UnequalRollFinalValueService:
                 "adjusted_appraised_value_per_sf": adjusted_appraised_value_per_sf,
                 "raw_appraised_value": raw_appraised_value,
                 "raw_appraised_value_per_sf": raw_appraised_value_per_sf,
+                "year_built": candidate_year_built,
+                "effective_age": candidate_effective_age,
+                "subject_year_built": subject_year_built,
+                "subject_effective_age": subject_effective_age,
                 "land_sf": candidate_land_sf,
                 "land_acres": candidate_land_acres,
+                "frontage_sf": candidate_frontage_sf,
+                "depth_sf": candidate_depth_sf,
                 "subject_land_sf": subject_land_sf,
                 "subject_land_acres": subject_land_acres,
+                "subject_frontage_sf": subject_frontage_sf,
+                "subject_depth_sf": subject_depth_sf,
                 "land_sf_delta": _difference(subject_land_sf, candidate_land_sf),
                 "land_acres_delta": _difference(subject_land_acres, candidate_land_acres),
+                "frontage_sf_delta": _difference(subject_frontage_sf, candidate_frontage_sf),
+                "depth_sf_delta": _difference(subject_depth_sf, candidate_depth_sf),
                 "adjustment_math_status": candidate.get("adjustment_math_status"),
                 "adjusted_set_governance_status": adjusted_set_governance.get("status"),
                 "adjusted_set_governance_reason_codes": list(

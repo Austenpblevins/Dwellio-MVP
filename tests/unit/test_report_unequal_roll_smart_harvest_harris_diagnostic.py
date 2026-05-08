@@ -31,6 +31,8 @@ def _candidate_row(account: str, *, include_payload_gaps: bool = False) -> dict[
         "pool_flag": False,
         "land_sf": 7200.0,
         "land_acres": 0.1653,
+        "frontage_sf": 64.0,
+        "depth_sf": 112.0,
         "raw_appraised_value_per_sf": 102.5,
         "adjusted_appraised_value_per_sf": 109.25,
         "land_sf_delta": -150.0,
@@ -253,10 +255,13 @@ def test_feature_usage_posture_and_audit_schema_cover_payload_gap_fields() -> No
     assert posture_by_feature["effective_age"] == "monetized_adjustment_and_scoring"
     assert posture_by_feature["garage_spaces"] == "unavailable_missing_from_candidate_payload"
     assert posture_by_feature["land_sf"] == "scoring_and_non_monetized_guardrail"
+    assert audit_by_feature["frontage_sf"]["snapshot_json_available"] is True
+    assert audit_by_feature["frontage_sf"]["candidate_discovery_payload_available"] is True
+    assert audit_by_feature["frontage_sf"]["final_value_review_evidence_available"] is True
     assert audit_by_feature["garage_spaces"]["candidate_discovery_payload_available"] is False
     assert audit_by_feature["garage_spaces"]["present_in_subject_snapshot"] is False
     assert audit_by_feature["garage_spaces"]["final_value_review_evidence_available"] is True
-    assert audit_by_feature["frontage_sf"]["not_usable_yet"] is True
+    assert audit_by_feature["frontage_sf"]["not_usable_yet"] is False
     assert audit_by_feature["adjusted_value_per_sf"]["enough_for_review_only_use"] is True
 
 

@@ -508,6 +508,8 @@ def _fetch_subject_context_map(
                   p.property_class_code,
                   pa.appraised_value,
                   pi.living_area_sf,
+                  pi.year_built,
+                  pi.effective_age,
                   pi.bedrooms,
                   pi.full_baths,
                   pi.half_baths,
@@ -517,7 +519,9 @@ def _fetch_subject_context_map(
                   pi.garage_spaces,
                   pi.pool_flag,
                   pl.land_sf,
-                  pl.land_acres
+                  pl.land_acres,
+                  pl.frontage_sf,
+                  pl.depth_sf
                 FROM requested r
                 JOIN parcel_year_snapshots pys
                   ON pys.account_number = r.account_number
@@ -586,6 +590,8 @@ def _fetch_subject_context_map(
             "property_type_code": row.get("property_type_code"),
             "property_class_code": row.get("property_class_code"),
             "living_area_sf": _as_float(row.get("living_area_sf")),
+            "year_built": _as_int(row.get("year_built")),
+            "effective_age": _as_float(row.get("effective_age")),
             "bedrooms": _as_float(row.get("bedrooms")),
             "full_baths": _as_float(row.get("full_baths")),
             "half_baths": _as_float(row.get("half_baths")),
@@ -596,6 +602,8 @@ def _fetch_subject_context_map(
             "pool_flag": row.get("pool_flag"),
             "land_sf": _as_float(row.get("land_sf")),
             "land_acres": _as_float(row.get("land_acres")),
+            "frontage_sf": _as_float(row.get("frontage_sf")),
+            "depth_sf": _as_float(row.get("depth_sf")),
             "appraised_value": _as_float(row.get("appraised_value")),
             "completeness_score": None,
             "warning_codes": [],
@@ -942,11 +950,15 @@ def _focused_packet(row: dict[str, Any]) -> dict[str, Any]:
             "address": row["subject_context"].get("address"),
             "current_appraised_value": row.get("current_appraised_value"),
             "living_area_sf": row["subject_context"].get("living_area_sf"),
+            "year_built": row["subject_context"].get("year_built"),
+            "effective_age": row["subject_context"].get("effective_age"),
             "bedrooms": row["subject_context"].get("bedrooms"),
             "full_baths": row["subject_context"].get("full_baths"),
             "half_baths": row["subject_context"].get("half_baths"),
             "land_sf": row["subject_context"].get("land_sf"),
             "land_acres": row["subject_context"].get("land_acres"),
+            "frontage_sf": row["subject_context"].get("frontage_sf"),
+            "depth_sf": row["subject_context"].get("depth_sf"),
             "subdivision_name": row["subject_context"].get("subdivision_name"),
         },
         "final_status_interpretation": row["reconciliation"],

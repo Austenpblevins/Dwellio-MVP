@@ -869,6 +869,8 @@ class UnequalRollSubjectSnapshotService:
                 "pool_flag": _as_bool(row.get("pool_flag")),
                 "land_sf": _as_float(row.get("land_sf")),
                 "land_acres": _as_float(row.get("land_acres")),
+                "frontage_sf": _as_float(row.get("frontage_sf")),
+                "depth_sf": _as_float(row.get("depth_sf")),
                 "market_value": _as_float(row.get("market_value")),
                 "assessed_value": _as_float(row.get("assessed_value")),
                 "appraised_value": _as_float(row.get("appraised_value")),

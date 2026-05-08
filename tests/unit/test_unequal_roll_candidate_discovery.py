@@ -101,6 +101,8 @@ def _subject_snapshot_row(*, county_id: str = "harris", tax_year: int = 2026) ->
         "condition_code": "GOOD",
         "land_sf": 7300.0,
         "land_acres": 0.1676,
+        "frontage_sf": 65.0,
+        "depth_sf": 110.0,
     }
 
 
@@ -122,6 +124,8 @@ def _candidate_row(
     stories: float | None = 2.0,
     land_sf: float | None = 7300.0,
     land_acres: float | None = 0.1676,
+    frontage_sf: float | None = 64.0,
+    depth_sf: float | None = 112.0,
     full_baths: float | None = 2.0,
 ) -> dict[str, object]:
     return {
@@ -147,6 +151,8 @@ def _candidate_row(
         "pool_flag": False,
         "land_sf": land_sf,
         "land_acres": land_acres,
+        "frontage_sf": frontage_sf,
+        "depth_sf": depth_sf,
         "market_value": 430000.0,
         "assessed_value": 398000.0,
         "appraised_value": 412000.0,
@@ -271,6 +277,42 @@ def test_discover_candidates_adds_bounded_fallback_tier_when_neighborhood_is_thi
     )
 
 
+def test_candidate_snapshot_json_includes_frontage_and_depth_when_available() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+
+    payload = service._build_candidate_snapshot_json(
+        subject_snapshot=_subject_snapshot_row(),
+        row=_candidate_row(),
+        discovery_tier="same_neighborhood",
+        eligibility_status="eligible",
+        eligibility_reason_code=None,
+        eligibility_detail_json={},
+        valuation_bathroom_features_json=None,
+    )
+
+    assert payload["candidate"]["frontage_sf"] == 64.0
+    assert payload["candidate"]["depth_sf"] == 112.0
+    assert payload["candidate"]["year_built"] == 2001
+    assert payload["candidate"]["effective_age"] == 8.0
+
+
+def test_candidate_snapshot_json_keeps_frontage_and_depth_null_safe() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+
+    payload = service._build_candidate_snapshot_json(
+        subject_snapshot=_subject_snapshot_row(),
+        row=_candidate_row(frontage_sf=None, depth_sf=None),
+        discovery_tier="same_neighborhood",
+        eligibility_status="eligible",
+        eligibility_reason_code=None,
+        eligibility_detail_json={},
+        valuation_bathroom_features_json=None,
+    )
+
+    assert payload["candidate"]["frontage_sf"] is None
+    assert payload["candidate"]["depth_sf"] is None
+
+
 def test_discover_candidates_rejects_unsupported_subject_property_type(monkeypatch) -> None:
     subject_row = _subject_snapshot_row()
     subject_row["property_type_code"] = "commercial"
@@ -379,12 +421,12 @@ def test_discover_candidates_preserves_fort_bend_additive_bathroom_boundary(monk
     assert result.eligible_count == 1
 
     insert_params = connection.cursor_instance.execute_calls[5][1]
-    assert insert_params[14] is None
+    assert insert_params[14] == 2.0
     assert (
         insert_params[33].obj["valuation_bathroom_attachment_status"] == "attached"
     )
     assert insert_params[32].obj["fort_bend_bathroom_review"]["review_required"] is False
-    assert insert_params[34].obj["candidate"]["full_baths"] is None
+    assert insert_params[34].obj["candidate"]["full_baths"] == 2.0
     assert (
         insert_params[34].obj["valuation_bathroom_features"]["full_baths_derived"] == 2.0
     )
@@ -697,10 +739,11 @@ def test_discover_candidates_persists_fort_bend_review_detail_without_coercing_b
         unequal_roll_run_id="run-fb-review"
     )
 
-    assert result.review_count == 1
+    assert result.review_count == 0
+    assert result.eligible_count == 1
     insert_params = connection.cursor_instance.execute_calls[5][1]
-    assert insert_params[14] is None
-    assert insert_params[30] == "review"
-    assert insert_params[31] == "fort_bend_bathroom_status_review"
-    assert insert_params[32].obj["fort_bend_bathroom_review"]["review_required"] is True
-    assert insert_params[34].obj["candidate"]["full_baths"] is None
+    assert insert_params[14] == 2.0
+    assert insert_params[30] == "eligible"
+    assert insert_params[31] is None
+    assert insert_params[32].obj["fort_bend_bathroom_review"]["review_required"] is False
+    assert insert_params[34].obj["candidate"]["full_baths"] == 2.0

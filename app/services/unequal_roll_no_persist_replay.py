@@ -550,6 +550,8 @@ class UnequalRollNoPersistReplayService:
                     "pool_flag": _as_bool(row.get("pool_flag")),
                     "land_sf": _as_float(row.get("land_sf")),
                     "land_acres": _as_float(row.get("land_acres")),
+                    "frontage_sf": _as_float(row.get("frontage_sf")),
+                    "depth_sf": _as_float(row.get("depth_sf")),
                     "market_value": _as_float(row.get("market_value")),
                     "assessed_value": _as_float(row.get("assessed_value")),
                     "appraised_value": _as_float(row.get("appraised_value")),
@@ -691,6 +693,8 @@ class UnequalRollNoPersistReplayService:
             "pool_flag": _as_bool(subject_snapshot.get("pool_flag")),
             "land_sf": _as_float(subject_snapshot.get("land_sf")),
             "land_acres": _as_float(subject_snapshot.get("land_acres")),
+            "frontage_sf": _as_float(subject_snapshot.get("frontage_sf")),
+            "depth_sf": _as_float(subject_snapshot.get("depth_sf")),
         }
 
     def _apply_plan(
@@ -818,6 +822,10 @@ class UnequalRollNoPersistReplayService:
                     "candidate_parcel_id": candidate.get("candidate_parcel_id"),
                     "account_number": candidate.get("account_number"),
                     "county_id": candidate.get("county_id"),
+                    "year_built": _as_int(candidate.get("year_built")),
+                    "effective_age": _as_float(candidate.get("effective_age")),
+                    "frontage_sf": _as_float(candidate.get("frontage_sf")),
+                    "depth_sf": _as_float(candidate.get("depth_sf")),
                     "source_status": source_governance.get("source_governance_status"),
                     "burden_status": burden_governance.get("status"),
                     "adjusted_set_status": adjusted_set_governance.get("status"),
