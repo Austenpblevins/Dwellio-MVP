@@ -161,6 +161,103 @@ def _candidate_row(
     }
 
 
+def test_same_neighborhood_limited_query_filters_valid_candidates_before_limit() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+    cursor = SequenceCursor(fetchone_results=[], fetchall_results=[[]])
+    subject_snapshot = _subject_snapshot_row()
+
+    service._fetch_same_neighborhood_candidates(
+        cursor,
+        subject_snapshot=subject_snapshot,
+        limit=100,
+    )
+
+    query, params = cursor.execute_calls[0]
+    assert params is not None
+    limit_index = query.index("LIMIT %s")
+    assert query.index("JOIN parcel_assessments AS ass") < limit_index
+    assert query.index("JOIN parcel_improvements AS pi") < limit_index
+    assert query.index("coalesce(pi.living_area_sf, 0) > 0") < limit_index
+    assert query.index("coalesce(ass.appraised_value, 0) > 0") < limit_index
+    assert "FROM candidate_keys AS ck" in query
+
+
+def test_same_neighborhood_limited_query_can_backfill_after_invalid_early_rows() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+    cursor = SequenceCursor(fetchone_results=[], fetchall_results=[[]])
+    subject_snapshot = _subject_snapshot_row()
+
+    service._fetch_same_neighborhood_candidates(
+        cursor,
+        subject_snapshot=subject_snapshot,
+        limit=2,
+    )
+
+    query, params = cursor.execute_calls[0]
+    assert params is not None
+    validity_index = query.index("coalesce(pi.living_area_sf, 0) > 0")
+    order_index = query.index("ORDER BY")
+    limit_index = query.index("LIMIT %s")
+    assert validity_index < order_index < limit_index
+    assert params[-4] == 2
+
+
+def test_same_neighborhood_limited_query_params_preserve_default_harvest_cap() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+    cursor = SequenceCursor(fetchone_results=[], fetchall_results=[[]])
+    subject_snapshot = _subject_snapshot_row()
+
+    service._fetch_same_neighborhood_candidates(
+        cursor,
+        subject_snapshot=subject_snapshot,
+        limit=100,
+    )
+
+    _, params = cursor.execute_calls[0]
+    assert params == (
+        subject_snapshot["county_id"],
+        subject_snapshot["tax_year"],
+        subject_snapshot["parcel_id"],
+        subject_snapshot["neighborhood_code"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        100,
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+    )
+
+
+def test_same_neighborhood_full_pool_query_omits_limit_with_matching_params() -> None:
+    service = UnequalRollCandidateDiscoveryService()
+    cursor = SequenceCursor(fetchone_results=[], fetchall_results=[[]])
+    subject_snapshot = _subject_snapshot_row()
+
+    service._fetch_same_neighborhood_candidates(
+        cursor,
+        subject_snapshot=subject_snapshot,
+        limit=None,
+    )
+
+    query, params = cursor.execute_calls[0]
+    assert "LIMIT %s" not in query
+    assert "coalesce(pi.living_area_sf, 0) > 0" in query
+    assert "coalesce(ass.appraised_value, 0) > 0" in query
+    assert params == (
+        subject_snapshot["county_id"],
+        subject_snapshot["tax_year"],
+        subject_snapshot["parcel_id"],
+        subject_snapshot["neighborhood_code"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+        subject_snapshot["subdivision_name"],
+    )
+
+
 def test_discover_candidates_persists_same_neighborhood_candidates(monkeypatch) -> None:
     subject_row = _subject_snapshot_row()
     neighborhood_candidates = [
