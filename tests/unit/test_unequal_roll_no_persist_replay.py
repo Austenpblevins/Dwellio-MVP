@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from app.services.unequal_roll_no_persist_replay import (
     UnequalRollNoPersistReplayService,
+    UnequalRollReplayRequest,
     subject_requests_from_runtime_artifact,
 )
 from app.services.unequal_roll_smart_harvest import SIMILARITY_TOP_100, SameNeighborhoodHarvestSelection
@@ -214,6 +215,40 @@ def test_discover_candidates_uses_selection_override_without_fetching_strategy_r
     assert discovery_summary["same_neighborhood_harvest_strategy"] == "experimental_full_reranking_v1"
     assert candidates[0]["account_number"] == "100"
     service._discovery_service._fetch_same_neighborhood_candidates.assert_not_called()
+
+
+def test_replay_subject_uses_subject_snapshot_override_without_fetching_subject_row() -> None:
+    service = UnequalRollNoPersistReplayService()
+    cursor = MagicMock()
+    service._subject_snapshot_service = MagicMock()
+    service._discover_candidates = MagicMock(
+        return_value=(
+            [],
+            {"same_neighborhood_harvest_strategy": "current_order_cap_100"},
+        )
+    )
+
+    result = service.replay_subject(
+        cursor,
+        request=UnequalRollReplayRequest(
+            county_id="harris",
+            account_number="A1",
+            requested_tax_year=2026,
+        ),
+        subject_snapshot_override={
+            "county_id": "harris",
+            "parcel_id": "p1",
+            "tax_year": 2026,
+            "neighborhood_code": "229.60",
+            "subdivision_name": "Oak",
+            "support_status": "supported_with_review",
+            "appraised_value": 300000.0,
+        },
+    )
+
+    service._subject_snapshot_service._fetch_subject_row.assert_not_called()
+    assert result["replay_status"] == "blocked"
+    assert result["failure_code"] == "no_candidates_discovered"
 
 
 def test_summarize_taxpayer_favorable_tiebreak_review_preserves_not_evaluated() -> None:

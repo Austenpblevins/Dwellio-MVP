@@ -99,6 +99,7 @@ class UnequalRollNoPersistReplayService:
         max_parallel_workers_per_gather: int = 0,
         same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
         same_neighborhood_selection_override: SameNeighborhoodHarvestSelection | None = None,
+        subject_snapshot_override: dict[str, Any] | None = None,
         include_discovery_debug: bool = False,
         include_taxpayer_favorable_tiebreak_reporting: bool = False,
     ) -> dict[str, Any]:
@@ -107,33 +108,36 @@ class UnequalRollNoPersistReplayService:
         cursor.execute(
             f"SET LOCAL max_parallel_workers_per_gather = {int(max_parallel_workers_per_gather)}"
         )
-        try:
-            subject_row = self._subject_snapshot_service._fetch_subject_row(
-                cursor,
-                county_id=request.county_id,
-                requested_tax_year=request.requested_tax_year,
-                account_number=request.account_number,
-            )
-        except psycopg.errors.QueryCanceled:
-            return self._blocked_subject_result(
-                request=request,
-                blocker_code="subject_snapshot_query_timeout",
-                reason="subject snapshot source query timed out under the configured 120s read-only profile",
-                elapsed_total_s=round(monotonic() - start, 4),
-            )
-        if subject_row is None:
-            return self._blocked_subject_result(
-                request=request,
-                blocker_code="subject_not_found",
-                reason="subject not found in Stage 21 source tables",
-                elapsed_total_s=round(monotonic() - start, 4),
-            )
+        if subject_snapshot_override is None:
+            try:
+                subject_row = self._subject_snapshot_service._fetch_subject_row(
+                    cursor,
+                    county_id=request.county_id,
+                    requested_tax_year=request.requested_tax_year,
+                    account_number=request.account_number,
+                )
+            except psycopg.errors.QueryCanceled:
+                return self._blocked_subject_result(
+                    request=request,
+                    blocker_code="subject_snapshot_query_timeout",
+                    reason="subject snapshot source query timed out under the configured 120s read-only profile",
+                    elapsed_total_s=round(monotonic() - start, 4),
+                )
+            if subject_row is None:
+                return self._blocked_subject_result(
+                    request=request,
+                    blocker_code="subject_not_found",
+                    reason="subject not found in Stage 21 source tables",
+                    elapsed_total_s=round(monotonic() - start, 4),
+                )
 
-        subject_snapshot = self._build_subject_snapshot(
-            cursor,
-            request=request,
-            subject_row=subject_row,
-        )
+            subject_snapshot = self._build_subject_snapshot(
+                cursor,
+                request=request,
+                subject_row=subject_row,
+            )
+        else:
+            subject_snapshot = dict(subject_snapshot_override)
         if subject_snapshot["support_status"] == "unsupported":
             return self._blocked_subject_result(
                 request=request,
