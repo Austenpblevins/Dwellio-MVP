@@ -13,8 +13,10 @@ from infra.scripts.run_unequal_roll_broader_smart_harvest_validation import (
     derive_trigger_labels,
     interleave_neighborhood_subjects,
     merge_balanced_subjects,
+    parse_neighborhood_override,
     should_trigger_strategy,
     summarize_strategy_collection,
+    validate_selection_options,
     write_md,
 )
 
@@ -154,10 +156,13 @@ def test_build_payload_keeps_guardrails_and_wording_honest() -> None:
     }
     payload = build_payload(
         selection_summary={
+            "selection_mode": "default",
             "selected_subject_count": 1,
             "selection_rank_strategy": "deterministic_round_robin_with_value_spread",
             "harris_seeded_neighborhoods": [],
             "fort_bend_selected_neighborhoods": [],
+            "targeted_harris_neighborhoods": [],
+            "targeted_fort_bend_neighborhoods": [],
             "fort_bend_selection_bias": {
                 "intentionally_land_repaired_biased": True,
                 "countywide_representative": False,
@@ -210,10 +215,13 @@ def test_interleave_neighborhood_subjects_prevents_seed_starvation() -> None:
 def test_write_md_discloses_method_boundary_and_fort_bend_bias(tmp_path: Path) -> None:
     payload = build_payload(
         selection_summary={
+            "selection_mode": "default",
             "selected_subject_count": 1,
             "selection_rank_strategy": "deterministic_round_robin_with_value_spread",
             "harris_seeded_neighborhoods": ["215.03"],
             "fort_bend_selected_neighborhoods": ["5922-00"],
+            "targeted_harris_neighborhoods": [],
+            "targeted_fort_bend_neighborhoods": [],
             "fort_bend_selection_bias": {
                 "intentionally_land_repaired_biased": True,
                 "countywide_representative": False,
@@ -250,3 +258,106 @@ def test_write_md_discloses_method_boundary_and_fort_bend_bias(tmp_path: Path) -
     assert "Not full candidate reranking" in text
     assert "Post-selection swap only" in text
     assert "Fort Bend cohort disclosure" in text
+    assert "Comparison-ready subject count: `1`" in text
+    assert "Not-comparison-ready subject count: `0`" in text
+
+
+def test_parse_neighborhood_override_supports_comma_separated_lists() -> None:
+    assert parse_neighborhood_override("8309.06,7068.04, 222.02 ") == [
+        "8309.06",
+        "7068.04",
+        "222.02",
+    ]
+    assert parse_neighborhood_override(None) == []
+
+
+def test_build_payload_discloses_targeted_segment_mode() -> None:
+    payload = build_payload(
+        selection_summary={
+            "selection_mode": "targeted",
+            "selected_subject_count": 1,
+            "selection_rank_strategy": "deterministic_round_robin_with_value_spread",
+            "harris_seeded_neighborhoods": ["8309.06"],
+            "fort_bend_selected_neighborhoods": ["5902-00"],
+            "targeted_harris_neighborhoods": ["8309.06", "7068.04"],
+            "targeted_fort_bend_neighborhoods": ["5902-00"],
+            "fort_bend_selection_bias": {
+                "intentionally_land_repaired_biased": False,
+                "countywide_representative": False,
+                "disclosure": "Explicit Fort Bend targeted neighborhoods were supplied; this is a targeted segment validation cohort and not a countywide-representative sample.",
+            },
+        },
+        subject_rows=[],
+    )
+    assert payload["cohort_selection_summary"]["selection_mode"] == "targeted"
+    assert payload["cohort_selection_summary"]["targeted_harris_neighborhoods"] == [
+        "8309.06",
+        "7068.04",
+    ]
+    assert payload["cohort_selection_summary"]["targeted_fort_bend_neighborhoods"] == ["5902-00"]
+    assert (
+        payload["cohort_selection_summary"]["fort_bend_selection_bias"]["intentionally_land_repaired_biased"]
+        is False
+    )
+
+
+def test_write_md_discloses_targeted_mode_and_overrides(tmp_path: Path) -> None:
+    payload = build_payload(
+        selection_summary={
+            "selection_mode": "targeted",
+            "selected_subject_count": 0,
+            "selection_rank_strategy": "deterministic_round_robin_with_value_spread",
+            "harris_seeded_neighborhoods": ["8309.06"],
+            "fort_bend_selected_neighborhoods": ["5902-00"],
+            "targeted_harris_neighborhoods": ["8309.06", "7068.04"],
+            "targeted_fort_bend_neighborhoods": ["5902-00", "5922-00"],
+            "fort_bend_selection_bias": {
+                "intentionally_land_repaired_biased": False,
+                "countywide_representative": False,
+                "disclosure": "Explicit Fort Bend targeted neighborhoods were supplied; this is a targeted segment validation cohort and not a countywide-representative sample.",
+            },
+        },
+        subject_rows=[],
+    )
+    output = tmp_path / "targeted.md"
+    write_md(output, payload)
+    text = output.read_text()
+    assert "Selection mode: `targeted`" in text
+    assert "Targeted Harris neighborhoods" in text
+    assert "Targeted Fort Bend neighborhoods" in text
+    assert "Harris targeted neighborhoods" in text
+    assert "Comparison-ready subject count: `0`" in text
+
+
+def test_targeted_mode_requires_both_override_lists() -> None:
+    try:
+        validate_selection_options(
+            selection_mode="targeted",
+            harris_neighborhood_override=["8309.06"],
+            fort_bend_neighborhood_override=[],
+        )
+    except ValueError as exc:
+        assert "requires both" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_default_mode_rejects_override_lists() -> None:
+    try:
+        validate_selection_options(
+            selection_mode="default",
+            harris_neighborhood_override=["8309.06"],
+            fort_bend_neighborhood_override=["5902-00"],
+        )
+    except ValueError as exc:
+        assert "require --selection-mode targeted" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_default_mode_without_overrides_still_works() -> None:
+    validate_selection_options(
+        selection_mode="default",
+        harris_neighborhood_override=[],
+        fort_bend_neighborhood_override=[],
+    )

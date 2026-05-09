@@ -77,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--requested-tax-year", type=int, default=2026)
     parser.add_argument("--output-dir", type=Path, default=Path("/private/tmp"))
+    parser.add_argument("--selection-mode", choices=["default", "targeted"], default="default")
+    parser.add_argument("--harris-neighborhoods", default=None)
+    parser.add_argument("--fort-bend-neighborhoods", default=None)
     parser.add_argument("--max-subjects-per-county", type=int, default=12)
     parser.add_argument("--max-subjects-per-neighborhood", type=int, default=4)
     parser.add_argument("--max-total-subjects", type=int, default=24)
@@ -84,6 +87,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fort-bend-neighborhood-limit", type=int, default=4)
     parser.add_argument("--fort-bend-min-neighborhood-count", type=int, default=20)
     return parser
+
+
+def parse_neighborhood_override(raw_value: str | None) -> list[str]:
+    if raw_value is None:
+        return []
+    return [part.strip() for part in raw_value.split(",") if part.strip()]
+
+
+def validate_selection_options(
+    *,
+    selection_mode: str,
+    harris_neighborhood_override: list[str],
+    fort_bend_neighborhood_override: list[str],
+) -> None:
+    has_harris_override = bool(harris_neighborhood_override)
+    has_fort_bend_override = bool(fort_bend_neighborhood_override)
+    if selection_mode == "targeted":
+        if not has_harris_override or not has_fort_bend_override:
+            raise ValueError(
+                "targeted selection mode requires both --harris-neighborhoods and --fort-bend-neighborhoods"
+            )
+        return
+    if has_harris_override or has_fort_bend_override:
+        raise ValueError(
+            "explicit neighborhood overrides require --selection-mode targeted"
+        )
 
 
 def connect_read_only(database_url: str) -> Any:
@@ -234,6 +263,9 @@ def discover_fort_bend_neighborhoods(
 def select_validation_cohort(
     cursor: Any,
     *,
+    selection_mode: str,
+    harris_neighborhood_override: list[str],
+    fort_bend_neighborhood_override: list[str],
     requested_tax_year: int,
     max_subjects_per_county: int,
     max_subjects_per_neighborhood: int,
@@ -242,7 +274,11 @@ def select_validation_cohort(
     fort_bend_neighborhood_limit: int,
     fort_bend_min_neighborhood_count: int,
 ) -> tuple[list[SelectedSubject], dict[str, Any]]:
-    harris_neighborhoods = HARRIS_PRIORITY_NEIGHBORHOODS + HARRIS_CONTROL_NEIGHBORHOODS
+    harris_neighborhoods = (
+        harris_neighborhood_override
+        if harris_neighborhood_override
+        else HARRIS_PRIORITY_NEIGHBORHOODS + HARRIS_CONTROL_NEIGHBORHOODS
+    )
     harris_subjects = select_ranked_subjects(
         cursor,
         county_id="harris",
@@ -250,13 +286,21 @@ def select_validation_cohort(
         neighborhoods=harris_neighborhoods,
         max_subjects_per_neighborhood=max_subjects_per_neighborhood,
         limit_total=max_subjects_per_county,
-        selection_source="harris_seeded_neighborhoods",
+        selection_source=(
+            "harris_targeted_neighborhoods"
+            if harris_neighborhood_override
+            else "harris_seeded_neighborhoods"
+        ),
     )
-    fort_bend_neighborhoods = discover_fort_bend_neighborhoods(
-        cursor,
-        requested_tax_year=requested_tax_year,
-        fort_bend_neighborhood_limit=fort_bend_neighborhood_limit,
-        fort_bend_min_neighborhood_count=fort_bend_min_neighborhood_count,
+    fort_bend_neighborhoods = (
+        fort_bend_neighborhood_override
+        if fort_bend_neighborhood_override
+        else discover_fort_bend_neighborhoods(
+            cursor,
+            requested_tax_year=requested_tax_year,
+            fort_bend_neighborhood_limit=fort_bend_neighborhood_limit,
+            fort_bend_min_neighborhood_count=fort_bend_min_neighborhood_count,
+        )
     )
     fort_bend_subjects = select_ranked_subjects(
         cursor,
@@ -265,7 +309,11 @@ def select_validation_cohort(
         neighborhoods=fort_bend_neighborhoods,
         max_subjects_per_neighborhood=max_subjects_per_neighborhood,
         limit_total=max_subjects_per_county,
-        selection_source="fort_bend_land_repaired_neighborhoods",
+        selection_source=(
+            "fort_bend_targeted_neighborhoods"
+            if fort_bend_neighborhood_override
+            else "fort_bend_land_repaired_neighborhoods"
+        ),
     )
     combined = merge_balanced_subjects(harris_subjects, fort_bend_subjects)
     if smoke_limit is not None:
@@ -273,6 +321,7 @@ def select_validation_cohort(
     else:
         combined = combined[:max_total_subjects]
     summary = {
+        "selection_mode": selection_mode,
         "requested_tax_year": requested_tax_year,
         "max_subjects_per_county": max_subjects_per_county,
         "max_subjects_per_neighborhood": max_subjects_per_neighborhood,
@@ -287,14 +336,24 @@ def select_validation_cohort(
             "nonblank neighborhood_code",
             "Harris seeded neighborhoods are sampled fairly via per-neighborhood caps plus deterministic round-robin interleaving before truncation.",
             "Within each neighborhood, subject selection uses a deterministic appraised-value spread rather than appraised_value DESC only.",
-            "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage and form a land-repaired validation cohort, not a countywide-representative sample.",
+            (
+                "Targeted segment validation uses explicit neighborhood overrides and is not a representative countywide cohort."
+                if selection_mode == "targeted"
+                else "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage and form a land-repaired validation cohort, not a countywide-representative sample."
+            ),
         ],
         "harris_seeded_neighborhoods": harris_neighborhoods,
         "fort_bend_selected_neighborhoods": fort_bend_neighborhoods,
+        "targeted_harris_neighborhoods": harris_neighborhood_override,
+        "targeted_fort_bend_neighborhoods": fort_bend_neighborhood_override,
         "fort_bend_selection_bias": {
-            "intentionally_land_repaired_biased": True,
+            "intentionally_land_repaired_biased": not bool(fort_bend_neighborhood_override),
             "countywide_representative": False,
-            "disclosure": "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage after the repaired 2026 land baseline; results should be interpreted as a land-repaired validation cohort rather than a countywide-representative sample.",
+            "disclosure": (
+                "Explicit Fort Bend targeted neighborhoods were supplied; this is a targeted segment validation cohort and not a countywide-representative sample."
+                if fort_bend_neighborhood_override
+                else "Fort Bend neighborhoods are intentionally selected for strong land_sf coverage after the repaired 2026 land baseline; results should be interpreted as a land-repaired validation cohort rather than a countywide-representative sample."
+            ),
         },
         "selected_subject_count": len(combined),
     }
@@ -984,6 +1043,10 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def write_md(path: Path, payload: dict[str, Any]) -> None:
+    selection_mode = payload["cohort_selection_summary"]["selection_mode"]
+    comparable_count = payload["current_vs_similarity_top_100_summary"]["comparison_ready_count"]
+    total_count = payload["cohort_size"]
+    non_comparable_count = total_count - comparable_count
     lines = [
         "# Broader Smart-Harvest Validation",
         "",
@@ -1001,10 +1064,23 @@ def write_md(path: Path, payload: dict[str, Any]) -> None:
         "- Cohort is bounded and not necessarily representative",
         "",
         "## Cohort Selection Summary",
+        f"- Selection mode: `{payload['cohort_selection_summary']['selection_mode']}`",
         f"- Selected subject count: `{payload['cohort_selection_summary']['selected_subject_count']}`",
+        f"- Comparison-ready subject count: `{comparable_count}`",
+        f"- Not-comparison-ready subject count: `{non_comparable_count}`",
         f"- Selection rank strategy: `{payload['cohort_selection_summary']['selection_rank_strategy']}`",
-        f"- Harris seeded neighborhoods: `{payload['cohort_selection_summary']['harris_seeded_neighborhoods']}`",
-        f"- Fort Bend selected neighborhoods: `{payload['cohort_selection_summary']['fort_bend_selected_neighborhoods']}`",
+        (
+            f"- Harris targeted neighborhoods: `{payload['cohort_selection_summary']['harris_seeded_neighborhoods']}`"
+            if selection_mode == "targeted"
+            else f"- Harris seeded neighborhoods: `{payload['cohort_selection_summary']['harris_seeded_neighborhoods']}`"
+        ),
+        (
+            f"- Fort Bend targeted neighborhoods: `{payload['cohort_selection_summary']['fort_bend_selected_neighborhoods']}`"
+            if selection_mode == "targeted"
+            else f"- Fort Bend selected neighborhoods: `{payload['cohort_selection_summary']['fort_bend_selected_neighborhoods']}`"
+        ),
+        f"- Targeted Harris neighborhoods: `{payload['cohort_selection_summary']['targeted_harris_neighborhoods']}`",
+        f"- Targeted Fort Bend neighborhoods: `{payload['cohort_selection_summary']['targeted_fort_bend_neighborhoods']}`",
         f"- Fort Bend cohort disclosure: `{payload['cohort_selection_summary']['fort_bend_selection_bias']['disclosure']}`",
         "",
         "## County Summary",
@@ -1098,6 +1174,16 @@ def replay_subject(
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    harris_neighborhood_override = parse_neighborhood_override(args.harris_neighborhoods)
+    fort_bend_neighborhood_override = parse_neighborhood_override(args.fort_bend_neighborhoods)
+    try:
+        validate_selection_options(
+            selection_mode=args.selection_mode,
+            harris_neighborhood_override=harris_neighborhood_override,
+            fort_bend_neighborhood_override=fort_bend_neighborhood_override,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     replay_service = UnequalRollNoPersistReplayService()
     tie_service = UnequalRollTaxpayerFavorableTieBreakService()
@@ -1105,6 +1191,9 @@ def main() -> None:
         with conn.cursor() as cursor:
             selected_subjects, selection_summary = select_validation_cohort(
                 cursor,
+                selection_mode=args.selection_mode,
+                harris_neighborhood_override=harris_neighborhood_override,
+                fort_bend_neighborhood_override=fort_bend_neighborhood_override,
                 requested_tax_year=args.requested_tax_year,
                 max_subjects_per_county=args.max_subjects_per_county,
                 max_subjects_per_neighborhood=args.max_subjects_per_neighborhood,
