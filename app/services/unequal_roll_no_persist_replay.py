@@ -98,6 +98,7 @@ class UnequalRollNoPersistReplayService:
         statement_timeout: str = "120s",
         max_parallel_workers_per_gather: int = 0,
         same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
+        same_neighborhood_selection_override: SameNeighborhoodHarvestSelection | None = None,
         include_discovery_debug: bool = False,
         include_taxpayer_favorable_tiebreak_reporting: bool = False,
     ) -> dict[str, Any]:
@@ -146,6 +147,7 @@ class UnequalRollNoPersistReplayService:
             cursor,
             subject_snapshot=subject_snapshot,
             same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
+            same_neighborhood_selection_override=same_neighborhood_selection_override,
         )
 
         if not candidates:
@@ -450,11 +452,16 @@ class UnequalRollNoPersistReplayService:
         *,
         subject_snapshot: dict[str, Any],
         same_neighborhood_harvest_strategy: str = DEFAULT_HARVEST_STRATEGY,
+        same_neighborhood_selection_override: SameNeighborhoodHarvestSelection | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        selection = self._select_same_neighborhood_rows(
-            cursor,
-            subject_snapshot=subject_snapshot,
-            same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
+        selection = (
+            same_neighborhood_selection_override
+            if same_neighborhood_selection_override is not None
+            else self._select_same_neighborhood_rows(
+                cursor,
+                subject_snapshot=subject_snapshot,
+                same_neighborhood_harvest_strategy=same_neighborhood_harvest_strategy,
+            )
         )
         same_neighborhood_rows = selection.selected_rows
         rows_to_persist: list[tuple[str, dict[str, Any]]] = [
