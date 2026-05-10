@@ -15,6 +15,7 @@ from infra.scripts.run_unequal_roll_full_reranking_experiment import (
     build_outlier_sensitivity_summary,
     build_payload,
     build_subject_cohort_fingerprint,
+    build_subject_provenance_summary,
     apply_neighborhood_exclusions,
     build_segment_posture_table,
     build_variant_configurations,
@@ -1414,6 +1415,112 @@ def test_build_chunk_comparability_summary_downgrades_when_chunks_do_not_match()
     assert summary["subject_sets_match_exactly"] is False
     assert summary["all_penalties_baseline_matches_exactly"] is False
     assert summary["combined_interpretation_status"] == "downgraded_non_identical_chunks"
+
+
+def test_subject_provenance_uses_any_executed_variant_not_only_all_penalties() -> None:
+    rows = [
+        {
+            "variant_key": "simple_value_tier_rerank",
+            "county_id": "harris",
+            "subject_account": "A1",
+            "neighborhood_code": "8309.06",
+        },
+        {
+            "variant_key": "value_tier_plus_micro_location",
+            "county_id": "harris",
+            "subject_account": "A1",
+            "neighborhood_code": "8309.06",
+        },
+        {
+            "variant_key": "simple_value_tier_rerank",
+            "county_id": "fort_bend",
+            "subject_account": "B1",
+            "neighborhood_code": "5902-00",
+        },
+    ]
+
+    summary = build_subject_provenance_summary(rows)
+
+    assert summary["selected_subject_count"] == 2
+    assert summary["selected_subject_accounts"] == ["B1", "A1"]
+    assert summary["selected_county_counts"] == {"fort_bend": 1, "harris": 1}
+    assert summary["selected_neighborhood_counts"] == {
+        "fort_bend:5902-00": 1,
+        "harris:8309.06": 1,
+    }
+    assert summary["subject_cohort_fingerprint"] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
+def test_build_payload_emits_provenance_for_partial_variant_runs() -> None:
+    variant_definitions = build_variant_configurations(ExperimentalRerankingConfig())
+    rows = [
+        {
+            "variant_key": "simple_value_tier_rerank",
+            "variant_label": "Simple Value-Tier Rerank",
+            "county_id": "harris",
+            "subject_account": "A1",
+            "neighborhood_code": "8309.06",
+            "comparison_ready": True,
+            "smart_vs_current_taxpayer_delta": 1000.0,
+            "rerank_vs_current_taxpayer_delta": 2000.0,
+            "rerank_vs_smart_taxpayer_delta": 1000.0,
+            "rerank_vs_smart_similarity_delta": 0.01,
+            "rerank_review_heavy_delta_vs_smart": 0,
+            "rerank_likely_exclude_delta_vs_smart": 0,
+            "rerank_support_status_drift_vs_smart": False,
+            "rerank_final_status_drift_vs_smart": False,
+            "smart_final_value_status": "supported_with_review",
+            "rerank_final_value_status": "supported_with_review",
+            "final_status_transition_smart_to_rerank": "supported_with_review -> supported_with_review",
+            "current_value_interpretation": "final_model_value",
+            "smart_value_interpretation": "final_model_value",
+            "rerank_value_interpretation": "final_model_value",
+            "lower_value_credible_alternative_signal": {},
+        },
+        {
+            "variant_key": "value_tier_plus_micro_location",
+            "variant_label": "Value-Tier + Micro-Location",
+            "county_id": "harris",
+            "subject_account": "A1",
+            "neighborhood_code": "8309.06",
+            "comparison_ready": True,
+            "smart_vs_current_taxpayer_delta": 1000.0,
+            "rerank_vs_current_taxpayer_delta": 2000.0,
+            "rerank_vs_smart_taxpayer_delta": 1000.0,
+            "rerank_vs_smart_similarity_delta": 0.01,
+            "rerank_review_heavy_delta_vs_smart": 0,
+            "rerank_likely_exclude_delta_vs_smart": 0,
+            "rerank_support_status_drift_vs_smart": False,
+            "rerank_final_status_drift_vs_smart": False,
+            "smart_final_value_status": "supported_with_review",
+            "rerank_final_value_status": "supported_with_review",
+            "final_status_transition_smart_to_rerank": "supported_with_review -> supported_with_review",
+            "current_value_interpretation": "final_model_value",
+            "smart_value_interpretation": "final_model_value",
+            "rerank_value_interpretation": "final_model_value",
+            "lower_value_credible_alternative_signal": {},
+        },
+    ]
+
+    payload = build_payload(
+        selection_summary={"selection_mode": "balanced", "selected_subject_count": 0},
+        subject_rows=rows,
+        variant_definitions=variant_definitions,
+        all_variant_keys=list(variant_definitions.keys()),
+        executed_variant_keys=["simple_value_tier_rerank", "value_tier_plus_micro_location"],
+        runtime_notes=["partial matrix"],
+        variants=[
+            variant_definitions["simple_value_tier_rerank"],
+            variant_definitions["value_tier_plus_micro_location"],
+        ],
+        experiment_config=ExperimentalRerankingConfig(),
+    )
+
+    assert payload["selection_summary"]["selected_subject_count"] == 1
+    assert payload["selection_summary"]["selected_subject_accounts"] == ["A1"]
+    assert payload["selection_summary"]["selected_county_counts"] == {"harris": 1}
+    assert payload["selection_summary"]["selected_neighborhood_counts"] == {"harris:8309.06": 1}
+    assert payload["selection_summary"]["subject_cohort_fingerprint"] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
 def test_variant_summary_includes_county_summaries_and_segment_posture() -> None:

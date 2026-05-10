@@ -1843,19 +1843,51 @@ def build_subject_key(row: dict[str, Any]) -> str:
     )
 
 
-def build_subject_key_list(subject_rows: list[dict[str, Any]]) -> list[str]:
+def build_subject_key_list(
+    subject_rows: list[dict[str, Any]],
+    *,
+    variant_key: str | None = None,
+) -> list[str]:
     return sorted(
         {
             build_subject_key(row)
             for row in subject_rows
-            if row.get("variant_key") == "all_penalties"
+            if variant_key is None or row.get("variant_key") == variant_key
         }
     )
 
 
-def build_subject_cohort_fingerprint(subject_rows: list[dict[str, Any]]) -> str:
-    joined = "\n".join(build_subject_key_list(subject_rows))
+def build_subject_cohort_fingerprint(
+    subject_rows: list[dict[str, Any]],
+    *,
+    variant_key: str | None = None,
+) -> str:
+    joined = "\n".join(build_subject_key_list(subject_rows, variant_key=variant_key))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def build_subject_provenance_summary(subject_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rows_by_subject_key: dict[str, dict[str, Any]] = {}
+    for row in subject_rows:
+        rows_by_subject_key.setdefault(build_subject_key(row), row)
+    subject_keys = sorted(rows_by_subject_key)
+    selected_rows = [rows_by_subject_key[key] for key in subject_keys]
+    county_counts = Counter(str(row.get("county_id")) for row in selected_rows)
+    neighborhood_counts = Counter(
+        f"{row.get('county_id')}:{row.get('neighborhood_code')}"
+        for row in selected_rows
+    )
+    return {
+        "selected_subject_accounts": [
+            key.split("|", 2)[1] for key in subject_keys
+        ],
+        "selected_subject_count": len(subject_keys),
+        "subject_cohort_fingerprint": hashlib.sha256(
+            "\n".join(subject_keys).encode("utf-8")
+        ).hexdigest(),
+        "selected_county_counts": dict(sorted(county_counts.items())),
+        "selected_neighborhood_counts": dict(sorted(neighborhood_counts.items())),
+    }
 
 
 def build_chunk_comparability_summary(chunk_payloads: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1926,10 +1958,7 @@ def build_payload(
     all_penalties_rows = [
         row for row in subject_rows if row.get("variant_key") == "all_penalties"
     ]
-    selection_summary["selected_subject_accounts"] = [
-        key.split("|", 2)[1] for key in build_subject_key_list(all_penalties_rows)
-    ]
-    selection_summary["subject_cohort_fingerprint"] = build_subject_cohort_fingerprint(all_penalties_rows)
+    selection_summary.update(build_subject_provenance_summary(subject_rows))
     county_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     neighborhood_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in all_penalties_rows:
