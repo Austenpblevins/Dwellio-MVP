@@ -458,6 +458,7 @@ def test_safety_blocked_rerank_can_use_safe_baseline_support(tmp_path, monkeypat
 
     assert payload["summary"]["baseline_support_only"]["case_count"] == 1
     assert payload["summary"]["fallback_safety_blocked"]["case_count"] == 0
+    assert payload["summary"]["baseline_support_only"]["unsupported_transition_count"] == 0
 
 
 def test_no_reduction_and_safety_blocked_modes_are_separated(tmp_path, monkeypatch):

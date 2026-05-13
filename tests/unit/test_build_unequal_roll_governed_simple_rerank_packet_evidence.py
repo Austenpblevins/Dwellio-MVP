@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+from infra.scripts import build_unequal_roll_governed_simple_rerank_packet_evidence as evidence
+
+
+def test_baseline_candidate_requires_model_backed_material_baseline() -> None:
+    raw = {
+        "smart_value_interpretation": "final_model_value",
+        "smart_final_value_status": "supported_with_review",
+        "smart_requested_reduction_amount": 2500,
+        "smart_included_comp_count": 20,
+    }
+    assert evidence.baseline_candidate(raw, {}) is True
+    assert evidence.baseline_candidate({**raw, "smart_requested_reduction_amount": 999}, {}) is False
+    assert evidence.baseline_candidate({**raw, "smart_value_interpretation": "diagnostic"}, {}) is False
+    assert evidence.baseline_candidate({**raw, "smart_final_value_status": "unsupported"}, {}) is False
+    assert evidence.baseline_candidate({**raw, "smart_included_comp_count": 0}, {}) is False
+
+
+def test_merge_fallback_case_without_replay_preserves_packet_counts() -> None:
+    raw = {
+        "county_id": "harris",
+        "subject_account": "A1",
+        "neighborhood_code": "100.00",
+        "smart_requested_reduction_amount": 0,
+    }
+    governed = {
+        "county_id": "harris",
+        "subject_account": "A1",
+        "neighborhood_code": "100.00",
+        "governance_view": "fallback_blocked",
+        "governance_classification": "not_eligible_low_benefit",
+        "governance_reasons": ["taxpayer_delta_below_material_threshold"],
+        "governed_delta_vs_smart": 0,
+    }
+    row = evidence.merge_fallback_case(
+        raw_row=raw,
+        governed_row=governed,
+        requested_tax_year=2026,
+        baseline_result=None,
+    )
+    assert row["governance_view"] == "fallback_blocked"
+    assert row["governance_reasons"] == "taxpayer_delta_below_material_threshold"
+    assert row["requested_tax_year"] == 2026
+    assert row.get("subject_parcel_id") is None
+
+
+def test_merge_fallback_case_with_replayed_baseline_adds_comp_ids() -> None:
+    raw = {
+        "county_id": "harris",
+        "subject_account": "A1",
+        "neighborhood_code": "100.00",
+        "smart_requested_reduction_amount": 2500,
+    }
+    governed = {
+        "county_id": "harris",
+        "subject_account": "A1",
+        "neighborhood_code": "100.00",
+        "governance_view": "fallback_blocked",
+        "governance_classification": "not_eligible_low_benefit",
+        "governance_reasons": ["taxpayer_delta_below_material_threshold"],
+        "governed_delta_vs_smart": 0,
+    }
+    result = {
+        "parcel_id": "subject-1",
+        "requested_roll_value": 297500,
+        "requested_reduction_amount": 2500,
+        "final_value_status": "supported_with_review",
+        "value_interpretation": "final_model_value",
+        "included_comp_count": 1,
+        "replay_status": "completed",
+        "final_value_detail_json": {
+            "included_comp_rows": [
+                {"candidate_parcel_id": "comp-1"},
+            ]
+        },
+    }
+    row = evidence.merge_fallback_case(
+        raw_row=raw,
+        governed_row=governed,
+        requested_tax_year=2026,
+        baseline_result=result,
+    )
+    assert row["subject_parcel_id"] == "subject-1"
+    assert row["smart_requested_reduction_amount"] == 2500
+    assert row["smart_value_interpretation"] == "final_model_value"
+    assert row["smart_full_included_comp_ids"] == "comp-1"
+    assert row["rerank_full_included_comp_ids"] == "comp-1"
+    assert row["complete_comp_set_recovered"] is True

@@ -381,9 +381,24 @@ def summarize_cases(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "material_gain_count": sum(1 for delta in deltas if delta >= MATERIAL_THRESHOLD),
         "material_loss_count": sum(1 for delta in deltas if delta <= -MATERIAL_THRESHOLD),
         "median_savings": round(median(deltas), 2) if deltas else 0.0,
-        "true_downgrade_count": sum(1 for row in rows if as_bool(row.get("true_final_status_downgrade_raw"))),
-        "unsupported_transition_count": sum(1 for row in rows if as_bool(row.get("true_transition_to_unsupported_raw"))),
-        "comp_collapse_count": sum(1 for row in rows if as_bool(row.get("included_comp_collapse_raw"))),
+        "true_downgrade_count": sum(
+            1
+            for row in rows
+            if row.get("final_decision") != "baseline_support_only"
+            and as_bool(row.get("true_final_status_downgrade_raw"))
+        ),
+        "unsupported_transition_count": sum(
+            1
+            for row in rows
+            if row.get("final_decision") != "baseline_support_only"
+            and as_bool(row.get("true_transition_to_unsupported_raw"))
+        ),
+        "comp_collapse_count": sum(
+            1
+            for row in rows
+            if row.get("final_decision") != "baseline_support_only"
+            and as_bool(row.get("included_comp_collapse_raw"))
+        ),
     }
 
 
