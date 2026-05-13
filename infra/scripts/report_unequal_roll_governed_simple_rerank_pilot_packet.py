@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - optional output format
 
 
 VARIANT_KEY = "simple_value_tier_rerank"
+ARCHITECTURE_NAME = "governed_similarity_baseline_with_simple_rerank"
 MATERIAL_THRESHOLD = 1000.0
 DEFAULT_DATABASE_URL = "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
 
@@ -203,13 +204,31 @@ COLUMN_KEY_ROWS = [
     },
     {
         "field": "final_decision",
-        "plain_english": "Packet queue assignment: first_pilot_ready, spot_check_only, analyst_review_only, or hold_out.",
-        "analyst_action": "Only first_pilot_ready belongs in the first pilot queue.",
+        "plain_english": (
+            "Packet queue assignment: governed_rerank_ready, baseline_support_only, spot_check_only, "
+            "analyst_review_only, hold_out, fallback_safety_blocked, or no_reduction_no_action."
+        ),
+        "analyst_action": "Use governed_rerank_ready for rerank wins and baseline_support_only for similarity_top_100 support.",
     },
     {
-        "field": "fallback_blocked",
-        "plain_english": "Governed fallback rejected rerank use and kept similarity_top_100.",
-        "analyst_action": "Appendix only; not pilot output.",
+        "field": "governed_rerank_ready",
+        "plain_english": "Simple rerank is model-backed, materially better than similarity_top_100, and passes safety checks.",
+        "analyst_action": "Eligible for the rerank pilot review queue.",
+    },
+    {
+        "field": "baseline_support_only",
+        "plain_english": "similarity_top_100 supports a model-backed value reduction, but simple rerank did not add material benefit.",
+        "analyst_action": "Review as baseline unequal-roll support; do not present as a rerank win.",
+    },
+    {
+        "field": "fallback_safety_blocked",
+        "plain_english": "Rerank and baseline support are not packet-ready because a safety blocker or missing evidence remains.",
+        "analyst_action": "Do not use without further diagnosis.",
+    },
+    {
+        "field": "no_reduction_no_action",
+        "plain_english": "Neither governed rerank nor similarity_top_100 produced material model-backed value reduction.",
+        "analyst_action": "No packet action.",
     },
 ]
 
@@ -341,15 +360,21 @@ def normalize_membership(value: Any) -> str:
 
 
 def summarize_cases(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    deltas = [as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100")) for row in rows]
+    deltas = [
+        as_float(row.get("packet_value_reduction_amount"), as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100")))
+        for row in rows
+    ]
     return {
         "case_count": len(rows),
         "net_governed_taxpayer_savings": round(sum(deltas), 2),
         "model_backed_net_savings": round(
             sum(
-                as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100"))
+                as_float(
+                    row.get("packet_value_reduction_amount"),
+                    as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100")),
+                )
                 for row in rows
-                if as_bool(row.get("model_backed"))
+                if as_bool(row.get("model_backed")) or row.get("final_decision") == "baseline_support_only"
             ),
             2,
         ),
@@ -678,6 +703,53 @@ def apply_comp_hydration(row: dict[str, Any], comp_facts: dict[str, dict[str, An
                 row[field] = "source_unavailable"
 
 
+def baseline_value_reduction(row: dict[str, Any]) -> float:
+    reduction = optional_float(row.get("smart_requested_reduction_amount"))
+    if reduction is not None:
+        return reduction
+    appraised = optional_float(row.get("subject_appraised_value"))
+    baseline_value = optional_float(row.get("smart_requested_roll_value"))
+    if appraised is not None and baseline_value is not None:
+        return appraised - baseline_value
+    return 0.0
+
+
+def baseline_is_model_backed(row: dict[str, Any]) -> bool:
+    return str(row.get("smart_value_interpretation") or "").strip() == "final_model_value"
+
+
+def baseline_status_is_supported(row: dict[str, Any]) -> bool:
+    status = str(row.get("smart_final_value_status") or row.get("smart_replay_final_status") or "").strip()
+    return status not in {"", "unsupported", "no_reduction"}
+
+
+def comp_evidence_reasons(comp_rows: list[dict[str, Any]], requested_tax_year: int) -> list[str]:
+    reasons: list[str] = []
+    bad_tax_year_count = sum(1 for comp in comp_rows if str(comp.get("comp_tax_year") or "") != str(requested_tax_year))
+    if bad_tax_year_count:
+        reasons.append("wrong_tax_year_comp_rows")
+    if any(comp.get("comp_hydration_status") == "missing_requested_tax_year_source_row" for comp in comp_rows):
+        reasons.append("missing_requested_tax_year_comp_hydration")
+    return reasons
+
+
+def baseline_support_reasons(row: dict[str, Any], comp_rows: list[dict[str, Any]], requested_tax_year: int) -> list[str]:
+    reasons: list[str] = []
+    baseline_comp_rows = [
+        comp for comp in comp_rows if normalize_membership(comp.get("membership")) in {"smart_only", "overlap"}
+    ]
+    if not baseline_is_model_backed(row):
+        reasons.append("baseline_not_final_model_value")
+    if not baseline_status_is_supported(row):
+        reasons.append("baseline_final_status_not_supported")
+    if baseline_value_reduction(row) < MATERIAL_THRESHOLD:
+        reasons.append("baseline_reduction_below_material_threshold")
+    if as_int(row.get("smart_included_comp_count") or row.get("smart_included_comp_count_raw")) <= 0:
+        reasons.append("baseline_missing_included_comps")
+    reasons.extend(comp_evidence_reasons(baseline_comp_rows, requested_tax_year))
+    return reasons
+
+
 def first_pilot_blocking_reasons(row: dict[str, Any], comp_rows: list[dict[str, Any]], requested_tax_year: int) -> list[str]:
     reasons: list[str] = []
     if row.get("governance_view") != "automated_safe":
@@ -696,16 +768,22 @@ def first_pilot_blocking_reasons(row: dict[str, Any], comp_rows: list[dict[str, 
         reasons.append("rerank_not_final_model_value")
     if as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100")) < MATERIAL_THRESHOLD:
         reasons.append("taxpayer_delta_below_material_threshold")
-    bad_tax_year_count = sum(1 for comp in comp_rows if str(comp.get("comp_tax_year") or "") != str(requested_tax_year))
-    if bad_tax_year_count:
-        reasons.append("wrong_tax_year_comp_rows")
-    if any(comp.get("comp_hydration_status") == "missing_requested_tax_year_source_row" for comp in comp_rows):
-        reasons.append("missing_requested_tax_year_comp_hydration")
+    reasons.extend(comp_evidence_reasons(comp_rows, requested_tax_year))
     return reasons
 
 
 def pilot_decision(row: dict[str, Any], comp_rows: list[dict[str, Any]], requested_tax_year: int) -> tuple[str, list[str]]:
     blocking_reasons = first_pilot_blocking_reasons(row, comp_rows, requested_tax_year)
+    baseline_reasons = baseline_support_reasons(row, comp_rows, requested_tax_year)
+    has_baseline_support = not baseline_reasons
+    if row.get("governance_view") == "fallback_blocked":
+        if has_baseline_support:
+            return "baseline_support_only", ["rerank_not_materially_better_baseline_support_retained"]
+        if any(reason in set(blocking_reasons + baseline_reasons) for reason in ("wrong_tax_year_comp_rows", "missing_requested_tax_year_comp_hydration")):
+            return "fallback_safety_blocked", blocking_reasons + baseline_reasons
+        if row.get("governance_classification") in {"blocked_case", "insufficient_evidence"}:
+            return "fallback_safety_blocked", blocking_reasons + baseline_reasons
+        return "no_reduction_no_action", baseline_reasons or ["baseline_reduction_below_material_threshold"]
     if as_bool(row.get("true_final_status_downgrade_raw")):
         return "hold_out", blocking_reasons or ["true_final_status_downgrade"]
     if row.get("governance_view") == "analyst_assisted" or row.get("governance_classification") == "manual_review_required":
@@ -717,19 +795,28 @@ def pilot_decision(row: dict[str, Any], comp_rows: list[dict[str, Any]], request
         return "analyst_review_only", ["weak_comp_set_overlap"]
     if overlap < 10:
         return "spot_check_only", ["moderate_comp_set_overlap_spot_check"]
-    return "first_pilot_ready", ["model_backed_stable_material_benefit_complete_evidence"]
+    return "governed_rerank_ready", ["model_backed_stable_material_benefit_complete_evidence"]
 
 
 def final_reason(decision: str, reasons: list[str]) -> str:
-    if decision == "first_pilot_ready":
+    if decision == "governed_rerank_ready":
         return (
             "Model-backed final-value result with complete 2026 smart/rerank comp evidence, material taxpayer "
             "savings, no downgrade, no unsupported transition, no comp collapse, and no pre-pilot QA flag."
+        )
+    if decision == "baseline_support_only":
+        return (
+            "similarity_top_100 produced model-backed baseline unequal-roll support, while simple rerank was tested "
+            "but did not add material incremental savings."
         )
     if decision == "spot_check_only":
         return "Clean governed result held outside the first pilot queue for comp-overlap spot-check."
     if decision == "analyst_review_only":
         return f"Retained governed evidence requires analyst review before pilot use: {', '.join(reasons)}."
+    if decision == "fallback_safety_blocked":
+        return f"Fallback kept similarity_top_100, but packet support is safety-blocked: {', '.join(reasons)}."
+    if decision == "no_reduction_no_action":
+        return f"No material model-backed baseline or rerank value reduction: {', '.join(reasons)}."
     return f"Held out from first pilot: {', '.join(reasons)}."
 
 
@@ -791,17 +878,27 @@ def build_queue_rows(
         comp_by_case[case_key(comp)].append(comp)
 
     queues = {
-        "first_pilot_ready": [],
+        "governed_rerank_ready": [],
+        "baseline_support_only": [],
         "spot_check_only": [],
         "analyst_review_only": [],
         "hold_out": [],
+        "fallback_safety_blocked": [],
+        "no_reduction_no_action": [],
     }
     for row in case_rows:
         decision, reasons = pilot_decision(row, comp_by_case.get(case_key(row), []), requested_tax_year)
         row["final_decision"] = decision
         row["final_decision_reasons"] = ";".join(reasons)
         row["reason_passed_or_excluded"] = final_reason(decision, reasons)
-        row["analyst_review_required_for_pilot"] = decision != "first_pilot_ready"
+        row["baseline_value_reduction_amount"] = baseline_value_reduction(row)
+        row["packet_value_reduction_amount"] = (
+            baseline_value_reduction(row)
+            if decision == "baseline_support_only"
+            else as_float(row.get("governed_taxpayer_delta_vs_similarity_top_100"))
+        )
+        row["architecture_name"] = ARCHITECTURE_NAME
+        row["analyst_review_required_for_pilot"] = decision != "governed_rerank_ready"
         queues[decision].append(row)
 
     recovery_summary = {
@@ -843,7 +940,7 @@ def build_signoff_rows(first_pilot_rows: list[dict[str, Any]]) -> list[dict[str,
                 "subject_stories": row.get("subject_stories"),
                 "subject_quality_code": row.get("subject_quality_code"),
                 "subject_condition_code": row.get("subject_condition_code"),
-                "governed_taxpayer_savings": row.get("governed_taxpayer_delta_vs_similarity_top_100"),
+                "governed_taxpayer_savings": row.get("packet_value_reduction_amount") or row.get("governed_taxpayer_delta_vs_similarity_top_100"),
                 "smart_requested_roll_value": row.get("smart_requested_roll_value"),
                 "rerank_requested_roll_value": row.get("rerank_requested_roll_value"),
                 "overlap_comp_count": row.get("smart_vs_rerank_overlap_count"),
@@ -945,7 +1042,7 @@ def build_changed_comp_rows(
                 "county_id": comp.get("county_id"),
                 "neighborhood_code": comp.get("neighborhood_code"),
                 "subject_address": comp.get("subject_address"),
-                "governed_taxpayer_savings": case.get("governed_taxpayer_delta_vs_similarity_top_100"),
+                "governed_taxpayer_savings": case.get("packet_value_reduction_amount") or case.get("governed_taxpayer_delta_vs_similarity_top_100"),
                 "overlap_comp_count": case.get("smart_vs_rerank_overlap_count"),
                 "membership": membership,
                 "comp_account_number": comp.get("comp_account_number"),
@@ -1004,7 +1101,7 @@ def build_comparison_grid_rows(
                 "subject_account": case.get("subject_account"),
                 "county_id": case.get("county_id"),
                 "neighborhood_code": case.get("neighborhood_code"),
-                "governed_taxpayer_savings": case.get("governed_taxpayer_delta_vs_similarity_top_100"),
+                "governed_taxpayer_savings": case.get("packet_value_reduction_amount") or case.get("governed_taxpayer_delta_vs_similarity_top_100"),
                 "row_label": label,
                 "SUBJECT": subject_display_value(case, field),
             }
@@ -1017,7 +1114,7 @@ def build_comparison_grid_rows(
                 "subject_account": case.get("subject_account"),
                 "county_id": case.get("county_id"),
                 "neighborhood_code": case.get("neighborhood_code"),
-                "governed_taxpayer_savings": case.get("governed_taxpayer_delta_vs_similarity_top_100"),
+                "governed_taxpayer_savings": case.get("packet_value_reduction_amount") or case.get("governed_taxpayer_delta_vs_similarity_top_100"),
                 "row_label": "",
                 "SUBJECT": "",
             }
@@ -1030,13 +1127,21 @@ def build_opinion_of_value_rows(
 ) -> list[dict[str, Any]]:
     comps_by_case: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for comp in first_comp_rows:
-        if normalize_membership(comp.get("membership")) in {"rerank_only", "overlap"}:
-            comps_by_case[case_key(comp)].append(comp)
+        comps_by_case[case_key(comp)].append(comp)
 
     rows: list[dict[str, Any]] = []
     for case in first_pilot_rows:
+        allowed_memberships = (
+            {"smart_only", "overlap"}
+            if case.get("final_decision") == "baseline_support_only"
+            else {"rerank_only", "overlap"}
+        )
         comps = sorted(
-            comps_by_case.get(case_key(case), []),
+            [
+                comp
+                for comp in comps_by_case.get(case_key(case), [])
+                if normalize_membership(comp.get("membership")) in allowed_memberships
+            ],
             key=lambda comp: (
                 0 if normalize_membership(comp.get("membership")) == "rerank_only" else 1,
                 str(comp.get("comp_account_number") or ""),
@@ -1055,11 +1160,20 @@ def build_opinion_of_value_rows(
         median_appraised_vpsf = safe_round(median_or_none(appraised_vpsf_values))
         adjusted_median_vpsf = safe_round(median_or_none(adjusted_vpsf_values))
         subject_living_area = optional_float(case.get("subject_living_area_sf"))
-        opinion_value = optional_float(case.get("rerank_requested_roll_value"))
+        opinion_source = "similarity_top_100_baseline" if case.get("final_decision") == "baseline_support_only" else "governed_simple_rerank"
+        opinion_value = optional_float(
+            case.get("smart_requested_roll_value")
+            if case.get("final_decision") == "baseline_support_only"
+            else case.get("rerank_requested_roll_value")
+        )
         if adjusted_median_vpsf is None and opinion_value is not None and subject_living_area:
             adjusted_median_vpsf = round(opinion_value / subject_living_area, 2)
         subject_appraised = optional_float(case.get("subject_appraised_value"))
-        reduction_amount = optional_float(case.get("rerank_requested_reduction_amount"))
+        reduction_amount = optional_float(
+            case.get("smart_requested_reduction_amount")
+            if case.get("final_decision") == "baseline_support_only"
+            else case.get("rerank_requested_reduction_amount")
+        )
         if reduction_amount is None and subject_appraised is not None and opinion_value is not None:
             reduction_amount = subject_appraised - opinion_value
         reduction_percent = None
@@ -1077,6 +1191,7 @@ def build_opinion_of_value_rows(
                     "subject_current_appraised_value": case.get("subject_appraised_value"),
                     "subject_value_per_sf": case.get("subject_value_per_sf"),
                     "opinion_of_value": opinion_value,
+                    "opinion_source": opinion_source,
                     "reduction_amount": reduction_amount,
                     "reduction_percent": reduction_percent,
                     "median_appraised_value_per_sf": median_appraised_vpsf,
@@ -1104,8 +1219,12 @@ def build_opinion_of_value_rows(
 
 def build_pilot_summary_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
     rows = [
-        {"metric": "First-pilot-ready count", "value": summary["first_pilot_ready"]["case_count"]},
-        {"metric": "Expected model-backed value reduction", "value": summary["first_pilot_ready"]["model_backed_net_savings"]},
+        {"metric": "Architecture", "value": summary["architecture_name"]},
+        {"metric": "Governed-rerank-ready count", "value": summary["governed_rerank_ready"]["case_count"]},
+        {"metric": "Baseline-support-only count", "value": summary["baseline_support_only"]["case_count"]},
+        {"metric": "Expected model-backed rerank value reduction", "value": summary["governed_rerank_ready"]["model_backed_net_savings"]},
+        {"metric": "Expected model-backed baseline value reduction", "value": summary["baseline_support_only"]["model_backed_net_savings"]},
+        {"metric": "First-pilot-ready count (compatibility alias)", "value": summary["first_pilot_ready"]["case_count"]},
         {"metric": "Material gains", "value": summary["first_pilot_ready"]["material_gain_count"]},
         {"metric": "Material losses", "value": summary["first_pilot_ready"]["material_loss_count"]},
         {"metric": "Downgrades", "value": summary["first_pilot_ready"]["true_downgrade_count"]},
@@ -1185,24 +1304,45 @@ def build_fallback_blocked_summary(rows: list[dict[str, Any]]) -> dict[str, Any]
 def build_summary(
     queues: dict[str, list[dict[str, Any]]],
     comp_first_pilot: list[dict[str, Any]],
+    comp_baseline_support: list[dict[str, Any]],
+    comp_review_packet: list[dict[str, Any]],
     fallback_blocked: list[dict[str, Any]],
     recovery_summary: dict[str, Any],
     requested_tax_year: int,
 ) -> dict[str, Any]:
-    first = queues["first_pilot_ready"]
-    all_rows = queues["first_pilot_ready"] + queues["spot_check_only"] + queues["analyst_review_only"] + queues["hold_out"]
+    first = queues["governed_rerank_ready"]
+    baseline = queues["baseline_support_only"]
+    all_rows = (
+        queues["governed_rerank_ready"]
+        + queues["baseline_support_only"]
+        + queues["spot_check_only"]
+        + queues["analyst_review_only"]
+        + queues["hold_out"]
+        + queues["fallback_safety_blocked"]
+        + queues["no_reduction_no_action"]
+    )
     non_requested_tax_year_rows = [
         row for row in comp_first_pilot if str(row.get("comp_tax_year") or "") != str(requested_tax_year)
     ]
+    review_non_requested_tax_year_rows = [
+        row for row in comp_review_packet if str(row.get("comp_tax_year") or "") != str(requested_tax_year)
+    ]
     return {
+        "architecture_name": ARCHITECTURE_NAME,
+        "governed_rerank_ready": summarize_cases(first),
         "first_pilot_ready": summarize_cases(first),
+        "baseline_support_only": summarize_cases(baseline),
         "spot_check_only": summarize_cases(queues["spot_check_only"]),
         "analyst_review_only": summarize_cases(queues["analyst_review_only"]),
         "hold_out": summarize_cases(queues["hold_out"]),
+        "fallback_safety_blocked": summarize_cases(queues["fallback_safety_blocked"]),
+        "no_reduction_no_action": summarize_cases(queues["no_reduction_no_action"]),
         "fallback_blocked": build_fallback_blocked_summary(fallback_blocked),
         "decision_counts": dict(Counter(row.get("final_decision") for row in all_rows)),
         "first_pilot_county_summary": summarize_by(first, "county_id"),
+        "baseline_support_county_summary": summarize_by(baseline, "county_id"),
         "first_pilot_segment_summary": summarize_segments(first),
+        "baseline_support_segment_summary": summarize_segments(baseline),
         "top_first_pilot_segments": summarize_segments(first, limit=15),
         "subject_hydration_summary": {
             "first_pilot_case_count": len(first),
@@ -1217,7 +1357,10 @@ def build_summary(
         "comp_hydration_summary": {
             **recovery_summary,
             "first_pilot_comp_rows": len(comp_first_pilot),
+            "baseline_support_comp_rows": len(comp_baseline_support),
+            "review_packet_comp_rows": len(comp_review_packet),
             "first_pilot_non_requested_tax_year_comp_rows": len(non_requested_tax_year_rows),
+            "review_packet_non_requested_tax_year_comp_rows": len(review_non_requested_tax_year_rows),
             "first_pilot_source_unavailable_comp_full_baths": sum(
                 1 for row in comp_first_pilot if row.get("comp_full_baths") in (None, "", "source_unavailable")
             ),
@@ -1248,21 +1391,28 @@ def render_markdown(path: Path, payload: dict[str, Any]) -> None:
     lines = [
         "# Governed Simple Value-Tier Rerank: Analyst Pilot Packet",
         "",
-        "This is no-persist MVP pilot tooling, not production rollout. The pilot baseline is `simple_value_tier_rerank`.",
+        "This is no-persist MVP pilot tooling, not production rollout. The architecture is "
+        f"`{ARCHITECTURE_NAME}`: run `similarity_top_100` baseline support, attempt "
+        "`simple_value_tier_rerank`, retain the rerank only when it materially and safely improves the baseline, "
+        "otherwise fall back to baseline support when the baseline itself is model-backed.",
         "",
         "## Pilot Scope",
         "",
-        f"- First-pilot-ready cases: {summary['first_pilot_ready']['case_count']}",
-        f"- Expected model-backed taxpayer savings: {money(summary['first_pilot_ready']['model_backed_net_savings'])}",
-        f"- Material gains/losses: {summary['first_pilot_ready']['material_gain_count']} / {summary['first_pilot_ready']['material_loss_count']}",
-        f"- Downgrades / unsupported transitions / comp collapses: {summary['first_pilot_ready']['true_downgrade_count']} / {summary['first_pilot_ready']['unsupported_transition_count']} / {summary['first_pilot_ready']['comp_collapse_count']}",
+        f"- Governed-rerank-ready cases: {summary['governed_rerank_ready']['case_count']}",
+        f"- Baseline-support-only cases: {summary['baseline_support_only']['case_count']}",
+        f"- Expected model-backed rerank taxpayer savings: {money(summary['governed_rerank_ready']['model_backed_net_savings'])}",
+        f"- Expected model-backed baseline value reduction: {money(summary['baseline_support_only']['model_backed_net_savings'])}",
+        f"- Rerank material gains/losses: {summary['governed_rerank_ready']['material_gain_count']} / {summary['governed_rerank_ready']['material_loss_count']}",
+        f"- Rerank downgrades / unsupported transitions / comp collapses: {summary['governed_rerank_ready']['true_downgrade_count']} / {summary['governed_rerank_ready']['unsupported_transition_count']} / {summary['governed_rerank_ready']['comp_collapse_count']}",
         "",
         "## Separated Queues",
         "",
         f"- Spot-check only: {summary['spot_check_only']['case_count']}",
         f"- Analyst-review only: {summary['analyst_review_only']['case_count']}",
         f"- Hold-out: {summary['hold_out']['case_count']}",
-        f"- Fallback-blocked: {summary['fallback_blocked']['case_count']}",
+        f"- Fallback safety-blocked: {summary['fallback_safety_blocked']['case_count']}",
+        f"- No reduction/no action: {summary['no_reduction_no_action']['case_count']}",
+        f"- Raw governed fallback-blocked appendix rows: {summary['fallback_blocked']['case_count']}",
         "",
         "## County Scope",
         "",
@@ -1310,10 +1460,10 @@ def render_markdown(path: Path, payload: dict[str, Any]) -> None:
             "|---|---|---|---:|---|---|---:|",
         ]
     )
-    for row in sorted(first, key=lambda r: as_float(r.get("governed_taxpayer_delta_vs_similarity_top_100")), reverse=True)[:25]:
+    for row in sorted(first, key=lambda r: as_float(r.get("packet_value_reduction_amount")), reverse=True)[:25]:
         lines.append(
             f"| {row.get('county_id')} | `{row.get('subject_account')}` | `{row.get('neighborhood_code')}` | "
-            f"{money(as_float(row.get('governed_taxpayer_delta_vs_similarity_top_100')))} | "
+            f"{money(as_float(row.get('packet_value_reduction_amount')))} | "
             f"{row.get('smart_replay_final_status') or row.get('smart_final_value_status')} | "
             f"{row.get('rerank_replay_final_status') or row.get('rerank_final_value_status')} | "
             f"{row.get('smart_vs_rerank_overlap_count')} |"
@@ -1345,14 +1495,19 @@ def output_paths(output_dir: Path, timestamp: str) -> dict[str, Path]:
         "column_key": Path(f"{prefix}_column_key.csv"),
         "pilot_summary": Path(f"{prefix}_pilot_summary.csv"),
         "opinion_of_value": Path(f"{prefix}_opinion_of_value.csv"),
+        "governed_rerank_ready": Path(f"{prefix}_governed_rerank_ready.csv"),
         "first_pilot": Path(f"{prefix}_first_pilot_ready.csv"),
         "first_pilot_comp_details": Path(f"{prefix}_first_pilot_comp_details.csv"),
+        "baseline_support": Path(f"{prefix}_baseline_support_only.csv"),
+        "baseline_support_comp_details": Path(f"{prefix}_baseline_support_comp_details.csv"),
         "signoff_tracker": Path(f"{prefix}_analyst_signoff_tracker.csv"),
         "comparison_grid": Path(f"{prefix}_subject_comp_comparison_grid.csv"),
         "changed_comps_review": Path(f"{prefix}_changed_comps_review.csv"),
         "spot_check": Path(f"{prefix}_spot_check_appendix.csv"),
         "analyst_review": Path(f"{prefix}_analyst_review_only.csv"),
         "hold_out": Path(f"{prefix}_hold_out.csv"),
+        "fallback_safety_blocked": Path(f"{prefix}_fallback_safety_blocked.csv"),
+        "no_reduction_no_action": Path(f"{prefix}_no_reduction_no_action.csv"),
         "fallback_blocked": Path(f"{prefix}_fallback_blocked.csv"),
         "excluded_comp_details": Path(f"{prefix}_excluded_queue_comp_details.csv"),
     }
@@ -1376,29 +1531,47 @@ def build_packet(
         requested_tax_year=requested_tax_year,
     )
     fallback_blocked = load_fallback_blocked_rows(governed_fallback_artifacts)
-    first_comp = filter_comp_rows(comp_rows, queues["first_pilot_ready"])
+    first_comp = filter_comp_rows(comp_rows, queues["governed_rerank_ready"])
+    baseline_comp = filter_comp_rows(comp_rows, queues["baseline_support_only"])
+    review_packet_rows = queues["governed_rerank_ready"] + queues["baseline_support_only"]
+    review_packet_comp = filter_comp_rows(comp_rows, review_packet_rows)
     excluded_comp = filter_comp_rows(
         comp_rows,
-        queues["spot_check_only"] + queues["analyst_review_only"] + queues["hold_out"],
+        queues["spot_check_only"]
+        + queues["analyst_review_only"]
+        + queues["hold_out"]
+        + queues["fallback_safety_blocked"]
+        + queues["no_reduction_no_action"],
     )
     summary = build_summary(
         queues=queues,
         comp_first_pilot=first_comp,
+        comp_baseline_support=baseline_comp,
+        comp_review_packet=review_packet_comp,
         fallback_blocked=fallback_blocked,
         recovery_summary=recovery_summary,
         requested_tax_year=requested_tax_year,
     )
-    all_case_rows = queues["first_pilot_ready"] + queues["spot_check_only"] + queues["analyst_review_only"] + queues["hold_out"]
-    signoff_rows = build_signoff_rows(queues["first_pilot_ready"])
-    changed_comp_rows = build_changed_comp_rows(queues["first_pilot_ready"], first_comp)
-    comparison_grid_rows = build_comparison_grid_rows(queues["first_pilot_ready"], first_comp)
-    opinion_rows = build_opinion_of_value_rows(queues["first_pilot_ready"], first_comp)
+    all_case_rows = (
+        queues["governed_rerank_ready"]
+        + queues["baseline_support_only"]
+        + queues["spot_check_only"]
+        + queues["analyst_review_only"]
+        + queues["hold_out"]
+        + queues["fallback_safety_blocked"]
+        + queues["no_reduction_no_action"]
+    )
+    signoff_rows = build_signoff_rows(review_packet_rows)
+    changed_comp_rows = build_changed_comp_rows(queues["governed_rerank_ready"], first_comp)
+    comparison_grid_rows = build_comparison_grid_rows(review_packet_rows, review_packet_comp)
+    opinion_rows = build_opinion_of_value_rows(review_packet_rows, review_packet_comp)
     pilot_summary_rows = build_pilot_summary_rows(summary)
     payload = {
         "artifact_contract": {
             "artifact_type": "governed_simple_value_tier_rerank_mvp_pilot_packet",
             "created_at": timestamp or datetime.now().strftime("%Y%m%dT%H%M%S"),
             "primary_variant": VARIANT_KEY,
+            "architecture_name": ARCHITECTURE_NAME,
             "scope": "no_persist_mvp_pilot_tooling",
             "requested_tax_year": requested_tax_year,
             "bounded_proxy_used_for_conclusions": False,
@@ -1418,10 +1591,14 @@ def build_packet(
         },
         "summary": summary,
         "case_rows": all_case_rows,
-        "first_pilot_case_rows": queues["first_pilot_ready"],
+        "governed_rerank_ready_rows": queues["governed_rerank_ready"],
+        "first_pilot_case_rows": queues["governed_rerank_ready"],
+        "baseline_support_rows": queues["baseline_support_only"],
         "spot_check_rows": queues["spot_check_only"],
         "analyst_review_rows": queues["analyst_review_only"],
         "hold_out_rows": queues["hold_out"],
+        "fallback_safety_blocked_rows": queues["fallback_safety_blocked"],
+        "no_reduction_no_action_rows": queues["no_reduction_no_action"],
         "fallback_blocked_rows": fallback_blocked,
         "opinion_of_value_rows": opinion_rows,
         "pilot_summary_rows": pilot_summary_rows,
@@ -1436,14 +1613,19 @@ def build_packet(
     write_csv(paths["column_key"], COLUMN_KEY_ROWS)
     write_csv(paths["pilot_summary"], pilot_summary_rows)
     write_csv(paths["opinion_of_value"], opinion_rows)
-    write_csv(paths["first_pilot"], queues["first_pilot_ready"])
+    write_csv(paths["governed_rerank_ready"], queues["governed_rerank_ready"])
+    write_csv(paths["first_pilot"], queues["governed_rerank_ready"])
     write_csv(paths["first_pilot_comp_details"], first_comp)
+    write_csv(paths["baseline_support"], queues["baseline_support_only"])
+    write_csv(paths["baseline_support_comp_details"], baseline_comp)
     write_csv(paths["signoff_tracker"], signoff_rows, fieldnames=SIGNOFF_FIELDNAMES)
     write_csv(paths["comparison_grid"], comparison_grid_rows)
     write_csv(paths["changed_comps_review"], changed_comp_rows)
     write_csv(paths["spot_check"], queues["spot_check_only"])
     write_csv(paths["analyst_review"], queues["analyst_review_only"])
     write_csv(paths["hold_out"], queues["hold_out"])
+    write_csv(paths["fallback_safety_blocked"], queues["fallback_safety_blocked"])
+    write_csv(paths["no_reduction_no_action"], queues["no_reduction_no_action"])
     write_csv(paths["fallback_blocked"], fallback_blocked)
     write_csv(paths["excluded_comp_details"], excluded_comp)
     render_markdown(paths["markdown"], payload)
@@ -1457,9 +1639,13 @@ def build_packet(
             "Changed_Comps_Review": changed_comp_rows,
             "Subject_Comp_Grid": comparison_grid_rows,
             "Full_First_Pilot_Comp_Details": first_comp,
+            "Baseline_Support_Only": queues["baseline_support_only"],
+            "Baseline_Support_Comp_Details": baseline_comp,
             "Spot_Check_Appendix": queues["spot_check_only"],
             "Analyst_Review_Only": queues["analyst_review_only"],
             "Hold_Out": queues["hold_out"],
+            "Fallback_Safety_Blocked": queues["fallback_safety_blocked"],
+            "No_Reduction_No_Action": queues["no_reduction_no_action"],
             "Fallback_Blocked": fallback_blocked,
         },
     )

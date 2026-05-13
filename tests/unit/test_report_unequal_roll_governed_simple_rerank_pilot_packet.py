@@ -32,6 +32,12 @@ def _case(**overrides):
         "rerank_full_included_comp_ids": "comp-1",
         "added_comp_ids": "",
         "removed_comp_ids": "",
+        "smart_value_interpretation": "final_model_value",
+        "smart_final_value_status": "supported_with_review",
+        "smart_requested_roll_value": "290000",
+        "smart_requested_reduction_amount": "10000",
+        "rerank_requested_roll_value": "287500",
+        "rerank_requested_reduction_amount": "12500",
     }
     row.update(overrides)
     return row
@@ -182,11 +188,13 @@ def test_build_packet_splits_queues_and_corrects_tax_year(tmp_path, monkeypatch)
     )
 
     assert payload["summary"]["decision_counts"] == {
-        "first_pilot_ready": 1,
+        "governed_rerank_ready": 1,
         "spot_check_only": 1,
         "analyst_review_only": 1,
         "hold_out": 1,
     }
+    assert payload["summary"]["first_pilot_ready"]["case_count"] == 1
+    assert payload["summary"]["governed_rerank_ready"]["case_count"] == 1
     assert payload["summary"]["fallback_blocked"]["case_count"] == 1
     assert payload["guardrails"]["db_writes"] is False
 
@@ -200,6 +208,7 @@ def test_build_packet_splits_queues_and_corrects_tax_year(tmp_path, monkeypatch)
     assert paths["comparison_grid"].exists()
     assert paths["changed_comps_review"].exists()
     assert paths["opinion_of_value"].exists()
+    assert paths["governed_rerank_ready"].exists()
     assert paths["workbook"].exists()
     assert "Opinion_Of_Value" in load_workbook(paths["workbook"], read_only=True).sheetnames
 
@@ -291,9 +300,9 @@ def test_simplified_signoff_and_review_surfaces_are_emitted(tmp_path, monkeypatc
     assert any(row["row_label"] == "Line Item Count" for row in grid)
     assert any(row["field"] == "membership" for row in key)
     assert any(row["field"] == "opinion_of_value" for row in key)
-    assert opinion[0]["opinion_of_value"] == ""
+    assert opinion[0]["opinion_of_value"] == "287500.0"
     assert opinion[0]["median_appraised_value_per_sf"] == "147.37"
-    assert opinion[0]["adjusted_median_value_per_sf"] == ""
+    assert opinion[0]["adjusted_median_value_per_sf"] == "143.75"
     assert opinion[0]["comp_adjusted_value_per_sf"] == ""
 
 
@@ -371,9 +380,130 @@ def test_wrong_tax_year_after_hydration_keeps_case_out_of_first_pilot(tmp_path, 
         timestamp="20260101T000002",
     )
 
-    assert payload["summary"]["first_pilot_ready"]["case_count"] == 0
+    assert payload["summary"]["governed_rerank_ready"]["case_count"] == 0
     assert payload["summary"]["analyst_review_only"]["case_count"] == 1
     assert "wrong_tax_year_comp_rows" in payload["analyst_review_rows"][0]["final_decision_reasons"]
+
+
+def test_baseline_support_only_when_rerank_has_low_incremental_benefit(tmp_path, monkeypatch):
+    _patch_hydration(monkeypatch)
+    evidence_path = tmp_path / "evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "case_rows": [
+                _case(
+                    governance_view="fallback_blocked",
+                    governance_classification="not_eligible_low_benefit",
+                    governed_taxpayer_delta_vs_similarity_top_100="0",
+                    smart_requested_roll_value="275000",
+                    smart_requested_reduction_amount="25000",
+                    rerank_requested_roll_value="275000",
+                    rerank_requested_reduction_amount="25000",
+                )
+            ],
+            "comp_rows": [_comp(membership="overlap")],
+        },
+    )
+
+    payload, paths = report.build_packet(
+        complete_comp_evidence_artifact=evidence_path,
+        governed_fallback_artifacts=[],
+        raw_artifacts=[],
+        database_url="unused",
+        requested_tax_year=2026,
+        output_dir=tmp_path,
+        timestamp="20260101T000006",
+    )
+
+    assert payload["summary"]["baseline_support_only"]["case_count"] == 1
+    assert payload["summary"]["baseline_support_only"]["model_backed_net_savings"] == 25000
+    assert payload["baseline_support_rows"][0]["final_decision"] == "baseline_support_only"
+    assert payload["baseline_support_rows"][0]["packet_value_reduction_amount"] == 25000
+    assert _read_csv(paths["baseline_support"])[0]["final_decision"] == "baseline_support_only"
+    assert _read_csv(paths["baseline_support_comp_details"])[0]["membership"] == "overlap"
+    opinion = _read_csv(paths["opinion_of_value"])
+    assert opinion[0]["opinion_source"] == "similarity_top_100_baseline"
+    assert opinion[0]["opinion_of_value"] == "275000.0"
+
+
+def test_safety_blocked_rerank_can_use_safe_baseline_support(tmp_path, monkeypatch):
+    _patch_hydration(monkeypatch)
+    evidence_path = tmp_path / "evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "case_rows": [
+                _case(
+                    governance_view="fallback_blocked",
+                    governance_classification="blocked_case",
+                    true_transition_to_unsupported_raw="True",
+                    governed_taxpayer_delta_vs_similarity_top_100="0",
+                    smart_requested_reduction_amount="5000",
+                )
+            ],
+            "comp_rows": [_comp(membership="overlap")],
+        },
+    )
+
+    payload, _ = report.build_packet(
+        complete_comp_evidence_artifact=evidence_path,
+        governed_fallback_artifacts=[],
+        raw_artifacts=[],
+        database_url="unused",
+        requested_tax_year=2026,
+        output_dir=tmp_path,
+        timestamp="20260101T000007",
+    )
+
+    assert payload["summary"]["baseline_support_only"]["case_count"] == 1
+    assert payload["summary"]["fallback_safety_blocked"]["case_count"] == 0
+
+
+def test_no_reduction_and_safety_blocked_modes_are_separated(tmp_path, monkeypatch):
+    _patch_hydration(monkeypatch)
+    evidence_path = tmp_path / "evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "case_rows": [
+                _case(
+                    subject_account="NORED",
+                    subject_parcel_id="subject-nored",
+                    governance_view="fallback_blocked",
+                    governance_classification="not_eligible_low_benefit",
+                    governed_taxpayer_delta_vs_similarity_top_100="0",
+                    smart_requested_reduction_amount="0",
+                ),
+                _case(
+                    subject_account="BLOCK",
+                    subject_parcel_id="subject-block",
+                    governance_view="fallback_blocked",
+                    governance_classification="blocked_case",
+                    governed_taxpayer_delta_vs_similarity_top_100="0",
+                    smart_value_interpretation="diagnostic",
+                    smart_requested_reduction_amount="10000",
+                ),
+            ],
+            "comp_rows": [
+                _comp(subject_account="NORED", comp_parcel_id="comp-nored"),
+                _comp(subject_account="BLOCK", comp_parcel_id="comp-block"),
+            ],
+        },
+    )
+
+    payload, _ = report.build_packet(
+        complete_comp_evidence_artifact=evidence_path,
+        governed_fallback_artifacts=[],
+        raw_artifacts=[],
+        database_url="unused",
+        requested_tax_year=2026,
+        output_dir=tmp_path,
+        timestamp="20260101T000008",
+    )
+
+    assert payload["summary"]["no_reduction_no_action"]["case_count"] == 1
+    assert payload["summary"]["fallback_safety_blocked"]["case_count"] == 1
 
 
 def test_guardrail_metadata_discloses_no_production_changes(tmp_path, monkeypatch):
