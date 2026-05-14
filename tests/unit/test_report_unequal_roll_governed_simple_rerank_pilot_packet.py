@@ -70,6 +70,13 @@ def _read_csv(path):
         return list(csv.DictReader(fh))
 
 
+def _first_row(rows, **matches):
+    for row in rows:
+        if all(row.get(key) == value for key, value in matches.items()):
+            return row
+    raise AssertionError(f"Missing row matching {matches}")
+
+
 def _patch_hydration(monkeypatch):
     def fake_subjects(rows, database_url, requested_tax_year):
         return {
@@ -210,7 +217,10 @@ def test_build_packet_splits_queues_and_corrects_tax_year(tmp_path, monkeypatch)
     assert paths["opinion_of_value"].exists()
     assert paths["governed_rerank_ready"].exists()
     assert paths["workbook"].exists()
-    assert "Opinion_Of_Value" in load_workbook(paths["workbook"], read_only=True).sheetnames
+    sheetnames = load_workbook(paths["workbook"], read_only=True).sheetnames
+    assert "Executive_Summary" in sheetnames
+    assert "Opinion_Of_Value" in sheetnames
+    assert "Governed_Rerank_Ready" in sheetnames
 
 
 def test_subject_facts_are_repeated_in_signoff_and_comp_rows(tmp_path, monkeypatch):
@@ -297,13 +307,22 @@ def test_simplified_signoff_and_review_surfaces_are_emitted(tmp_path, monkeypatc
     assert {row["membership"] for row in changed} == {"rerank_only", "smart_only"}
     assert any(row["row_label"] == "Tax year" and row["SUBJECT"] == "2026" for row in grid)
     assert any(row["row_label"] == "Adjusted Appraised Value/SF" for row in grid)
+    assert any(row["row_label"] == "Living area adjustment" for row in grid)
+    assert any(
+        row["row_label"] == "Line-item adjustment detail"
+        and "unavailable_in_source_artifact" in row.values()
+        for row in grid
+    )
     assert any(row["row_label"] == "Line Item Count" for row in grid)
     assert any(row["field"] == "membership" for row in key)
     assert any(row["field"] == "opinion_of_value" for row in key)
-    assert opinion[0]["opinion_of_value"] == "287500.0"
-    assert opinion[0]["median_appraised_value_per_sf"] == "147.37"
-    assert opinion[0]["adjusted_median_value_per_sf"] == "143.75"
-    assert opinion[0]["comp_adjusted_value_per_sf"] == ""
+    conclusion = _first_row(opinion, row_type="conclusion")
+    comp_row = _first_row(opinion, row_type="comp")
+    assert conclusion["opinion_of_value"] == "287500.0"
+    assert conclusion["median_appraised_value_per_sf"] == "147.37"
+    assert conclusion["adjusted_median_value_per_sf"] == "143.75"
+    assert comp_row["comp_adjusted_value_per_sf"] == ""
+    assert comp_row["opinion_of_value"] == ""
 
 
 def test_adjusted_value_per_sf_is_computed_only_when_supported(tmp_path, monkeypatch):
@@ -336,8 +355,10 @@ def test_adjusted_value_per_sf_is_computed_only_when_supported(tmp_path, monkeyp
     opinion = _read_csv(paths["opinion_of_value"])
     grid = _read_csv(paths["comparison_grid"])
 
-    assert opinion[0]["comp_adjusted_value_per_sf"] == "150.0"
-    assert opinion[0]["adjusted_median_value_per_sf"] == "150.0"
+    comp_row = _first_row(opinion, row_type="comp")
+    conclusion = _first_row(opinion, row_type="conclusion")
+    assert comp_row["comp_adjusted_value_per_sf"] == "150.0"
+    assert conclusion["adjusted_median_value_per_sf"] == "150.0"
     assert any(
         row["row_label"] == "Adjusted Appraised Value/SF" and row["OVERLAP COMP 1"] == "150.0"
         for row in grid
@@ -423,8 +444,9 @@ def test_baseline_support_only_when_rerank_has_low_incremental_benefit(tmp_path,
     assert _read_csv(paths["baseline_support"])[0]["final_decision"] == "baseline_support_only"
     assert _read_csv(paths["baseline_support_comp_details"])[0]["membership"] == "overlap"
     opinion = _read_csv(paths["opinion_of_value"])
-    assert opinion[0]["opinion_source"] == "similarity_top_100_baseline"
-    assert opinion[0]["opinion_of_value"] == "275000.0"
+    conclusion = _first_row(opinion, row_type="conclusion")
+    assert conclusion["opinion_source"] == "similarity_top_100_baseline"
+    assert conclusion["opinion_of_value"] == "275000.0"
 
 
 def test_safety_blocked_rerank_can_use_safe_baseline_support(tmp_path, monkeypatch):

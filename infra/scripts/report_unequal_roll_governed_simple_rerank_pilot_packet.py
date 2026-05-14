@@ -24,11 +24,11 @@ from psycopg.rows import dict_row
 
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 except ImportError:  # pragma: no cover - optional output format
     Workbook = None
-    Alignment = Font = PatternFill = get_column_letter = None
+    Alignment = Border = Font = PatternFill = Side = get_column_letter = None
 
 
 VARIANT_KEY = "simple_value_tier_rerank"
@@ -128,7 +128,17 @@ COMPARISON_FIELDS = [
     ("condition", "Condition"),
     ("subdivision", "Subdivision"),
     ("total_abs_adjustment", "Total adjustment burden"),
+    ("living_area_adjustment", "Living area adjustment"),
+    ("age_effective_age_adjustment", "Age/effective age adjustment"),
+    ("land_adjustment", "Land adjustment"),
+    ("bedroom_adjustment", "Bedroom adjustment"),
+    ("bath_adjustment", "Bath adjustment"),
+    ("story_adjustment", "Story adjustment"),
+    ("pool_adjustment", "Pool adjustment"),
+    ("quality_condition_adjustment", "Quality/condition adjustment"),
+    ("total_adjustment_amount", "Total adjustment amount"),
     ("line_item_count", "Line Item Count"),
+    ("line_item_adjustment_detail", "Line-item adjustment detail"),
 ]
 
 COLUMN_KEY_ROWS = [
@@ -161,6 +171,11 @@ COLUMN_KEY_ROWS = [
         "field": "total_abs_adjustment",
         "plain_english": "Adjustment burden: summed absolute-dollar adjustments available in the source artifact.",
         "analyst_action": "Prefer lower burden; high burden needs analyst skepticism.",
+    },
+    {
+        "field": "line_item_adjustment_detail",
+        "plain_english": "Individual adjustment line-item amounts such as living area, age, land, bedroom, bath, pool, quality, or condition.",
+        "analyst_action": "Current source artifacts do not expose these line items; cells are marked unavailable rather than inferred.",
     },
     {
         "field": "adjusted_value",
@@ -984,6 +999,19 @@ def adjusted_value_per_sf(comp: dict[str, Any]) -> float | None:
 def comp_display_value(comp: dict[str, Any], field: str) -> Any:
     if field == "adjusted_value_per_sf":
         return adjusted_value_per_sf(comp)
+    if field in {
+        "living_area_adjustment",
+        "age_effective_age_adjustment",
+        "land_adjustment",
+        "bedroom_adjustment",
+        "bath_adjustment",
+        "story_adjustment",
+        "pool_adjustment",
+        "quality_condition_adjustment",
+        "total_adjustment_amount",
+        "line_item_adjustment_detail",
+    }:
+        return "unavailable_in_source_artifact"
     mapping = {
         "account": "comp_account_number",
         "county": "comp_county_id",
@@ -1035,7 +1063,17 @@ def subject_display_value(row: dict[str, Any], field: str) -> Any:
         "condition": "subject_condition_code",
         "subdivision": "subject_subdivision",
         "total_abs_adjustment": None,
+        "living_area_adjustment": None,
+        "age_effective_age_adjustment": None,
+        "land_adjustment": None,
+        "bedroom_adjustment": None,
+        "bath_adjustment": None,
+        "story_adjustment": None,
+        "pool_adjustment": None,
+        "quality_condition_adjustment": None,
+        "total_adjustment_amount": None,
         "line_item_count": None,
+        "line_item_adjustment_detail": None,
     }
     source = mapping[field]
     return row.get(source) if source else ""
@@ -1151,14 +1189,20 @@ def build_opinion_of_value_rows(
             if case.get("final_decision") == "baseline_support_only"
             else {"rerank_only", "overlap"}
         )
+        comps = [
+            comp
+            for comp in comps_by_case.get(case_key(case), [])
+            if normalize_membership(comp.get("membership")) in allowed_memberships
+        ]
+        has_adjusted_vpsf = any(adjusted_value_per_sf(comp) is not None for comp in comps)
         comps = sorted(
-            [
-                comp
-                for comp in comps_by_case.get(case_key(case), [])
-                if normalize_membership(comp.get("membership")) in allowed_memberships
-            ],
+            comps,
             key=lambda comp: (
-                0 if normalize_membership(comp.get("membership")) == "rerank_only" else 1,
+                -(
+                    adjusted_value_per_sf(comp)
+                    if has_adjusted_vpsf and adjusted_value_per_sf(comp) is not None
+                    else as_float(comp.get("comp_value_per_sf"), -1.0)
+                ),
                 str(comp.get("comp_account_number") or ""),
             ),
         )
@@ -1195,30 +1239,42 @@ def build_opinion_of_value_rows(
         if reduction_amount is not None and subject_appraised and subject_appraised > 0:
             reduction_percent = round(reduction_amount / subject_appraised, 4)
 
+        rows.append(
+            {
+                "row_type": "subject_header",
+                "subject_account": case.get("subject_account"),
+                "subject_address": case.get("subject_address"),
+                "county_id": case.get("county_id"),
+                "neighborhood_code": case.get("neighborhood_code"),
+                "notes_reason": (
+                    "Comp rows below are sorted by adjusted value/SF descending when available, "
+                    "otherwise by appraised value/SF descending."
+                ),
+            }
+        )
         for index, comp in enumerate(comps, start=1):
             rows.append(
                 {
+                    "row_type": "comp",
                     "subject_account": case.get("subject_account"),
                     "subject_address": case.get("subject_address"),
                     "county_id": case.get("county_id"),
                     "neighborhood_code": case.get("neighborhood_code"),
-                    "subject_living_area_sf": case.get("subject_living_area_sf"),
-                    "subject_current_appraised_value": case.get("subject_appraised_value"),
-                    "subject_value_per_sf": case.get("subject_value_per_sf"),
-                    "opinion_of_value": opinion_value,
-                    "opinion_source": opinion_source,
-                    "reduction_amount": reduction_amount,
-                    "reduction_percent": reduction_percent,
-                    "median_appraised_value_per_sf": median_appraised_vpsf,
-                    "adjusted_median_value_per_sf": adjusted_median_vpsf,
                     "comp_number": index,
                     "membership": normalize_membership(comp.get("membership")),
                     "comp_account_number": comp.get("comp_account_number"),
                     "comp_address": comp.get("comp_address"),
                     "comp_appraised_value": comp.get("comp_appraised_value"),
                     "comp_appraised_value_per_sf": comp.get("comp_value_per_sf"),
+                    "adjustment_amount_or_burden": comp.get("total_abs_adjustment"),
                     "comp_adjusted_value": comp.get("adjusted_value"),
                     "comp_adjusted_value_per_sf": adjusted_value_per_sf(comp),
+                    "included_in_opinion": True,
+                    "notes_reason": (
+                        "Adjusted values are source-backed."
+                        if comp.get("adjusted_value") not in (None, "")
+                        else "Adjusted value unavailable in source artifact."
+                    ),
                     "comp_living_area_sf": comp.get("comp_living_area_sf"),
                     "total_abs_adjustment": comp.get("total_abs_adjustment"),
                     "line_item_count": comp.get("line_item_count"),
@@ -1229,6 +1285,26 @@ def build_opinion_of_value_rows(
                     ),
                 }
             )
+        rows.append(
+            {
+                "row_type": "conclusion",
+                "subject_account": case.get("subject_account"),
+                "subject_address": case.get("subject_address"),
+                "county_id": case.get("county_id"),
+                "neighborhood_code": case.get("neighborhood_code"),
+                "median_appraised_value_per_sf": median_appraised_vpsf,
+                "adjusted_median_value_per_sf": adjusted_median_vpsf,
+                "opinion_of_value": opinion_value,
+                "opinion_source": opinion_source,
+                "subject_living_area_sf": case.get("subject_living_area_sf"),
+                "subject_current_appraised_value": case.get("subject_appraised_value"),
+                "subject_value_per_sf": case.get("subject_value_per_sf"),
+                "reduction_amount": reduction_amount,
+                "reduction_percent": reduction_percent,
+                "included_in_opinion": "",
+                "notes_reason": "Conclusion row: compare supported opinion value against current appraised value.",
+            }
+        )
     return rows
 
 
@@ -1256,18 +1332,126 @@ def build_pilot_summary_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def friendly_header(field: str) -> str:
+    overrides = {
+        "county_id": "County",
+        "neighborhood_code": "Neighborhood",
+        "subject_account": "Subject Account",
+        "subject_address": "Subject Address",
+        "packet_value_reduction_amount": "Value Reduction",
+        "governed_taxpayer_savings": "Value Reduction",
+        "smart_requested_roll_value": "Baseline Supported Value",
+        "rerank_requested_roll_value": "Rerank Supported Value",
+        "total_abs_adjustment": "Total Adjustment Burden",
+        "comp_value_per_sf": "Comp Value/SF",
+        "subject_value_per_sf": "Subject Value/SF",
+        "comp_adjusted_value_per_sf": "Adjusted Comp Value/SF",
+        "adjusted_median_value_per_sf": "Adjusted Median Value/SF",
+        "median_appraised_value_per_sf": "Median Appraised Value/SF",
+    }
+    return overrides.get(field, field.replace("_", " ").title())
+
+
+def is_currency_field(field: str) -> bool:
+    lowered = field.lower()
+    return any(
+        token in lowered
+        for token in (
+            "appraised_value",
+            "supported_value",
+            "opinion_of_value",
+            "reduction_amount",
+            "savings",
+            "roll_value",
+            "adjusted_value",
+            "total_abs_adjustment",
+            "adjustment_amount",
+            "governed_taxpayer",
+        )
+    ) and "per_sf" not in lowered and "percent" not in lowered
+
+
+def is_value_per_sf_field(field: str) -> bool:
+    lowered = field.lower()
+    return "value_per_sf" in lowered or "value/sf" in lowered or "per_sf" in lowered
+
+
+def is_percent_field(field: str) -> bool:
+    return "percent" in field.lower()
+
+
+def is_count_field(field: str) -> bool:
+    lowered = field.lower()
+    return lowered.endswith("_count") or "count" in lowered or lowered in {"line_item_count"}
+
+
+def style_workbook_sheet(sheet: Any, fieldnames: list[str], sheet_name: str) -> None:
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    subject_fill = PatternFill("solid", fgColor="D9EAF7")
+    conclusion_fill = PatternFill("solid", fgColor="E2F0D9")
+    thin_gray = Side(style="thin", color="B7B7B7")
+    medium_blue = Side(style="medium", color="5B9BD5")
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        cell.border = Border(bottom=thin_gray)
+
+    row_type_index = fieldnames.index("row_type") + 1 if "row_type" in fieldnames else None
+    for row_index, row_cells in enumerate(sheet.iter_rows(min_row=2), start=2):
+        row_type = sheet.cell(row=row_index, column=row_type_index).value if row_type_index else None
+        for cell in row_cells:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cell.border = Border(bottom=thin_gray)
+            if row_type == "subject_header":
+                cell.fill = subject_fill
+                cell.font = Font(bold=True)
+            elif row_type == "conclusion":
+                cell.fill = conclusion_fill
+                cell.font = Font(bold=True)
+                cell.border = Border(top=medium_blue, bottom=thin_gray)
+
+    for column_index, field in enumerate(fieldnames, start=1):
+        column_letter = get_column_letter(column_index)
+        if is_currency_field(field):
+            number_format = '$#,##0.00'
+        elif is_value_per_sf_field(field):
+            number_format = '$0.00'
+        elif is_percent_field(field):
+            number_format = '0.00%'
+        elif is_count_field(field):
+            number_format = '0'
+        else:
+            number_format = None
+        if number_format:
+            for cell in sheet[column_letter][1:]:
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = number_format
+
+        width = min(max(len(friendly_header(field)) + 2, 12), 42)
+        for row in range(2, min(sheet.max_row, 101) + 1):
+            width = min(max(width, min(len(str(sheet.cell(row=row, column=column_index).value or "")) + 2, 42)), 42)
+        if sheet_name in {"README_Key"}:
+            width = max(width, 26)
+        if sheet_name in {"Opinion_Of_Value"} and field in {"subject_address", "comp_address", "notes_reason"}:
+            width = 38
+        sheet.column_dimensions[column_letter].width = width
+
+
 def maybe_write_workbook(path: Path, sheets: dict[str, list[dict[str, Any]]]) -> bool:
     if Workbook is None:
         return False
     workbook = Workbook()
     default = workbook.active
     workbook.remove(default)
-    header_fill = PatternFill("solid", fgColor="1F4E78")
-    header_font = Font(color="FFFFFF", bold=True)
     for sheet_name, rows in sheets.items():
         sheet = workbook.create_sheet(sheet_name[:31])
         if not rows:
             sheet.append(["No rows"])
+            style_workbook_sheet(sheet, ["No rows"], sheet_name)
             continue
         fieldnames: list[str] = []
         seen: set[str] = set()
@@ -1276,23 +1460,10 @@ def maybe_write_workbook(path: Path, sheets: dict[str, list[dict[str, Any]]]) ->
                 if key not in seen:
                     seen.add(key)
                     fieldnames.append(key)
-        sheet.append(fieldnames)
+        sheet.append([friendly_header(field) for field in fieldnames])
         for row in rows:
             sheet.append([excel_cell_value(row.get(field)) for field in fieldnames])
-        sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions
-        for cell in sheet[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-        for column_index, field in enumerate(fieldnames, start=1):
-            width = min(max(len(field) + 2, 12), 42)
-            for value in [row.get(field) for row in rows[:100]]:
-                width = min(max(width, min(len(str(value or "")) + 2, 42)), 42)
-            sheet.column_dimensions[get_column_letter(column_index)].width = width
-        for row in sheet.iter_rows():
-            for cell in row:
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
+        style_workbook_sheet(sheet, fieldnames, sheet_name)
     workbook.save(path)
     return True
 
@@ -1648,11 +1819,13 @@ def build_packet(
         paths["workbook"],
         {
             "README_Key": COLUMN_KEY_ROWS,
+            "Executive_Summary": pilot_summary_rows,
             "Pilot_Summary": pilot_summary_rows,
             "Opinion_Of_Value": opinion_rows,
             "Analyst_Signoff": signoff_rows,
             "Changed_Comps_Review": changed_comp_rows,
             "Subject_Comp_Grid": comparison_grid_rows,
+            "Governed_Rerank_Ready": queues["governed_rerank_ready"],
             "Full_First_Pilot_Comp_Details": first_comp,
             "Baseline_Support_Only": queues["baseline_support_only"],
             "Baseline_Support_Comp_Details": baseline_comp,
