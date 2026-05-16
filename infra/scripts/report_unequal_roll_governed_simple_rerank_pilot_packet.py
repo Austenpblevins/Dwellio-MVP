@@ -35,6 +35,14 @@ VARIANT_KEY = "simple_value_tier_rerank"
 ARCHITECTURE_NAME = "governed_similarity_baseline_with_simple_rerank"
 MATERIAL_THRESHOLD = 1000.0
 DEFAULT_DATABASE_URL = "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
+FINAL_VALUE_FORMULA = "median_of_adjusted_appraised_values"
+RAW_PSF_DIAGNOSTIC_ONLY_FLAG = True
+WEIGHTED_PSF_SHORTCUT_USED_FLAG = False
+FINAL_VALUE_FORMULA_EXPLANATION = (
+    "Model opinion value is the median of included comps' adjusted appraised values. "
+    "Adjusted value/SF is shown as a diagnostic reasonableness check only; the packet does not "
+    "calculate final value as subject living area multiplied by median adjusted value/SF."
+)
 
 SUBJECT_FACT_FIELDS = [
     "subject_address",
@@ -180,7 +188,47 @@ COLUMN_KEY_ROWS = [
     {
         "field": "line_item_adjustment_detail",
         "plain_english": "Individual adjustment line-item amounts such as living area, age, land, bedroom, bath, pool, quality, or condition.",
-        "analyst_action": "Current source artifacts do not expose these line items; cells are marked unavailable rather than inferred.",
+        "analyst_action": "Use when populated from source final-value evidence; non-used categories are marked not_applicable rather than inferred.",
+    },
+    {
+        "field": "model_opinion_value",
+        "plain_english": "The packet's model opinion value for the subject.",
+        "analyst_action": "This is the source-supported final value; review comp credibility before external use.",
+    },
+    {
+        "field": "final_value_formula",
+        "plain_english": "Formula used by the model to produce final value: median_of_adjusted_appraised_values.",
+        "analyst_action": "Confirm analysts do not treat value/SF diagnostics as the actual final value formula.",
+    },
+    {
+        "field": "median_adjusted_appraised_value",
+        "plain_english": "Median of the included comps' adjusted appraised values.",
+        "analyst_action": "This should align with the model opinion value when adjusted comp values are available.",
+    },
+    {
+        "field": "median_adjusted_value_per_sf",
+        "plain_english": "Median of included comps' adjusted value per SF.",
+        "analyst_action": "Use only as a diagnostic reasonableness check.",
+    },
+    {
+        "field": "subject_living_area_sf_x_median_adjusted_value_per_sf",
+        "plain_english": "Diagnostic cross-check: subject living area multiplied by median adjusted value/SF.",
+        "analyst_action": "Do not use as the model final value; compare to model opinion value for reasonableness.",
+    },
+    {
+        "field": "psf_cross_check_difference",
+        "plain_english": "Model opinion value minus the diagnostic subject-area times median-adjusted-value/SF cross-check.",
+        "analyst_action": "Large gaps are review prompts, not automatic failures.",
+    },
+    {
+        "field": "raw_psf_diagnostic_only_flag",
+        "plain_english": "True means raw/value-per-SF fields are diagnostic only.",
+        "analyst_action": "Do not use PSF fields as the final value formula.",
+    },
+    {
+        "field": "weighted_psf_shortcut_used_flag",
+        "plain_english": "False means the packet did not use a weighted PSF shortcut for final value.",
+        "analyst_action": "Use this as a guardrail check.",
     },
     {
         "field": "adjusted_value",
@@ -1281,8 +1329,14 @@ def build_opinion_of_value_rows(
             for value in (adjusted_value_per_sf(comp) for comp in comps)
             if value is not None
         ]
+        adjusted_appraised_values = [
+            value
+            for value in (optional_float(comp.get("adjusted_value")) for comp in comps)
+            if value is not None
+        ]
         median_appraised_vpsf = safe_round(median_or_none(appraised_vpsf_values))
-        adjusted_median_vpsf = safe_round(median_or_none(adjusted_vpsf_values))
+        median_adjusted_vpsf = safe_round(median_or_none(adjusted_vpsf_values))
+        median_adjusted_appraised_value = safe_round(median_or_none(adjusted_appraised_values))
         subject_living_area = optional_float(case.get("subject_living_area_sf"))
         if case.get("final_decision") == "baseline_support_only":
             opinion_source = "similarity_top_100_baseline"
@@ -1295,8 +1349,15 @@ def build_opinion_of_value_rows(
             if uses_similarity_baseline
             else case.get("rerank_requested_roll_value")
         )
-        if adjusted_median_vpsf is None and opinion_value is not None and subject_living_area:
-            adjusted_median_vpsf = round(opinion_value / subject_living_area, 2)
+        psf_cross_check_value = None
+        if median_adjusted_vpsf is not None and subject_living_area:
+            psf_cross_check_value = round(subject_living_area * median_adjusted_vpsf, 2)
+        psf_cross_check_difference = None
+        psf_cross_check_difference_pct = None
+        if opinion_value is not None and psf_cross_check_value is not None:
+            psf_cross_check_difference = round(opinion_value - psf_cross_check_value, 2)
+            if opinion_value:
+                psf_cross_check_difference_pct = round(psf_cross_check_difference / opinion_value, 4)
         subject_appraised = optional_float(case.get("subject_appraised_value"))
         reduction_amount = optional_float(
             case.get("smart_requested_reduction_amount")
@@ -1366,10 +1427,21 @@ def build_opinion_of_value_rows(
                 "county_id": case.get("county_id"),
                 "neighborhood_code": case.get("neighborhood_code"),
                 "median_appraised_value_per_sf": median_appraised_vpsf,
-                "adjusted_median_value_per_sf": adjusted_median_vpsf,
+                "adjusted_median_value_per_sf": median_adjusted_vpsf,
+                "median_adjusted_value_per_sf": median_adjusted_vpsf,
+                "model_opinion_value": opinion_value,
+                "final_value_formula": FINAL_VALUE_FORMULA,
+                "median_adjusted_appraised_value": median_adjusted_appraised_value,
                 "opinion_of_value": opinion_value,
                 "opinion_source": opinion_source,
                 "subject_living_area_sf": case.get("subject_living_area_sf"),
+                "psf_cross_check_value": psf_cross_check_value,
+                "subject_living_area_sf_x_median_adjusted_value_per_sf": psf_cross_check_value,
+                "psf_cross_check_difference": psf_cross_check_difference,
+                "psf_cross_check_difference_pct": psf_cross_check_difference_pct,
+                "raw_psf_diagnostic_only_flag": RAW_PSF_DIAGNOSTIC_ONLY_FLAG,
+                "weighted_psf_shortcut_used_flag": WEIGHTED_PSF_SHORTCUT_USED_FLAG,
+                "formula_explanation": FINAL_VALUE_FORMULA_EXPLANATION,
                 "subject_current_appraised_value": case.get("subject_appraised_value"),
                 "subject_value_per_sf": case.get("subject_value_per_sf"),
                 "reduction_amount": reduction_amount,
@@ -1384,6 +1456,10 @@ def build_opinion_of_value_rows(
 def build_pilot_summary_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
     rows = [
         {"metric": "Architecture", "value": summary["architecture_name"]},
+        {"metric": "Final value formula", "value": summary["methodology"]["final_value_formula"]},
+        {"metric": "Raw value/SF diagnostic only", "value": summary["methodology"]["raw_psf_diagnostic_only_flag"]},
+        {"metric": "Weighted PSF shortcut used", "value": summary["methodology"]["weighted_psf_shortcut_used_flag"]},
+        {"metric": "Formula explanation", "value": summary["methodology"]["formula_explanation"]},
         {"metric": "Governed-rerank-ready count", "value": summary["governed_rerank_ready"]["case_count"]},
         {"metric": "Baseline-support-only count", "value": summary["baseline_support_only"]["case_count"]},
         {"metric": "Expected model-backed rerank value reduction", "value": summary["governed_rerank_ready"]["model_backed_net_savings"]},
@@ -1420,7 +1496,15 @@ def friendly_header(field: str) -> str:
         "subject_value_per_sf": "Subject Value/SF",
         "comp_adjusted_value_per_sf": "Adjusted Comp Value/SF",
         "adjusted_median_value_per_sf": "Adjusted Median Value/SF",
+        "median_adjusted_value_per_sf": "Median Adjusted Value/SF",
         "median_appraised_value_per_sf": "Median Appraised Value/SF",
+        "model_opinion_value": "Model Opinion Value",
+        "final_value_formula": "Final Value Formula",
+        "median_adjusted_appraised_value": "Median Adjusted Appraised Value",
+        "subject_living_area_sf_x_median_adjusted_value_per_sf": "Subject Living Area x Median Adjusted Value/SF",
+        "psf_cross_check_value": "PSF Cross-Check Value",
+        "psf_cross_check_difference": "PSF Cross-Check Difference",
+        "psf_cross_check_difference_pct": "PSF Cross-Check Difference %",
     }
     return overrides.get(field, field.replace("_", " ").title())
 
@@ -1440,6 +1524,10 @@ def is_currency_field(field: str) -> bool:
             "total_abs_adjustment",
             "adjustment_amount",
             "governed_taxpayer",
+            "model_opinion_value",
+            "median_adjusted_appraised_value",
+            "psf_cross_check_value",
+            "psf_cross_check_difference",
         )
     ) and "per_sf" not in lowered and "percent" not in lowered
 
@@ -1597,6 +1685,12 @@ def build_summary(
         "fallback_safety_blocked": summarize_cases(queues["fallback_safety_blocked"]),
         "no_reduction_no_action": summarize_cases(queues["no_reduction_no_action"]),
         "fallback_blocked": build_fallback_blocked_summary(fallback_blocked),
+        "methodology": {
+            "final_value_formula": FINAL_VALUE_FORMULA,
+            "raw_psf_diagnostic_only_flag": RAW_PSF_DIAGNOSTIC_ONLY_FLAG,
+            "weighted_psf_shortcut_used_flag": WEIGHTED_PSF_SHORTCUT_USED_FLAG,
+            "formula_explanation": FINAL_VALUE_FORMULA_EXPLANATION,
+        },
         "decision_counts": dict(Counter(row.get("final_decision") for row in all_rows)),
         "first_pilot_county_summary": summarize_by(first, "county_id"),
         "baseline_support_county_summary": summarize_by(baseline, "county_id"),
@@ -1638,10 +1732,35 @@ def build_summary(
             "multiple_comp_issue_instruction": "If multiple comps have issues, list comp account numbers and reasons in notes.",
             "adjustment_burden_explanation": (
                 "total_abs_adjustment is total adjustment burden. Lower values are generally easier to defend. "
-                "Line-item adjustment detail is not available in the source artifact."
+                "Line-item adjustment details are shown when available from source final-value evidence."
             ),
         },
     }
+
+
+def build_qa_provenance_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    summary = payload["summary"]
+    source = payload["source_artifacts"]
+    rows = [
+        {"metric": "Architecture", "value": payload["artifact_contract"]["architecture_name"]},
+        {"metric": "Requested tax year", "value": payload["artifact_contract"]["requested_tax_year"]},
+        {"metric": "Candidate universe mode", "value": "true_full_pool_requested"},
+        {"metric": "Bounded proxy used for conclusions", "value": payload["artifact_contract"]["bounded_proxy_used_for_conclusions"]},
+        {"metric": "Final value formula", "value": summary["methodology"]["final_value_formula"]},
+        {"metric": "Raw value/SF diagnostic only", "value": summary["methodology"]["raw_psf_diagnostic_only_flag"]},
+        {"metric": "Weighted PSF shortcut used", "value": summary["methodology"]["weighted_psf_shortcut_used_flag"]},
+        {"metric": "Formula explanation", "value": summary["methodology"]["formula_explanation"]},
+        {"metric": "DB writes", "value": payload["guardrails"]["db_writes"]},
+        {"metric": "Migrations", "value": payload["guardrails"]["migrations"]},
+        {"metric": "Production scoring/adjustment/median/governance/final-value changed", "value": payload["guardrails"]["production_scoring_adjustment_median_governance_final_value_changed"]},
+        {"metric": "Complete comp evidence artifact", "value": source["complete_comp_evidence_artifact"]},
+        {"metric": "Governed fallback artifacts", "value": "; ".join(source["governed_fallback_artifacts"])},
+        {"metric": "Raw artifacts", "value": "; ".join(source["raw_artifacts"])},
+        {"metric": "First-pilot comp rows outside requested tax year", "value": summary["comp_hydration_summary"]["first_pilot_non_requested_tax_year_comp_rows"]},
+        {"metric": "Review-packet comp rows outside requested tax year", "value": summary["comp_hydration_summary"]["review_packet_non_requested_tax_year_comp_rows"]},
+        {"metric": "Comp hydration status counts", "value": json.dumps(summary["comp_hydration_summary"].get("comp_hydration_status_counts", {}), sort_keys=True)},
+    ]
+    return rows
 
 
 def render_markdown(path: Path, payload: dict[str, Any]) -> None:
@@ -1672,6 +1791,16 @@ def render_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- Fallback safety-blocked: {summary['fallback_safety_blocked']['case_count']}",
         f"- No reduction/no action: {summary['no_reduction_no_action']['case_count']}",
         f"- Raw governed fallback-blocked appendix rows: {summary['fallback_blocked']['case_count']}",
+        "",
+        "## Final Value Methodology",
+        "",
+        f"- Final value formula: `{summary['methodology']['final_value_formula']}`.",
+        "- The model opinion value is the median of the included comparable properties' adjusted appraised values.",
+        "- Adjusted value/SF appears in the packet as a diagnostic reasonableness check.",
+        "- Final value is not calculated as subject living area multiplied by median adjusted value/SF.",
+        f"- Raw value/SF diagnostic only: `{summary['methodology']['raw_psf_diagnostic_only_flag']}`.",
+        f"- Weighted PSF shortcut used: `{summary['methodology']['weighted_psf_shortcut_used_flag']}`.",
+        "- This aligns the packet presentation with the roll-based unequal appraisal standard: median appraised value of comparable properties, appropriately adjusted.",
         "",
         "## County Scope",
         "",
@@ -1753,6 +1882,7 @@ def output_paths(output_dir: Path, timestamp: str) -> dict[str, Path]:
         "workbook": prefix.with_suffix(".xlsx"),
         "column_key": Path(f"{prefix}_column_key.csv"),
         "pilot_summary": Path(f"{prefix}_pilot_summary.csv"),
+        "qa_provenance": Path(f"{prefix}_qa_provenance.csv"),
         "opinion_of_value": Path(f"{prefix}_opinion_of_value.csv"),
         "governed_rerank_ready": Path(f"{prefix}_governed_rerank_ready.csv"),
         "first_pilot": Path(f"{prefix}_first_pilot_ready.csv"),
@@ -1848,6 +1978,9 @@ def build_packet(
             "scope": "no_persist_mvp_pilot_tooling",
             "requested_tax_year": requested_tax_year,
             "bounded_proxy_used_for_conclusions": False,
+            "final_requested_value_formula": FINAL_VALUE_FORMULA,
+            "raw_psf_diagnostic_only_flag": RAW_PSF_DIAGNOSTIC_ONLY_FLAG,
+            "weighted_psf_shortcut_used_flag": WEIGHTED_PSF_SHORTCUT_USED_FLAG,
         },
         "source_artifacts": {
             "complete_comp_evidence_artifact": str(complete_comp_evidence_artifact),
@@ -1879,8 +2012,11 @@ def build_packet(
         "no_action_subject_comp_grid_rows": no_action_comparison_grid_rows,
         "no_action_comp_detail_rows": no_action_comp,
         "pilot_summary_rows": pilot_summary_rows,
+        "qa_provenance_rows": [],
         "column_key_rows": COLUMN_KEY_ROWS,
     }
+    qa_provenance_rows = build_qa_provenance_rows(payload)
+    payload["qa_provenance_rows"] = qa_provenance_rows
 
     ts = payload["artifact_contract"]["created_at"]
     paths = output_paths(output_dir, ts)
@@ -1889,6 +2025,7 @@ def build_packet(
     write_csv(paths["csv"], all_case_rows)
     write_csv(paths["column_key"], COLUMN_KEY_ROWS)
     write_csv(paths["pilot_summary"], pilot_summary_rows)
+    write_csv(paths["qa_provenance"], qa_provenance_rows)
     write_csv(paths["opinion_of_value"], opinion_rows)
     write_csv(paths["governed_rerank_ready"], queues["governed_rerank_ready"])
     write_csv(paths["first_pilot"], queues["governed_rerank_ready"])
@@ -1915,6 +2052,7 @@ def build_packet(
         {
             "README_Key": COLUMN_KEY_ROWS,
             "Executive_Summary": pilot_summary_rows,
+            "QA_Provenance": qa_provenance_rows,
             "Pilot_Summary": pilot_summary_rows,
             "Opinion_Of_Value": opinion_rows,
             "Analyst_Signoff": signoff_rows,

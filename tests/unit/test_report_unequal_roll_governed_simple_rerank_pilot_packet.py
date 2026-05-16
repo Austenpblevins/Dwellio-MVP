@@ -225,6 +225,7 @@ def test_build_packet_splits_queues_and_corrects_tax_year(tmp_path, monkeypatch)
     assert comp_rows[0]["membership"] == "overlap"
     assert paths["column_key"].exists()
     assert paths["pilot_summary"].exists()
+    assert paths["qa_provenance"].exists()
     assert paths["comparison_grid"].exists()
     assert paths["changed_comps_review"].exists()
     assert paths["opinion_of_value"].exists()
@@ -232,6 +233,7 @@ def test_build_packet_splits_queues_and_corrects_tax_year(tmp_path, monkeypatch)
     assert paths["workbook"].exists()
     sheetnames = load_workbook(paths["workbook"], read_only=True).sheetnames
     assert "Executive_Summary" in sheetnames
+    assert "QA_Provenance" in sheetnames
     assert "Opinion_Of_Value" in sheetnames
     assert "Governed_Rerank_Ready" in sheetnames
 
@@ -329,11 +331,16 @@ def test_simplified_signoff_and_review_surfaces_are_emitted(tmp_path, monkeypatc
     assert any(row["row_label"] == "Line Item Count" for row in grid)
     assert any(row["field"] == "membership" for row in key)
     assert any(row["field"] == "opinion_of_value" for row in key)
+    assert any(row["field"] == "final_value_formula" for row in key)
     conclusion = _first_row(opinion, row_type="conclusion")
     comp_row = _first_row(opinion, row_type="comp")
     assert conclusion["opinion_of_value"] == "287500.0"
+    assert conclusion["model_opinion_value"] == "287500.0"
+    assert conclusion["final_value_formula"] == "median_of_adjusted_appraised_values"
+    assert conclusion["raw_psf_diagnostic_only_flag"] == "True"
+    assert conclusion["weighted_psf_shortcut_used_flag"] == "False"
     assert conclusion["median_appraised_value_per_sf"] == "147.37"
-    assert conclusion["adjusted_median_value_per_sf"] == "143.75"
+    assert conclusion["adjusted_median_value_per_sf"] == ""
     assert comp_row["comp_adjusted_value_per_sf"] == ""
     assert comp_row["opinion_of_value"] == ""
 
@@ -372,6 +379,10 @@ def test_adjusted_value_per_sf_is_computed_only_when_supported(tmp_path, monkeyp
     conclusion = _first_row(opinion, row_type="conclusion")
     assert comp_row["comp_adjusted_value_per_sf"] == "150.0"
     assert conclusion["adjusted_median_value_per_sf"] == "150.0"
+    assert conclusion["median_adjusted_appraised_value"] == "285000.0"
+    assert conclusion["psf_cross_check_value"] == "300000.0"
+    assert conclusion["psf_cross_check_difference"] == "-5000.0"
+    assert conclusion["psf_cross_check_difference_pct"] == "-0.0169"
     assert any(
         row["row_label"] == "Adjusted Appraised Value/SF" and row["OVERLAP COMP 1"] == "150.0"
         for row in grid
@@ -460,6 +471,8 @@ def test_baseline_support_only_when_rerank_has_low_incremental_benefit(tmp_path,
     conclusion = _first_row(opinion, row_type="conclusion")
     assert conclusion["opinion_source"] == "similarity_top_100_baseline"
     assert conclusion["opinion_of_value"] == "275000.0"
+    assert conclusion["model_opinion_value"] == "275000.0"
+    assert conclusion["final_value_formula"] == "median_of_adjusted_appraised_values"
 
 
 def test_safety_blocked_rerank_can_use_safe_baseline_support(tmp_path, monkeypatch):
