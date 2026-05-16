@@ -36,6 +36,18 @@ from infra.scripts.run_unequal_roll_full_reranking_experiment import included_ro
 
 
 DEFAULT_DATABASE_URL = "postgresql://stage21_admin:stage21_admin@localhost:55442/stage21_dev"
+ADJUSTMENT_FIELD_BY_TYPE = {
+    "gla": "living_area_adjustment",
+    "age": "age_effective_age_adjustment",
+    "full_bath": "full_bath_adjustment",
+    "half_bath": "half_bath_adjustment",
+    "bedroom": "bedroom_adjustment",
+    "land_site": "land_site_adjustment",
+    "story": "story_adjustment",
+    "pool": "pool_adjustment",
+    "quality": "quality_adjustment",
+    "condition": "condition_adjustment",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -148,12 +160,60 @@ def total_abs_adjustment(detail: dict[str, Any]) -> float | None:
     return round(total, 2) if found else None
 
 
+def _line_item_amount(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return round(as_float(value), 2)
+
+
+def adjustment_detail_fields(detail: dict[str, Any]) -> dict[str, Any]:
+    line_items = list(detail.get("line_items") or [])
+    raw_value = as_float(detail.get("raw_appraised_value"))
+    fields: dict[str, Any] = {
+        field: ""
+        for field in ADJUSTMENT_FIELD_BY_TYPE.values()
+    }
+    fields.update(
+        {
+            "total_adjustment_amount": None,
+            "adjustment_percent": None,
+            "adjustment_source_status": "line_items_available" if line_items else "line_items_unavailable",
+            "adjustment_line_items_json": json.dumps(line_items, sort_keys=True, default=str) if line_items else "",
+        }
+    )
+    if not line_items:
+        return fields
+
+    signed_total = 0.0
+    found_signed_amount = False
+    present_types = set()
+    for item in line_items:
+        adjustment_type = str(item.get("adjustment_type") or "")
+        field = ADJUSTMENT_FIELD_BY_TYPE.get(adjustment_type)
+        amount = _line_item_amount(item.get("signed_adjustment_amount"))
+        if field:
+            present_types.add(adjustment_type)
+            fields[field] = amount if amount is not None else "not_applicable"
+        if amount is not None:
+            signed_total += amount
+            found_signed_amount = True
+    for adjustment_type, field in ADJUSTMENT_FIELD_BY_TYPE.items():
+        if adjustment_type not in present_types:
+            fields[field] = "not_applicable"
+    if found_signed_amount:
+        fields["total_adjustment_amount"] = round(signed_total, 2)
+        if raw_value:
+            fields["adjustment_percent"] = round(signed_total / raw_value, 6)
+    return fields
+
+
 def comp_row_from_detail(
     *,
     case_row: dict[str, Any],
     detail: dict[str, Any],
     membership: str,
 ) -> dict[str, Any]:
+    adjustment_fields = adjustment_detail_fields(detail)
     return {
         "variant_key": VARIANT_KEY,
         "county_id": case_row.get("county_id"),
@@ -180,6 +240,7 @@ def comp_row_from_detail(
         "similarity_score": detail.get("similarity_score"),
         "total_abs_adjustment": total_abs_adjustment(detail),
         "line_item_count": len(list(detail.get("line_items") or [])),
+        **adjustment_fields,
     }
 
 

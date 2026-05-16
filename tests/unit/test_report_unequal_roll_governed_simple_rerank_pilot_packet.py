@@ -56,6 +56,19 @@ def _comp(**overrides):
         "total_abs_adjustment": "1200.0",
         "adjusted_value": "",
         "line_item_count": "10",
+        "living_area_adjustment": "",
+        "age_effective_age_adjustment": "",
+        "full_bath_adjustment": "",
+        "half_bath_adjustment": "",
+        "land_site_adjustment": "",
+        "story_adjustment": "",
+        "pool_adjustment": "",
+        "quality_adjustment": "",
+        "condition_adjustment": "",
+        "total_adjustment_amount": "",
+        "adjustment_percent": "",
+        "adjustment_source_status": "",
+        "adjustment_line_items_json": "",
     }
     row.update(overrides)
     return row
@@ -509,13 +522,22 @@ def test_no_reduction_and_safety_blocked_modes_are_separated(tmp_path, monkeypat
                 ),
             ],
             "comp_rows": [
-                _comp(subject_account="NORED", comp_parcel_id="comp-nored"),
+                _comp(
+                    subject_account="NORED",
+                    comp_parcel_id="comp-nored",
+                    living_area_adjustment="-1000",
+                    age_effective_age_adjustment="500",
+                    total_adjustment_amount="-500",
+                    adjustment_percent="-0.0017",
+                    adjustment_source_status="line_items_available",
+                    adjustment_line_items_json='[{"adjustment_type": "gla", "signed_adjustment_amount": -1000}]',
+                ),
                 _comp(subject_account="BLOCK", comp_parcel_id="comp-block"),
             ],
         },
     )
 
-    payload, _ = report.build_packet(
+    payload, paths = report.build_packet(
         complete_comp_evidence_artifact=evidence_path,
         governed_fallback_artifacts=[],
         raw_artifacts=[],
@@ -527,6 +549,24 @@ def test_no_reduction_and_safety_blocked_modes_are_separated(tmp_path, monkeypat
 
     assert payload["summary"]["no_reduction_no_action"]["case_count"] == 1
     assert payload["summary"]["fallback_safety_blocked"]["case_count"] == 1
+    assert len(payload["no_action_review_rows"]) == 1
+    assert len(payload["no_action_opinion_of_value_rows"]) == 3
+    assert any(
+        row["row_label"] == "Living area adjustment" and row["Selected Comp 1"] == "-1000"
+        for row in payload["no_action_subject_comp_grid_rows"]
+    )
+    assert any(
+        row["row_label"] == "Membership" and row["Selected Comp 1"] == "overlap"
+        for row in payload["no_action_subject_comp_grid_rows"]
+    )
+    no_action_review = _read_csv(paths["no_action_review"])
+    no_action_opinion = _read_csv(paths["no_action_opinion_of_value"])
+    no_action_grid = _read_csv(paths["no_action_comparison_grid"])
+    assert "Selected Comp 1" in no_action_grid[0]
+    assert not any("RERANK" in fieldname for fieldname in no_action_grid[0])
+    assert no_action_review[0]["packet_mode"] == "no_reduction_no_action"
+    assert any(row["row_type"] == "conclusion" for row in no_action_opinion)
+    assert any(row["row_label"] == "Line-item adjustment detail" for row in no_action_grid)
 
 
 def test_guardrail_metadata_discloses_no_production_changes(tmp_path, monkeypatch):

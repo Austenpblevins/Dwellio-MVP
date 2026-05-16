@@ -87,3 +87,39 @@ def test_merge_fallback_case_with_replayed_baseline_adds_comp_ids() -> None:
     assert row["smart_full_included_comp_ids"] == "comp-1"
     assert row["rerank_full_included_comp_ids"] == "comp-1"
     assert row["complete_comp_set_recovered"] is True
+
+
+def test_comp_row_preserves_adjustment_line_item_amounts() -> None:
+    row = evidence.comp_row_from_detail(
+        case_row={
+            "county_id": "harris",
+            "subject_account": "A1",
+            "neighborhood_code": "100.00",
+            "requested_tax_year": 2026,
+        },
+        detail={
+            "candidate_parcel_id": "comp-1",
+            "account_number": "C1",
+            "raw_appraised_value": 300000,
+            "adjusted_appraised_value": 295000,
+            "adjusted_appraised_value_per_sf": 147.5,
+            "line_items": [
+                {"adjustment_type": "gla", "signed_adjustment_amount": -2500},
+                {"adjustment_type": "age", "signed_adjustment_amount": 1500},
+                {"adjustment_type": "full_bath", "signed_adjustment_amount": None},
+                {"adjustment_type": "pool", "signed_adjustment_amount": 0},
+            ],
+        },
+        membership="overlap",
+    )
+
+    assert row["living_area_adjustment"] == -2500
+    assert row["age_effective_age_adjustment"] == 1500
+    assert row["full_bath_adjustment"] == "not_applicable"
+    assert row["pool_adjustment"] == 0
+    assert row["total_adjustment_amount"] == -1000
+    assert row["total_abs_adjustment"] == 4000
+    assert row["adjustment_percent"] == -0.003333
+    assert row["adjustment_source_status"] == "line_items_available"
+    assert row["line_item_count"] == 4
+    assert "signed_adjustment_amount" in row["adjustment_line_items_json"]

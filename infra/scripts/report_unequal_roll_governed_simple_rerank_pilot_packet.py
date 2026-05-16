@@ -107,6 +107,7 @@ SIGNOFF_FIELDNAMES = [
 
 COMPARISON_FIELDS = [
     ("account", "Account"),
+    ("membership", "Membership"),
     ("county", "County"),
     ("neighborhood", "Neighborhood"),
     ("address", "Address"),
@@ -130,13 +131,17 @@ COMPARISON_FIELDS = [
     ("total_abs_adjustment", "Total adjustment burden"),
     ("living_area_adjustment", "Living area adjustment"),
     ("age_effective_age_adjustment", "Age/effective age adjustment"),
-    ("land_adjustment", "Land adjustment"),
+    ("land_site_adjustment", "Land/site adjustment"),
     ("bedroom_adjustment", "Bedroom adjustment"),
-    ("bath_adjustment", "Bath adjustment"),
+    ("full_bath_adjustment", "Full bath adjustment"),
+    ("half_bath_adjustment", "Half bath adjustment"),
     ("story_adjustment", "Story adjustment"),
     ("pool_adjustment", "Pool adjustment"),
-    ("quality_condition_adjustment", "Quality/condition adjustment"),
+    ("quality_adjustment", "Quality adjustment"),
+    ("condition_adjustment", "Condition adjustment"),
     ("total_adjustment_amount", "Total adjustment amount"),
+    ("adjustment_percent", "Adjustment percent"),
+    ("adjustment_source_status", "Adjustment source/status"),
     ("line_item_count", "Line Item Count"),
     ("line_item_adjustment_detail", "Line-item adjustment detail"),
 ]
@@ -988,6 +993,40 @@ def build_signoff_rows(first_pilot_rows: list[dict[str, Any]]) -> list[dict[str,
     return rows
 
 
+def build_no_action_review_rows(no_action_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for row in no_action_rows:
+        subject_appraised = optional_float(row.get("subject_appraised_value"))
+        baseline_reduction = optional_float(row.get("smart_requested_reduction_amount")) or 0.0
+        rows.append(
+            {
+                "subject_account": row.get("subject_account"),
+                "county_id": row.get("county_id"),
+                "neighborhood_code": row.get("neighborhood_code"),
+                "subject_address": row.get("subject_address"),
+                "subject_appraised_value": row.get("subject_appraised_value"),
+                "similarity_top_100_value": row.get("smart_requested_roll_value"),
+                "baseline_reduction_amount": baseline_reduction,
+                "baseline_reduction_percent": (
+                    round(baseline_reduction / subject_appraised, 4)
+                    if subject_appraised
+                    else None
+                ),
+                "rerank_value": row.get("rerank_requested_roll_value"),
+                "rerank_increment": row.get("governed_taxpayer_delta_vs_similarity_top_100"),
+                "selected_comp_count": row.get("smart_included_comp_count"),
+                "packet_mode": row.get("final_decision"),
+                "reason_for_no_action": row.get("reason_passed_or_excluded"),
+                "analyst_decision": "",
+                "comp_quality_issue": "",
+                "neighborhood_or_subdivision_issue": "",
+                "value_per_sf_issue": "",
+                "notes": "",
+            }
+        )
+    return rows
+
+
 def adjusted_value_per_sf(comp: dict[str, Any]) -> float | None:
     adjusted = optional_float(comp.get("adjusted_value"))
     living_area = optional_float(comp.get("comp_living_area_sf"))
@@ -997,21 +1036,29 @@ def adjusted_value_per_sf(comp: dict[str, Any]) -> float | None:
 
 
 def comp_display_value(comp: dict[str, Any], field: str) -> Any:
+    if field == "membership":
+        return normalize_membership(comp.get("membership"))
     if field == "adjusted_value_per_sf":
         return adjusted_value_per_sf(comp)
     if field in {
         "living_area_adjustment",
         "age_effective_age_adjustment",
         "land_adjustment",
+        "land_site_adjustment",
         "bedroom_adjustment",
-        "bath_adjustment",
+        "full_bath_adjustment",
+        "half_bath_adjustment",
         "story_adjustment",
         "pool_adjustment",
-        "quality_condition_adjustment",
+        "quality_adjustment",
+        "condition_adjustment",
         "total_adjustment_amount",
-        "line_item_adjustment_detail",
     }:
-        return "unavailable_in_source_artifact"
+        return comp.get(field) if comp.get(field) not in (None, "") else "not_applicable"
+    if field == "line_item_adjustment_detail":
+        return comp.get("adjustment_line_items_json") or "unavailable_in_source_artifact"
+    if field == "adjustment_source_status":
+        return comp.get("adjustment_source_status") or "unavailable_in_source_artifact"
     mapping = {
         "account": "comp_account_number",
         "county": "comp_county_id",
@@ -1034,6 +1081,7 @@ def comp_display_value(comp: dict[str, Any], field: str) -> Any:
         "condition": "comp_condition_code",
         "subdivision": "comp_subdivision_name",
         "total_abs_adjustment": "total_abs_adjustment",
+        "adjustment_percent": "adjustment_percent",
         "line_item_count": "line_item_count",
     }
     return comp.get(mapping[field])
@@ -1042,6 +1090,7 @@ def comp_display_value(comp: dict[str, Any], field: str) -> Any:
 def subject_display_value(row: dict[str, Any], field: str) -> Any:
     mapping = {
         "account": "subject_account",
+        "membership": None,
         "county": "county_id",
         "neighborhood": "neighborhood_code",
         "address": "subject_address",
@@ -1066,12 +1115,17 @@ def subject_display_value(row: dict[str, Any], field: str) -> Any:
         "living_area_adjustment": None,
         "age_effective_age_adjustment": None,
         "land_adjustment": None,
+        "land_site_adjustment": None,
         "bedroom_adjustment": None,
-        "bath_adjustment": None,
+        "full_bath_adjustment": None,
+        "half_bath_adjustment": None,
         "story_adjustment": None,
         "pool_adjustment": None,
-        "quality_condition_adjustment": None,
+        "quality_adjustment": None,
+        "condition_adjustment": None,
         "total_adjustment_amount": None,
+        "adjustment_percent": None,
+        "adjustment_source_status": None,
         "line_item_count": None,
         "line_item_adjustment_detail": None,
     }
@@ -1134,7 +1188,10 @@ def build_changed_comp_rows(
 
 
 def build_comparison_grid_rows(
-    first_pilot_rows: list[dict[str, Any]], first_comp_rows: list[dict[str, Any]], max_comps: int = 20
+    first_pilot_rows: list[dict[str, Any]],
+    first_comp_rows: list[dict[str, Any]],
+    max_comps: int = 20,
+    column_label_mode: str = "membership",
 ) -> list[dict[str, Any]]:
     comps_by_case: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for comp in first_comp_rows:
@@ -1159,7 +1216,11 @@ def build_comparison_grid_rows(
                 "SUBJECT": subject_display_value(case, field),
             }
             for index, comp in enumerate(comps, start=1):
-                prefix = f"{normalize_membership(comp.get('membership')).upper()} COMP {index}"
+                prefix = (
+                    f"Selected Comp {index}"
+                    if column_label_mode == "selected"
+                    else f"{normalize_membership(comp.get('membership')).upper()} COMP {index}"
+                )
                 out[prefix] = comp_display_value(comp, field)
             rows.append(out)
         rows.append(
@@ -1184,9 +1245,13 @@ def build_opinion_of_value_rows(
 
     rows: list[dict[str, Any]] = []
     for case in first_pilot_rows:
+        uses_similarity_baseline = case.get("final_decision") in {
+            "baseline_support_only",
+            "no_reduction_no_action",
+        }
         allowed_memberships = (
             {"smart_only", "overlap"}
-            if case.get("final_decision") == "baseline_support_only"
+            if uses_similarity_baseline
             else {"rerank_only", "overlap"}
         )
         comps = [
@@ -1219,10 +1284,15 @@ def build_opinion_of_value_rows(
         median_appraised_vpsf = safe_round(median_or_none(appraised_vpsf_values))
         adjusted_median_vpsf = safe_round(median_or_none(adjusted_vpsf_values))
         subject_living_area = optional_float(case.get("subject_living_area_sf"))
-        opinion_source = "similarity_top_100_baseline" if case.get("final_decision") == "baseline_support_only" else "governed_simple_rerank"
+        if case.get("final_decision") == "baseline_support_only":
+            opinion_source = "similarity_top_100_baseline"
+        elif case.get("final_decision") == "no_reduction_no_action":
+            opinion_source = "similarity_top_100_no_action_review"
+        else:
+            opinion_source = "governed_simple_rerank"
         opinion_value = optional_float(
             case.get("smart_requested_roll_value")
-            if case.get("final_decision") == "baseline_support_only"
+            if uses_similarity_baseline
             else case.get("rerank_requested_roll_value")
         )
         if adjusted_median_vpsf is None and opinion_value is not None and subject_living_area:
@@ -1230,7 +1300,7 @@ def build_opinion_of_value_rows(
         subject_appraised = optional_float(case.get("subject_appraised_value"))
         reduction_amount = optional_float(
             case.get("smart_requested_reduction_amount")
-            if case.get("final_decision") == "baseline_support_only"
+            if uses_similarity_baseline
             else case.get("rerank_requested_reduction_amount")
         )
         if reduction_amount is None and subject_appraised is not None and opinion_value is not None:
@@ -1267,8 +1337,11 @@ def build_opinion_of_value_rows(
                     "comp_appraised_value": comp.get("comp_appraised_value"),
                     "comp_appraised_value_per_sf": comp.get("comp_value_per_sf"),
                     "adjustment_amount_or_burden": comp.get("total_abs_adjustment"),
+                    "total_adjustment_amount": comp.get("total_adjustment_amount"),
+                    "adjustment_percent": comp.get("adjustment_percent"),
                     "comp_adjusted_value": comp.get("adjusted_value"),
                     "comp_adjusted_value_per_sf": adjusted_value_per_sf(comp),
+                    "adjustment_source_status": comp.get("adjustment_source_status") or "unavailable_in_source_artifact",
                     "included_in_opinion": True,
                     "notes_reason": (
                         "Adjusted values are source-backed."
@@ -1694,6 +1767,10 @@ def output_paths(output_dir: Path, timestamp: str) -> dict[str, Path]:
         "hold_out": Path(f"{prefix}_hold_out.csv"),
         "fallback_safety_blocked": Path(f"{prefix}_fallback_safety_blocked.csv"),
         "no_reduction_no_action": Path(f"{prefix}_no_reduction_no_action.csv"),
+        "no_action_review": Path(f"{prefix}_no_action_review.csv"),
+        "no_action_opinion_of_value": Path(f"{prefix}_no_action_opinion_of_value.csv"),
+        "no_action_comparison_grid": Path(f"{prefix}_no_action_subject_comp_grid.csv"),
+        "no_action_comp_details": Path(f"{prefix}_no_action_comp_details.csv"),
         "fallback_blocked": Path(f"{prefix}_fallback_blocked.csv"),
         "excluded_comp_details": Path(f"{prefix}_excluded_queue_comp_details.csv"),
     }
@@ -1719,6 +1796,7 @@ def build_packet(
     fallback_blocked = load_fallback_blocked_rows(governed_fallback_artifacts)
     first_comp = filter_comp_rows(comp_rows, queues["governed_rerank_ready"])
     baseline_comp = filter_comp_rows(comp_rows, queues["baseline_support_only"])
+    no_action_comp = filter_comp_rows(comp_rows, queues["no_reduction_no_action"])
     review_packet_rows = queues["governed_rerank_ready"] + queues["baseline_support_only"]
     review_packet_comp = filter_comp_rows(comp_rows, review_packet_rows)
     excluded_comp = filter_comp_rows(
@@ -1751,6 +1829,15 @@ def build_packet(
     changed_comp_rows = build_changed_comp_rows(queues["governed_rerank_ready"], first_comp)
     comparison_grid_rows = build_comparison_grid_rows(review_packet_rows, review_packet_comp)
     opinion_rows = build_opinion_of_value_rows(review_packet_rows, review_packet_comp)
+    no_action_review_rows = build_no_action_review_rows(queues["no_reduction_no_action"])
+    no_action_comparison_grid_rows = build_comparison_grid_rows(
+        queues["no_reduction_no_action"],
+        no_action_comp,
+        column_label_mode="selected",
+    )
+    no_action_opinion_rows = build_opinion_of_value_rows(
+        queues["no_reduction_no_action"], no_action_comp
+    )
     pilot_summary_rows = build_pilot_summary_rows(summary)
     payload = {
         "artifact_contract": {
@@ -1787,6 +1874,10 @@ def build_packet(
         "no_reduction_no_action_rows": queues["no_reduction_no_action"],
         "fallback_blocked_rows": fallback_blocked,
         "opinion_of_value_rows": opinion_rows,
+        "no_action_review_rows": no_action_review_rows,
+        "no_action_opinion_of_value_rows": no_action_opinion_rows,
+        "no_action_subject_comp_grid_rows": no_action_comparison_grid_rows,
+        "no_action_comp_detail_rows": no_action_comp,
         "pilot_summary_rows": pilot_summary_rows,
         "column_key_rows": COLUMN_KEY_ROWS,
     }
@@ -1812,6 +1903,10 @@ def build_packet(
     write_csv(paths["hold_out"], queues["hold_out"])
     write_csv(paths["fallback_safety_blocked"], queues["fallback_safety_blocked"])
     write_csv(paths["no_reduction_no_action"], queues["no_reduction_no_action"])
+    write_csv(paths["no_action_review"], no_action_review_rows)
+    write_csv(paths["no_action_opinion_of_value"], no_action_opinion_rows)
+    write_csv(paths["no_action_comparison_grid"], no_action_comparison_grid_rows)
+    write_csv(paths["no_action_comp_details"], no_action_comp)
     write_csv(paths["fallback_blocked"], fallback_blocked)
     write_csv(paths["excluded_comp_details"], excluded_comp)
     render_markdown(paths["markdown"], payload)
@@ -1834,6 +1929,10 @@ def build_packet(
             "Hold_Out": queues["hold_out"],
             "Fallback_Safety_Blocked": queues["fallback_safety_blocked"],
             "No_Reduction_No_Action": queues["no_reduction_no_action"],
+            "No_Action_Review": no_action_review_rows,
+            "No_Action_Opinion_Of_Value": no_action_opinion_rows,
+            "No_Action_Subject_Comp_Grid": no_action_comparison_grid_rows,
+            "No_Action_Comp_Details": no_action_comp,
             "Fallback_Blocked": fallback_blocked,
         },
     )
