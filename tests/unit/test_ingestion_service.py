@@ -749,6 +749,9 @@ def test_normalize_bulk_property_roll_reruns_when_improvement_summaries_are_miss
         def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
             return 0
 
+        def count_property_roll_land_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
         def iterate_staging_rows(self, **kwargs):
             yield [
                 {
@@ -913,6 +916,9 @@ def test_normalize_bulk_property_roll_recovery_reapplies_exemptions_from_staging
         def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
             return 2
 
+        def count_property_roll_land_rows_for_import_batch(self, **kwargs) -> int:
+            return 2
+
         def iterate_staging_rows(self, **kwargs):
             yield [
                 {
@@ -1006,6 +1012,148 @@ def test_normalize_bulk_property_roll_recovery_reapplies_exemptions_from_staging
     assert completed_runs[-1]["status"] == "succeeded"
 
 
+def test_normalize_bulk_property_roll_reruns_when_land_summaries_are_missing(
+    monkeypatch,
+) -> None:
+    service = IngestionLifecycleService()
+    upsert_calls: list[dict[str, object]] = []
+    tax_refresh_calls: list[dict[str, object]] = []
+    search_refresh_calls: list[dict[str, object]] = []
+
+    class StubRepository:
+        def __init__(self, connection: object) -> None:
+            self.connection = connection
+
+        def find_import_batch(self, **kwargs) -> ImportBatchRecord:
+            return ImportBatchRecord(
+                import_batch_id="batch-1",
+                raw_file_id="raw-1",
+                source_system_id="source-1",
+                storage_path="fort_bend/2026/property_roll/example.csv",
+                original_filename="fort_bend-property_roll-2026.csv",
+                file_kind="property_roll",
+                mime_type="text/csv",
+                file_format="csv",
+            )
+
+        def count_validation_errors(self, **kwargs) -> int:
+            return 0
+
+        def create_job_run(self, **kwargs) -> str:
+            return "job-normalize"
+
+        def count_staging_rows(self, **kwargs) -> int:
+            return 50_001
+
+        def count_property_roll_rows_for_import_batch(self, **kwargs) -> int:
+            return 2
+
+        def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
+            return 2
+
+        def count_property_roll_land_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
+        def iterate_staging_rows(self, **kwargs):
+            yield [
+                {
+                    "staging_table": "stg_county_property_raw",
+                    "staging_row_id": "stage-1",
+                    "raw_payload": {"account_number": "5922-00-013-0050-907"},
+                    "row_hash": "hash-1",
+                }
+            ]
+
+        def capture_property_roll_rollback_manifest(self, **kwargs) -> dict[str, object]:
+            return {
+                "dataset_type": "property_roll",
+                "entries": [{"account_number": "5922-00-013-0050-907", "prior_state": None}],
+            }
+
+        def upsert_property_roll_records(self, **kwargs):
+            upsert_calls.append(kwargs)
+            return [{"target_table": "parcel_year_snapshots", "target_id": "snap-1", "parcel_id": "parcel-1"}]
+
+        def insert_validation_results(self, **kwargs) -> None:
+            return None
+
+        def update_import_batch(self, *args, **kwargs) -> None:
+            return None
+
+        def complete_job_run(self, *args, **kwargs) -> None:
+            return None
+
+        def create_ingestion_step_run(self, **kwargs) -> str:
+            return "step-1"
+
+        def complete_ingestion_step_run(self, step_run_id: str, **kwargs) -> None:
+            return None
+
+    class StubAdapter:
+        def normalize_staging_to_canonical(self, dataset_type: str, staging_rows):
+            assert dataset_type == "property_roll"
+            assert staging_rows == [{"account_number": "5922-00-013-0050-907"}]
+            return {
+                "property_roll": [
+                    {
+                        "parcel": {
+                            "account_number": "5922-00-013-0050-907",
+                            "situs_address": "3118 Cherry Hills DR",
+                            "situs_city": "Missouri City",
+                            "situs_zip": "77459",
+                            "owner_name": "Jane Doe",
+                            "source_record_hash": "hash-1",
+                        },
+                        "address": {
+                            "situs_address": "3118 Cherry Hills DR",
+                            "situs_city": "Missouri City",
+                            "situs_zip": "77459",
+                            "normalized_address": "3118 CHERRY HILLS DR",
+                        },
+                        "characteristics": {"homestead_flag": False},
+                        "improvements": [{"living_area_sf": 2150, "year_built": 2004}],
+                        "land_segments": [{"land_sf": 6400, "land_acres": 0.1469}],
+                        "value_components": [],
+                        "assessment": {"market_value": 300000},
+                        "exemptions": [],
+                    }
+                ]
+            }
+
+        def publish_dataset(self, job_id: str, tax_year: int, dataset_type: str) -> PublishResult:
+            return PublishResult(
+                publish_version=f"fort_bend-{tax_year}-{dataset_type}-{job_id[:8]}",
+                details_json={"dataset_type": dataset_type},
+            )
+
+    monkeypatch.setattr("app.ingestion.service.get_connection", recording_connection)
+    monkeypatch.setattr("app.ingestion.service.IngestionRepository", StubRepository)
+    monkeypatch.setattr(service, "_build_publish_control_findings", lambda **kwargs: [])
+    monkeypatch.setattr(
+        service,
+        "_refresh_tax_assignments",
+        lambda **kwargs: tax_refresh_calls.append(kwargs),
+    )
+    monkeypatch.setattr(service, "_refresh_owner_reconciliation", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service, "_refresh_search_documents", lambda **kwargs: search_refresh_calls.append(kwargs)
+    )
+    service.adapter = StubAdapter()  # type: ignore[assignment]
+
+    result = service.normalize(
+        county_id="fort_bend",
+        tax_year=2026,
+        dataset_type="property_roll",
+        import_batch_id="batch-1",
+    )
+
+    assert result.row_count == 1
+    assert upsert_calls
+    assert upsert_calls[0]["include_detail_tables"] is False
+    assert tax_refresh_calls
+    assert search_refresh_calls
+
+
 def test_normalize_bulk_property_roll_preserves_canonical_publish_when_post_commit_refresh_fails(
     monkeypatch,
 ) -> None:
@@ -1045,6 +1193,9 @@ def test_normalize_bulk_property_roll_preserves_canonical_publish_when_post_comm
             return 1
 
         def count_property_roll_improvement_rows_for_import_batch(self, **kwargs) -> int:
+            return 0
+
+        def count_property_roll_land_rows_for_import_batch(self, **kwargs) -> int:
             return 0
 
         def iterate_staging_rows(self, **kwargs):

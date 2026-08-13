@@ -1012,6 +1012,28 @@ class IngestionRepository:
             return 0
         return int(row["count"] or 0)
 
+    def count_property_roll_land_rows_for_import_batch(
+        self,
+        *,
+        import_batch_id: str,
+        tax_year: int,
+    ) -> int:
+        row = self._fetch_optional_row(
+            """
+            SELECT count(*) AS count
+            FROM parcel_lands pl
+            JOIN parcel_year_snapshots pys
+              ON pys.parcel_id = pl.parcel_id
+             AND pys.tax_year = pl.tax_year
+            WHERE pys.import_batch_id = %s
+              AND pys.tax_year = %s
+            """,
+            (import_batch_id, tax_year),
+        )
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def summarize_property_roll_exemption_collapse(
         self,
         *,
@@ -1508,8 +1530,10 @@ class IngestionRepository:
                         )
                     )
 
+                land_segments = list(record.get("land_segments") or [])
+
                 if include_detail_tables:
-                    for segment in record["land_segments"]:
+                    for segment in land_segments:
                         land_segment_rows.append(
                             (
                                 snapshot_id,
@@ -1526,7 +1550,11 @@ class IngestionRepository:
                             )
                         )
 
-                    primary_land = record["land_segments"][0]
+                # parcel_lands is part of the canonical parcel-year summary path, so we keep
+                # the primary land row populated even when bulk property-roll mode skips the
+                # heavier per-snapshot detail tables.
+                if land_segments:
+                    primary_land = land_segments[0]
                     parcel_land_rows.append(
                         (
                             parcel_id,
@@ -1540,6 +1568,7 @@ class IngestionRepository:
                         )
                     )
 
+                if include_detail_tables:
                     for component in record["value_components"]:
                         value_component_rows.append(
                             (
@@ -1695,7 +1724,7 @@ class IngestionRepository:
                     """,
                     land_segment_rows,
                 )
-            if include_detail_tables:
+            if parcel_land_rows:
                 cursor.executemany(
                 """
                 INSERT INTO parcel_lands (
@@ -1873,6 +1902,10 @@ class IngestionRepository:
                   condition_code text,
                   garage_spaces numeric,
                   pool_flag boolean,
+                  land_sf numeric,
+                  land_acres numeric,
+                  frontage_sf numeric,
+                  depth_sf numeric,
                   land_value numeric,
                   improvement_value numeric,
                   market_value numeric,
@@ -1931,6 +1964,10 @@ class IngestionRepository:
                   condition_code,
                   garage_spaces,
                   pool_flag,
+                  land_sf,
+                  land_acres,
+                  frontage_sf,
+                  depth_sf,
                   land_value,
                   improvement_value,
                   market_value,
@@ -1951,6 +1988,8 @@ class IngestionRepository:
                     characteristics = record["characteristics"]
                     improvements = list(record.get("improvements") or [])
                     primary_improvement = improvements[0] if improvements else {}
+                    land_segments = list(record.get("land_segments") or [])
+                    primary_land = land_segments[0] if land_segments else {}
                     assessment = record["assessment"]
                     copy.write_row(
                         (
@@ -1994,6 +2033,10 @@ class IngestionRepository:
                             primary_improvement.get("condition_code"),
                             primary_improvement.get("garage_spaces"),
                             primary_improvement.get("pool_flag"),
+                            primary_land.get("land_sf"),
+                            primary_land.get("land_acres"),
+                            primary_land.get("frontage_sf"),
+                            primary_land.get("depth_sf"),
                             assessment.get("land_value"),
                             assessment.get("improvement_value"),
                             assessment.get("market_value"),
@@ -2316,6 +2359,52 @@ class IngestionRepository:
                    OR property_characteristics.neighborhood_group IS DISTINCT FROM EXCLUDED.neighborhood_group
                    OR property_characteristics.effective_age IS DISTINCT FROM EXCLUDED.effective_age
                 """,
+            )
+            cursor.execute(
+                """
+                INSERT INTO parcel_lands (
+                  parcel_id,
+                  tax_year,
+                  land_sf,
+                  land_acres,
+                  frontage_sf,
+                  depth_sf,
+                  source_system_id,
+                  source_record_hash
+                )
+                SELECT
+                  tp.parcel_id,
+                  %s,
+                  t.land_sf,
+                  t.land_acres,
+                  t.frontage_sf,
+                  t.depth_sf,
+                  %s,
+                  t.source_record_hash
+                FROM tmp_property_roll_core_upsert t
+                JOIN tmp_property_roll_target_parcels tp
+                  ON tp.account_number = t.account_number
+                WHERE t.land_sf IS NOT NULL
+                   OR t.land_acres IS NOT NULL
+                   OR t.frontage_sf IS NOT NULL
+                   OR t.depth_sf IS NOT NULL
+                ON CONFLICT (parcel_id, tax_year)
+                DO UPDATE SET
+                  land_sf = EXCLUDED.land_sf,
+                  land_acres = EXCLUDED.land_acres,
+                  frontage_sf = EXCLUDED.frontage_sf,
+                  depth_sf = EXCLUDED.depth_sf,
+                  source_system_id = EXCLUDED.source_system_id,
+                  source_record_hash = EXCLUDED.source_record_hash,
+                  updated_at = now()
+                WHERE parcel_lands.land_sf IS DISTINCT FROM EXCLUDED.land_sf
+                   OR parcel_lands.land_acres IS DISTINCT FROM EXCLUDED.land_acres
+                   OR parcel_lands.frontage_sf IS DISTINCT FROM EXCLUDED.frontage_sf
+                   OR parcel_lands.depth_sf IS DISTINCT FROM EXCLUDED.depth_sf
+                   OR parcel_lands.source_system_id IS DISTINCT FROM EXCLUDED.source_system_id
+                   OR parcel_lands.source_record_hash IS DISTINCT FROM EXCLUDED.source_record_hash
+                """,
+                (tax_year, source_system_id),
             )
             cursor.execute(
                 """

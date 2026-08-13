@@ -578,6 +578,14 @@ class IngestionLifecycleService:
                 if bulk_property_roll_mode
                 else 0
             )
+            existing_bulk_property_roll_land_rows = (
+                repository.count_property_roll_land_rows_for_import_batch(
+                    import_batch_id=batch.import_batch_id,
+                    tax_year=tax_year,
+                )
+                if bulk_property_roll_mode
+                else 0
+            )
             canonical_targets: list[dict[str, str]] = []
             property_roll_row_count = 0
             rollback_manifest: dict[str, Any]
@@ -599,6 +607,7 @@ class IngestionLifecycleService:
                     existing_bulk_property_roll_rows > 0
                     and existing_bulk_property_roll_improvement_rows
                     >= existing_bulk_property_roll_rows
+                    and existing_bulk_property_roll_land_rows >= existing_bulk_property_roll_rows
                 ):
                     property_roll_row_count = existing_bulk_property_roll_rows
                     logger.info(
@@ -610,6 +619,9 @@ class IngestionLifecycleService:
                             "existing_bulk_property_roll_rows": existing_bulk_property_roll_rows,
                             "existing_bulk_property_roll_improvement_rows": (
                                 existing_bulk_property_roll_improvement_rows
+                            ),
+                            "existing_bulk_property_roll_land_rows": (
+                                existing_bulk_property_roll_land_rows
                             ),
                         },
                     )
@@ -647,7 +659,7 @@ class IngestionLifecycleService:
                 else:
                     if bulk_property_roll_mode and existing_bulk_property_roll_rows > 0:
                         logger.info(
-                            "property_roll bulk normalize rerun detected missing canonical improvement summaries",
+                            "property_roll bulk normalize rerun detected missing canonical summary rows",
                             extra={
                                 "county_id": county_id,
                                 "tax_year": tax_year,
@@ -657,6 +669,9 @@ class IngestionLifecycleService:
                                 ),
                                 "existing_bulk_property_roll_improvement_rows": (
                                     existing_bulk_property_roll_improvement_rows
+                                ),
+                                "existing_bulk_property_roll_land_rows": (
+                                    existing_bulk_property_roll_land_rows
                                 ),
                             },
                         )
