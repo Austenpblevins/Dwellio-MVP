@@ -5,6 +5,13 @@ This document records the current implementation state of the Dwellio repository
 It is the single current implementation-status ledger for the repository and the authoritative status ledger for what is implemented, partially implemented, deferred, or superseded in code.
 It is not the primary source for intended architecture or product design.
 
+> **REBASELINING / NOT YET VERIFIED**
+>
+> This implementation ledger is being re-verified against the repository audit
+> baseline before it becomes authoritative again. Its current statements remain
+> useful evidence, but must not override the audit record, migrations, or
+> code-backed verification until the rebaseline review is completed.
+
 Design authority lives in:
 - `docs/source_of_truth/`
 - `docs/architecture/`
