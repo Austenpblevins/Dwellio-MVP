@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test \"app/**/*.test.mts\"",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "16.1.7",
@@ -22,5 +24,8 @@
     "eslint-config-next": "16.1.7",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=24.12.0"
   }
 }

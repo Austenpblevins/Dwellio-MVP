@@ -216,11 +216,11 @@ def test_cli_preserves_tax_rate_status_and_account_number_filters(monkeypatch, t
     assert captured["job_kwargs"] == {
         "county_id": "harris",
         "tax_year": 2026,
-        "account_numbers": [
+        "account_numbers": (
             "1001001001001",
             "1001001001002",
             "1001001001003",
-        ],
+        ),
         "tax_rate_basis_status": "current_year_unofficial_or_proposed_rates",
         "tax_rate_basis_status_reason": "pre-adoption estimate season",
         "tax_rate_basis_status_note": "operator review note",
