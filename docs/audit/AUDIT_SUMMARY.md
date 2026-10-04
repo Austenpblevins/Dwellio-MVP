@@ -18,7 +18,8 @@ and audit only.
 ## Major findings
 
 1. The registered job CLI has duplicate argument registration and fails during
-   parser construction. It is not repaired here.
+   parser construction at the audit baseline. A separate October 3 repair
+   now passes 26 CLI tests and module help; no job implementation changed.
 2. `docs/architecture-state.md` is stale relative to migration `0079`; it now
    carried a temporary `REBASELINING / NOT YET VERIFIED` warning at the audit
    baseline; the October 3 rebaseline below replaces that warning.
@@ -51,9 +52,10 @@ for evidence and verification limits. Static review and isolated parser
 construction were performed; runtime, database, lint and frontend execution
 remain outstanding. No application changes were made.
 
-Follow with
-separate changes for the CLI repair, correctness-related lint, and frontend
-test runner, in that order. Retain evidence and require path-specific approval
+The separately approved CLI repair is complete: 26 regression tests pass
+and module help succeeds. Job dispatch was mocked and no database job ran.
+Next are separate changes for correctness-related lint and the frontend test
+runner, in that order. Retain evidence and require path-specific approval
 before archival or deletion. Public instant-quote integration, final packet
 PDF generation, and county filing remain separate future projects.
 

@@ -16,7 +16,7 @@ evidence. Historical summaries do not override current repository evidence.
 - Verification performed: router mounting and handler source review; API/service
   call-chain review; public web client and page inventory; migration and service
   inventory; job parser construction reproduced from its AST in isolation.
-- No database connection, application startup, database-dependent tests, full
+- Rebaseline verification: no database connection, application startup, database-dependent tests, full
   Python suite, lint suite, or frontend build/test run was performed for this
   documentation change. Earlier test results are historical evidence, not
   results of this rebaseline.
@@ -66,8 +66,8 @@ All paths below are repository-relative evidence.
 | Lead capture | `IMPLEMENTED` | `POST /lead` connects to lead persistence and attribution/context support. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, migration `0042_stage16_lead_funnel_backend_contracts.sql` |
 | Admin lead reporting | `IMPLEMENTED` | Protected list/detail routes and pages support reporting and duplicate/event review. | `app/api/routes/admin.py`, `app/services/admin_lead_reporting.py`, `apps/web/app/admin/leads/` |
 | Public web funnel | `PARTIAL` | Search → parcel → refined quote/explanation → lead capture exists; represented-customer onboarding is incomplete. | `apps/web/app/search/page.tsx`, `apps/web/app/parcel/[countyId]/[taxYear]/[accountNumber]/page.tsx`, `apps/web/app/_components/LeadCaptureCard.tsx`, `apps/web/app/_lib/public-api.ts` |
-| County ingestion services | `IMPLEMENTED` | Acquisition, staging, normalization, validation, publish/rollback, lineage and maintenance services exist; standard job CLI is currently blocked. | `app/ingestion/service.py`, `app/api/routes/admin.py`, `app/jobs/cli.py` |
-| Standard job CLI | `PARTIAL` | 17 registered jobs; duplicate argument registration prevents parser construction. Narrow repair is approved but not implemented. | `app/jobs/cli.py:build_parser`, `tests/unit/test_jobs_cli.py`, `audit/DISCREPANCY_REPORT.md` |
+| County ingestion services | `IMPLEMENTED` | Acquisition, staging, normalization, validation, publish/rollback, lineage and maintenance services exist; standard job CLI parser and dispatch are repaired. | `app/ingestion/service.py`, `app/api/routes/admin.py`, `app/jobs/cli.py` |
+| Standard job CLI | `IMPLEMENTED` | Parser and dispatch support all 17 registered names; repeated/file account inputs use one ordered, deduplicated path. Job implementations and live execution remain separate verification boundaries. | `app/jobs/cli.py:build_parser`, `tests/unit/test_jobs_cli.py`, `audit/DISCREPANCY_REPORT.md` |
 | Harris county adapter | `PARTIAL` | Registered acquisition/parse/normalize/validation support includes fixture and source acquisition paths; current live readiness is unverified. | `app/ingestion/registry.py`, `app/county_adapters/harris/`, `config/counties/` |
 | Fort Bend county adapter | `PARTIAL` | Registered adapter and supported characteristic normalization exist; current live readiness is unverified. | `app/ingestion/registry.py`, `app/county_adapters/fort_bend/`, `app/services/fort_bend_bathroom_features.py` |
 | County characteristic contracts | `IMPLEMENTED` | Later migrations add canonical Fort Bend living area, Harris total rooms, and Fort Bend valuation bathroom features; coverage is not inferred from schema. | migrations `0064`–`0066`, `app/county_adapters/harris/normalize.py`, `app/county_adapters/fort_bend/normalize.py`, `app/services/fort_bend_bathroom_features.py` |
@@ -147,9 +147,10 @@ been given, and no historical migration or experiment is superseded here.
 
 ## Outstanding work and verification limits
 
-1. Repair duplicate job CLI arguments with parser regression tests in a separate
-   change. The isolated parser reproduction raises `argparse.ArgumentError`
-   for `--account-number`; both account flags are registered twice.
+1. CLI parser/dispatch repair completed on October 3, 2026: removed duplicate
+   account flags and the obsolete dispatch block. All 26 tests in
+   `tests/unit/test_jobs_cli.py` pass, and `python3 -m app.jobs.cli --help`
+   exits successfully. Dispatch tests mock job execution; no database job ran.
 2. Triage correctness-related lint separately. The ingestion service still has
    `ImportBatchRecord` annotations without a corresponding import; historical
    lint counts are not a fresh lint result.
@@ -163,7 +164,8 @@ been given, and no historical migration or experiment is superseded here.
    foundations or gaps remain as classified above.
 
 CLI, correctness lint and frontend test-runner repairs are owner-approved in
-that order. This ledger update performs none of those repairs. The architecture
+that order. CLI repair is complete; correctness lint and frontend test-runner
+work remain outstanding. The architecture
 ledger rebaseline does not imply that other authority documents have been
 rewritten or that consolidated-schema maintenance has been settled.
 
@@ -181,6 +183,9 @@ solely because a document or implementation is old. Record separately approved
 scope and owners when those decisions exist.
 
 ## Change log
+
+- `2026-10-03`: Repaired job CLI argument registration and dispatch; verified
+  26 CLI regression tests and module help. No job implementation was changed.
 
 - `2026-10-03`: Reverified repository status through migration `0079` against
   `a5ca4cc`; applied the nine owner-approved decisions, separated governed

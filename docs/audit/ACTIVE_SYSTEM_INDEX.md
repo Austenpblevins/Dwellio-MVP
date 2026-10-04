@@ -26,5 +26,7 @@ each unit is production-ready.
 
 These counts are a baseline for future audits. They do not establish test
 coverage, deployment status, data readiness, or launch approval. The 17-job
-registry currently cannot be invoked through its CLI because the parser has a
-duplicate option registration; see `DISCREPANCY_REPORT.md`.
+registry was blocked at the audit baseline by duplicate option registration.
+The separately approved October 3, 2026 repair restores parser construction
+and dispatch; 26 CLI tests and module help passed. Job implementation and live
+execution readiness remain separate; see `DISCREPANCY_REPORT.md`.

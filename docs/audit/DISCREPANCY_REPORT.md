@@ -2,7 +2,7 @@
 
 ## Confirmed discrepancies
 
-### 1. Job CLI is not runnable
+### 1. Job CLI parser failure — resolved October 3, 2026
 
 `app/jobs/cli.py` registers `--account-number` at lines 70 and 84 and registers
 `--account-numbers-file` at lines 71 and 85. Running
@@ -12,8 +12,13 @@
 argparse.ArgumentError: argument --account-number: conflicting option string: --account-number
 ```
 
-This affects the registered job CLI before any job executes. It is documented
-here only. No repair is made by this audit.
+The preceding reproduction describes the audit baseline. The separately
+approved repair removed duplicate account flag registration and the obsolete
+`args.account_number` dispatch block, retaining the `account_numbers` path.
+Verification: 26 CLI tests passed and module `--help` succeeded. Tests cover all
+17 registered job names, repeated/file inputs, ordered deduplication, absent
+inputs, help and optional argument forwarding. Job dispatch was mocked; no
+database job ran and job implementations were unchanged.
 
 ### 2. Architecture status ledger predates current migrations
 

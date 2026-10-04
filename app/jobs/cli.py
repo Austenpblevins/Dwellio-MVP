@@ -54,9 +54,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
 
 def _load_account_numbers(path: str) -> list[str]:
     return [
-        line.strip()
-        for line in Path(path).read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -67,8 +65,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tax-year", default=None, type=int)
     parser.add_argument("--dataset-type", default=None)
     parser.add_argument("--import-batch-id", default=None)
-    parser.add_argument("--account-number", action="append", default=None)
-    parser.add_argument("--account-numbers-file", default=None)
     parser.add_argument(
         "--tax-rate-basis-status",
         default=None,
@@ -100,18 +96,6 @@ def main() -> None:
         job_kwargs["dataset_type"] = args.dataset_type
     if args.import_batch_id is not None:
         job_kwargs["import_batch_id"] = args.import_batch_id
-    account_numbers: list[str] = list(args.account_number or [])
-    if args.account_numbers_file is not None:
-        account_numbers.extend(
-            account_number
-            for account_number in (
-                line.strip()
-                for line in Path(args.account_numbers_file).read_text(encoding="utf-8").splitlines()
-            )
-            if account_number
-        )
-    if account_numbers:
-        job_kwargs["account_numbers"] = account_numbers
     if args.tax_rate_basis_status is not None:
         job_kwargs["tax_rate_basis_status"] = args.tax_rate_basis_status
     if args.tax_rate_basis_status_reason is not None:
@@ -122,7 +106,9 @@ def main() -> None:
         job_kwargs["tax_rate_basis_status_source"] = args.tax_rate_basis_status_source
     account_numbers: list[str] = []
     if args.account_numbers:
-        account_numbers.extend(str(value).strip() for value in args.account_numbers if str(value).strip())
+        account_numbers.extend(
+            str(value).strip() for value in args.account_numbers if str(value).strip()
+        )
     if args.account_numbers_file is not None:
         account_numbers.extend(_load_account_numbers(args.account_numbers_file))
     if account_numbers:
