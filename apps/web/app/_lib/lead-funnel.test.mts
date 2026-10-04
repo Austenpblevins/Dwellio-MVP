@@ -89,9 +89,19 @@ test("buildLeadCapturePayload keeps email required while preserving quote-funnel
     utm_source: "google",
     utm_medium: "cpc",
     utm_campaign: "spring",
-    utm_term: null,
-    utm_content: null,
+    utm_term: undefined,
+    utm_content: undefined,
   });
+  const serialized = JSON.parse(JSON.stringify(request));
+  assert.equal(Object.hasOwn(serialized, "utm_term"), false);
+  assert.equal(Object.hasOwn(serialized, "utm_content"), false);
+});
+
+test("buildLeadCapturePayload rejects blank email before creating a request", () => {
+  assert.throws(() => buildLeadCapturePayload({
+    countyId: "harris", taxYear: 2026, accountNumber: "1001", email: "   ",
+    consentToContact: true, sourceChannel: "web_quote_funnel", funnelStage: "quote_gate",
+  }), /Email is required/);
 });
 
 test("attribution helpers merge stored values with current-page utm params", () => {

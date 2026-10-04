@@ -1941,3 +1941,13 @@ def test_retry_post_commit_maintenance_reruns_tax_then_search_after_tax_failure(
     ]
     assert len(tax_refresh_calls) == 1
     assert len(search_refresh_calls) == 1
+
+
+def test_publish_control_annotations_resolve_import_batch_record() -> None:
+    from typing import get_type_hints
+
+    for method in (
+        IngestionLifecycleService._block_publish_after_savepoint,
+        IngestionLifecycleService._persist_nonblocking_publish_control_findings,
+    ):
+        assert get_type_hints(method)["batch"] is ImportBatchRecord

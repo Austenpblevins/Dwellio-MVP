@@ -15,7 +15,7 @@ The public web app consumes the canonical backend routes:
 
 ## Getting Started
 
-Run the development server from `apps/web`:
+Use Node.js 24.12 or newer. Run the development server from `apps/web`:
 
 ```bash
 npm install
@@ -35,9 +35,19 @@ If the backend is unreachable or misconfigured, the public search/funnel pages r
 ## Checks
 
 ```bash
+npm test
+npm run typecheck
 npm run lint
 npm run build
 ```
+
+`npm test` uses Node's built-in test runner and TypeScript type stripping to
+find `app/**/*.test.mts`, including nested test files. No additional test
+framework is required. These are helper/contract unit tests, not browser or
+live-backend tests. Keep explicit `.ts` extensions and `import type` for type
+imports in modules used by this runner. Native execution does not type-check;
+run `npm run typecheck` separately. JSX and TypeScript syntax requiring code
+generation need a separately scoped runner if introduced in future tests.
 
 ## Deploy on Vercel
 

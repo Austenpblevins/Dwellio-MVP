@@ -1,76 +1,97 @@
 # Dwellio Architecture State
 
-This document records the current implementation state of the Dwellio repository.
+This is the current repository implementation-status ledger. Approved product
+and design documents describe intended behavior and future work; runbooks
+describe operating procedures. Code and ordered migrations supply implementation
+evidence. Historical summaries do not override current repository evidence.
 
-It is the single current implementation-status ledger for the repository and the authoritative status ledger for what is implemented, partially implemented, deferred, or superseded in code.
-It is not the primary source for intended architecture or product design.
+## Verification metadata
 
-> **REBASELINING / NOT YET VERIFIED**
->
-> This implementation ledger is being re-verified against the repository audit
-> baseline before it becomes authoritative again. Its current statements remain
-> useful evidence, but must not override the audit record, migrations, or
-> code-backed verification until the rebaseline review is completed.
+- Last verified: `2026-10-03`, by Codex.
+- Repository baseline inspected: `a5ca4cc3e2cbeaabaedd173ffc92256660b291b0`
+  on `repo-stabilization`; application baseline is PR #62 merge `7cce266`.
+- Latest migration: `0080_unequal_roll_schema_scoped_constraint_repair.sql`
+  (forward repair applied to isolated Stage 21 database).
+- Scope: repository review and local test verification, not production launch readiness.
+- Owner decisions: [approved Human Review Queue](audit/HUMAN_REVIEW_QUEUE.md#approved-decisions--october-3-2026).
+- Verification performed: router mounting and handler source review; API/service
+  call-chain review; public web client and page inventory; migration and service
+  inventory; job parser construction reproduced from its AST in isolation.
+- Rebaseline verification: no database connection, application startup, database-dependent tests, full
+  Python suite, lint suite, or frontend build/test run was performed for this
+  documentation change. Earlier test results are historical evidence, not
+  results of this rebaseline.
 
-Design authority lives in:
-- `docs/source_of_truth/`
-- `docs/architecture/`
-- canonical schema and migration files
+The previous rebaselining warning is replaced by this bounded verification
+record. `IMPLEMENTED` describes wired repository capability; it does not prove
+successful operation against live data or production approval.
 
-## Document Metadata
+## Status legend
 
-- Last verified: `2026-04-24`
-- Verified by: `Codex`
-- Verified against:
-  - latest migration: `0056_stage22_ingestion_step_runs.sql`
-  - public routes checked: `yes`
-  - admin routes checked: `yes`
-  - key tests checked: `tests/unit/test_stage17_instant_quote_migration_contract.py` (executed), `tests/integration/test_public_parcel_flows.py` (executed), `tests/integration/test_stage15_workflow_contracts.py`, `tests/integration/test_stage16_lead_funnel_release_hardening.py` (executed), `tests/unit/test_admin_lead_reporting_api.py` (executed), `tests/unit/test_admin_lead_reporting_service.py` (executed), `tests/unit/test_case_admin_api.py` (reviewed), `tests/unit/test_lead_capture.py` (executed), `tests/unit/test_quote_api.py` (executed), `tests/unit/test_search_services.py` (executed)
-- Authority level: `Implementation status only`
-- Scope: `Repository reality, not launch readiness`
+| Status | Meaning |
+| --- | --- |
+| `IMPLEMENTED` | Meaningful executable code exists and is wired to the current application or operator path. |
+| `PARTIAL` | Meaningful implementation exists, but the named workflow has gaps or incomplete integration. |
+| `STUB` | A placeholder or schema foundation exists without the completed named workflow. |
+| `UNKNOWN` | No executable workflow was established by this review; no roadmap commitment is inferred. |
+| `GOVERNED_NOT_PRODUCTION` | Substantial governed tooling exists and is retained, with production integration requiring separate approval. |
+| `DEFERRED` | Future work explicitly deferred by the owner. |
+| `SUPERSEDED` | A named approach has explicitly been replaced; age alone does not establish this status. |
 
-## Status Legend
+## Verified inventory
 
-- `Implemented`: code exists and is wired into the current repo shape
-- `Partial`: meaningful foundation exists, but the subsystem is not complete end-to-end
-- `Deferred`: intentionally not implemented yet
-- `Superseded`: older approach/doc path retained only for history and should not guide new work
+| Area | Count | Counting rule |
+| --- | ---: | --- |
+| Application handlers | 32 | Route decorators in the six route families mounted by `app/api/router.py`; excludes framework-generated docs/OpenAPI routes. |
+| Service modules | 60 | `app/services/*.py`, excluding `__init__.py`. |
+| Registered jobs | 17 | Entries in `app/jobs/cli.py:JOB_REGISTRY`; registration does not establish implementation or CLI operability. |
+| Operational scripts | 48 | Audit baseline: 46 Python script modules and two shell launchers, excluding package/readme files. |
+| SQL migrations | 78 | Files in `app/db/migrations/*.sql`, ending at forward repair `0080`; numbering has gaps. |
+| Frontend pages | 19 | `page.tsx` files below `apps/web/app/`. |
 
-## How To Read This File
+See [Active System Index](audit/ACTIVE_SYSTEM_INDEX.md) for the baseline counting
+rules. Handlers, services, migrations, pages, and registry entries were recounted
+for this rebaseline; the operational-script count is retained from the audit.
 
-- `Implemented` means the capability exists in code.
-- `Implemented` does not automatically mean production-ready, live-data complete, or launch-approved.
-- Every status claim in this document should point to concrete repo evidence.
-- If evidence is missing, the item should be marked `Partial` or `Deferred`.
+## Current implementation state
 
-## Current Implementation State
+All paths below are repository-relative evidence.
 
-| subsystem | status | current reality | evidence |
-|---|---|---|---|
-| Backend/API framework | Implemented | FastAPI app wires public and admin routers into one canonical API surface. | `app/main.py`, `app/api/router.py` |
-| Public search | Implemented | Canonical public search and autocomplete routes are wired to public-safe search reads. | `app/api/routes/search.py`, `tests/integration/test_public_parcel_flows.py` |
-| Public parcel summary | Implemented | Parcel-year public summary route serves masked, public-safe parcel facts and excludes owner-source/debug tax-assignment internals from the public payload. | `app/api/routes/parcel.py`, `app/services/parcel_summary.py`, `docs/architecture/PUBLIC_ROUTE_AND_FUNNEL_CONTRACT.md` |
-| Public quote | Implemented | Read-model-backed quote and explanation routes are part of the canonical public flow. | `app/api/routes/quote.py`, `docs/final_implementation_summary.md` |
-| Instant quote service | Partial | Stage 17 adds a separate instant-quote route and cache-backed serving layer without replacing the refined quote path. | `app/api/routes/quote.py`, `app/services/instant_quote.py`, `docs/architecture/instant-quote-service-spec.md`, `tests/unit/test_stage17_instant_quote_migration_contract.py` |
-| Lead capture | Implemented | Canonical `POST /lead` persists lead rows plus attribution and parcel-year context. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, `docs/final_implementation_summary.md` |
-| Lead reporting/admin visibility | Implemented | Token-protected lead reporting routes and admin pages expose demand mix, duplicate review, and raw `lead_submitted` drill-down without creating represented-customer or case behavior. | `app/api/routes/admin.py`, `app/services/admin_lead_reporting.py`, `apps/web/app/admin/leads/page.tsx`, `apps/web/app/admin/leads/[leadId]/page.tsx`, `docs/runbooks/ADMIN_LEAD_REPORTING_UI.md` |
-| Public web funnel | Partial | The web app supports search to parcel to quote-to-lead, but not full customer signup, agreements, or billing. | `apps/web/app/`, `docs/stage16_lead_funnel_frontend_ux.md` |
-| County ingestion framework | Implemented | Shared ingestion, import-batch, validation, lineage, publish/rollback, and job orchestration backbone exists. | `app/ingestion/service.py`, `app/jobs/cli.py`, `docs/ingestion_framework.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
-| Harris county support | Partial | Harris adapter, onboarding, and manual-prep path exist, but current workflow still includes fixture/manual-prep realities. | `app/county_adapters/harris/adapter.py`, `docs/harris_adapter.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
-| Fort Bend county support | Partial | Fort Bend adapter, onboarding, and manual-prep path exist, but current workflow still includes fixture/manual-prep realities. | `app/county_adapters/fort_bend/adapter.py`, `docs/fort_bend_adapter.md`, `docs/runbooks/MANUAL_COUNTY_FILE_PREP.md` |
-| County-year readiness/admin ops | Implemented | Readiness, onboarding, scalability review, source-file review, validation, publish, rollback, and inspection routes are wired. | `app/api/routes/admin.py`, `app/services/county_onboarding.py`, `docs/runbooks/COUNTY_ONBOARDING_CONTRACT.md`, `docs/runbooks/STAGE24_SCALABILITY_BOTTLENECK_REVIEW.md` |
-| Case workflow foundation | Partial | Internal case CRUD, notes, status history, and hearing-linked review exist, but not the full operator workbench. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `docs/stage14_protest_support_foundation.md` |
-| Evidence packet foundation | Partial | Internal packet review structures, packet items, and comp sets exist, but not final package generation. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `docs/stage14_protest_support_foundation.md` |
-| Evidence PDF generation | Deferred | Packet generation and PDF assembly are not implemented beyond scaffold/stub level. | `app/services/packet_generator.py`, `docs/final_implementation_summary.md` |
-| Filing automation | Deferred | No county submission adapter or end-to-end filing workflow is implemented yet. | `docs/final_implementation_summary.md`, absence of submission routes/services in `app/api/routes/` and `app/services/` |
-| Agreements/e-sign | Deferred | No implemented agreement packet, e-sign completion flow, or webhook-driven authorization workflow exists. | absence of agreement/esign routes/services, `docs/final_implementation_summary.md` |
-| Billing/payments | Deferred | No implemented Stripe/payment workflow exists in the active product path. | absence of billing/stripe routes/services, `docs/final_implementation_summary.md` |
-| Customer dashboard | Deferred | No customer case portal, notification center, or signed-document dashboard is implemented. | `apps/web/app/`, `docs/final_implementation_summary.md` |
-| Observability/reporting | Partial | Strong internal readiness, telemetry, runbooks, and reporting scripts exist, but centralized monitoring remains follow-on work. | `docs/architecture/testing-observability-security.md`, `infra/scripts/report_quote_quality_monitor.py`, `docs/runbooks/STAGE24_SCALABILITY_BOTTLENECK_REVIEW.md` |
+| Subsystem | Status | Current reality | Evidence |
+| --- | --- | --- | --- |
+| Backend/API framework | `IMPLEMENTED` | FastAPI mounts health, search, parcel, quote, lead, and protected admin router families. | `app/main.py`, `app/api/router.py` |
+| Public search/autocomplete | `IMPLEMENTED` | Address search and autocomplete handlers are mounted. | `app/api/routes/search.py`, `app/services/search_index.py` |
+| Public parcel summary | `IMPLEMENTED` | Public parcel-year summary has a dedicated response contract and service path. | `app/api/routes/parcel.py`, `app/models/parcel.py`, `app/services/parcel_summary.py` |
+| Refined quote/explanation | `IMPLEMENTED` | Mounted handlers use `QuoteReadService`; the public web client calls these endpoints. | `app/api/routes/quote.py`, `app/api/quote.py`, `app/services/quote_read.py`, `apps/web/app/_lib/public-api.ts` |
+| Instant quote | `PARTIAL` | Separate mounted backend service with serving cache, refresh/validation, assessment basis, warning taxonomy, county capability, tax profile, shadow savings, and rollout support. Public web integration is deferred. | `app/services/instant_quote.py`, `app/jobs/job_refresh_instant_quote.py`, `app/jobs/job_validate_instant_quote.py`, migrations `0044`–`0051` and `0057`–`0063`, `apps/web/app/_lib/public-api.ts` |
+| Lead capture | `IMPLEMENTED` | `POST /lead` connects to lead persistence and attribution/context support. | `app/api/routes/leads.py`, `app/services/lead_capture.py`, migration `0042_stage16_lead_funnel_backend_contracts.sql` |
+| Admin lead reporting | `IMPLEMENTED` | Protected list/detail routes and pages support reporting and duplicate/event review. | `app/api/routes/admin.py`, `app/services/admin_lead_reporting.py`, `apps/web/app/admin/leads/` |
+| Public web funnel | `PARTIAL` | Search → parcel → refined quote/explanation → lead capture exists; represented-customer onboarding is incomplete. | `apps/web/app/search/page.tsx`, `apps/web/app/parcel/[countyId]/[taxYear]/[accountNumber]/page.tsx`, `apps/web/app/_components/LeadCaptureCard.tsx`, `apps/web/app/_lib/public-api.ts` |
+| County ingestion services | `IMPLEMENTED` | Acquisition, staging, normalization, validation, publish/rollback, lineage and maintenance services exist; standard job CLI parser and dispatch are repaired. | `app/ingestion/service.py`, `app/api/routes/admin.py`, `app/jobs/cli.py` |
+| Standard job CLI | `IMPLEMENTED` | Parser and dispatch support all 17 registered names; repeated/file account inputs use one ordered, deduplicated path. Job implementations and live execution remain separate verification boundaries. | `app/jobs/cli.py:build_parser`, `tests/unit/test_jobs_cli.py`, `audit/DISCREPANCY_REPORT.md` |
+| Harris county adapter | `PARTIAL` | Registered acquisition/parse/normalize/validation support includes fixture and source acquisition paths; current live readiness is unverified. | `app/ingestion/registry.py`, `app/county_adapters/harris/`, `config/counties/` |
+| Fort Bend county adapter | `PARTIAL` | Registered adapter and supported characteristic normalization exist; current live readiness is unverified. | `app/ingestion/registry.py`, `app/county_adapters/fort_bend/`, `app/services/fort_bend_bathroom_features.py` |
+| County characteristic contracts | `IMPLEMENTED` | Later migrations add canonical Fort Bend living area, Harris total rooms, and Fort Bend valuation bathroom features; coverage is not inferred from schema. | migrations `0064`–`0066`, `app/county_adapters/harris/normalize.py`, `app/county_adapters/fort_bend/normalize.py`, `app/services/fort_bend_bathroom_features.py` |
+| County-year readiness/admin operations | `IMPLEMENTED` | Protected readiness, onboarding, scalability, source/validation inspection, manual registration, publish/rollback and retry-maintenance handlers exist. | `app/api/routes/admin.py`, `app/services/admin_ops.py`, `app/services/admin_readiness.py`, `app/services/county_onboarding.py`, `apps/web/app/admin/ops/` |
+| Case operations foundation | `PARTIAL` | Internal list/detail/create, notes, status history and hearing-linked review exist; full operator workbench is not established. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `apps/web/app/admin/cases/`, migration `0041_stage14_case_ops_foundation.sql` |
+| Evidence packet review | `PARTIAL` | Internal packet records, items and comp-set review exist; record creation is not final document generation. | `app/services/case_ops.py`, `app/api/routes/admin.py`, `apps/web/app/admin/packets/`, migration `0022_case_ops_and_evidence.sql` |
+| Final packet/PDF generation and refresh | `STUB` | Generator returns `not_implemented`; registered refresh job logs start/finish around a TODO. Retain and label; completion is separate future work. | `app/services/packet_generator.py`, `app/jobs/job_packet_refresh.py` |
+| Unequal-roll workflow | `GOVERNED_NOT_PRODUCTION` | Subject snapshots, discovery, eligibility, scoring, ranking, shortlist/final selection, chosen-comp semantics, governance, adjustments, final value and analyst evidence exist. No unequal-roll API router or public UI integration is mounted. | migrations `0067`–`0079`, `app/services/unequal_roll_*.py`, `app/api/router.py`, `infra/scripts/*unequal_roll*` |
+| Unequal-roll experiments/replay | `GOVERNED_NOT_PRODUCTION` | No-persist replay, reranking, smart-harvest and taxpayer-favorable tiebreak tooling remain distinct from an approved production path; none are declared dead code. | `app/services/unequal_roll_no_persist_replay.py`, `app/services/unequal_roll_smart_harvest.py`, `app/services/unequal_roll_taxpayer_favorable_tiebreak.py`, `infra/scripts/*unequal_roll*` |
+| Customer accounts/onboarding | `STUB` | `clients` schema exists; no complete customer account/authentication or represented-customer onboarding workflow was established. | migration `0021_business_flow.sql`, `app/api/router.py`, `apps/web/app/` |
+| Representation agreements | `STUB` | Agreement schema supports status/signature/document fields, without executable generation/signing workflow. | migration `0021_business_flow.sql`, `app/api/routes/`, `app/services/` |
+| E-sign completion | `UNKNOWN` | No executable e-sign provider, callback or authorization completion path was established. | reviewed `app/api/routes/`, `app/services/`, `apps/web/app/` |
+| Invoicing | `STUB` | Invoice schema exists without a complete invoice product workflow. | migration `0023_financials_and_ops.sql`, `app/api/routes/`, `app/services/` |
+| Payments | `UNKNOWN` | No executable payment/provider workflow was established. | reviewed `app/api/routes/`, `app/services/`, `apps/web/app/` |
+| County filing and confirmation proof | `UNKNOWN` | No county submission adapter, automated filing route or confirmation-proof workflow was established. | reviewed `app/api/router.py`, `app/api/routes/`, `app/services/` |
+| Customer dashboard/notifications | `UNKNOWN` | Admin case/packet pages exist; no customer case portal or customer notification workflow was established. | `apps/web/app/`, `app/api/router.py` |
+| Observability/reporting | `PARTIAL` | Job/ingestion tracking, internal readiness and reporting scripts exist; complete centralized production monitoring is unverified. | `app/jobs/runner.py`, `app/ingestion/service.py`, `app/services/admin_readiness.py`, `infra/scripts/report_quote_quality_monitor.py` |
+| Additional registered placeholder jobs | `STUB` | Geocode repair, sales ingestion and comp-candidate jobs contain TODO implementations; registry membership does not complete these workflows. | `app/jobs/job_geocode_repair.py`, `app/jobs/job_sales_ingestion.py`, `app/jobs/job_comp_candidates.py` |
 
-## Public Surface Inventory
+## Public surface
 
-Current canonical public routes:
+Mounted public application handlers:
+
 - `GET /healthz`
 - `GET /search`
 - `GET /search/autocomplete`
@@ -80,90 +101,135 @@ Current canonical public routes:
 - `GET /quote/instant/{county_id}/{tax_year}/{account_number}`
 - `POST /lead`
 
-Notes:
-- public routes must stay read-model/public-safe
-- public routes must not expose restricted comps, debug fields, or internal workflow data
-- public parcel tax breakdown must not expose tax-assignment debug fields
+Evidence: `app/api/router.py`, `app/api/routes/{health,search,parcel,quote,leads}.py`.
+The public web client uses refined quote/explanation; it does not call instant
+quote. Backend-only describes the current integration status, not an access
+restriction: the instant route is mounted in the public quote router.
 
-## Internal Surface Inventory
+Public-safe response requirements are defined by the response models and
+[public route/funnel contract](architecture/PUBLIC_ROUTE_AND_FUNNEL_CONTRACT.md).
+This review does not certify live payloads or data quality.
 
-Current canonical internal/admin surfaces include:
-- county-year readiness
-- county onboarding contract
-- scalability review
-- search inspection
-- import-batch inspection
-- source-file and validation review
-- publish / rollback / retry-maintenance
-- lead reporting and drill-down
-- case review routes
-- packet review routes
+## Protected internal surface
 
-Primary evidence:
-- `app/api/routes/admin.py`
-- admin pages in `apps/web/app/admin/`
+All 24 admin handlers are mounted with `require_admin_access` as a router
+dependency in `app/api/routes/admin.py`.
 
-## Current Boundaries
+- Leads: list and detail.
+- County readiness, onboarding contract and scalability review.
+- Search inspection.
+- Import-batch list/detail, validation, source files, completeness and
+  tax-assignment inspection.
+- Manual import registration, publish, rollback and retry-maintenance.
+- Cases: list/create/detail, add note and update status.
+- Packets: list/create/detail.
 
-The following are intentionally true in the current repo state:
+Evidence: `app/api/routes/admin.py`, `app/api/deps/admin_auth.py`,
+`apps/web/app/admin/`. Backend handlers do not require a matching frontend
+page to count as implemented. Case and packet routes are internal foundations,
+not customer accounts, final PDFs or county submission.
 
-- public APIs are read-model based
-- property scope is currently SFR-focused
-- county scope is currently Harris and Fort Bend
-- internal case/packet structures exist before full filing automation
-- packet foundation exists before packet PDF generation
-- lead capture exists before full customer onboarding
-- some county workflows remain fixture-backed or manual-prep dependent
+## Schema and governance boundaries
 
-## Known Gaps
+Ordered migrations are the authoritative repository schema implementation
+record. There are 78 files through migration `0080`; numbering has gaps.
+The original audit baseline counted 77 files through `0079`.
+`sql/dwellio_full_schema.sql` remains an unverified reference; generation,
+synchronization and maintenance ownership have not been established.
 
-The following are not yet implemented in the repository:
+Harris and Fort Bend adapters are present. Supported inputs, years and property
+segments depend on county configuration and normalization/readiness logic;
+this review does not establish uniform county coverage or current live readiness.
+County characteristic and unequal-roll migrations add foundations and tooling,
+not automatic product availability.
 
-- full compliance/legal operating workflow
-- service agreement generation and e-sign completion flow
-- billing/payment workflow
-- county protest submission automation
-- confirmation-proof capture workflow
-- customer portal and customer notifications
-- final evidence PDF/package generation
-- full production case workbench with all planned operator roles
+Remediation, validation, rollout and audit evidence must be retained and indexed.
+The first Human Review Gate is resolved. The owner subsequently approved
+deletion of two tracked Finder metadata files and the no-op unit placeholder
+test; those paths were deleted. Optional archival remains pending,
+and no historical migration or experiment is superseded here.
 
-## Drift Risks
+## Outstanding work and verification limits
 
-This document will drift if:
-- routes change without updating the public/internal surface inventory
-- a subsystem is marked `Implemented` without code/test evidence
-- design intent from other docs is copied here as if it were implemented
-- stale milestone summaries are treated as current-reality status
+1. CLI parser/dispatch repair completed on October 3, 2026: removed duplicate
+   account flags and the obsolete dispatch block. All 26 tests in
+   `tests/unit/test_jobs_cli.py` pass, and `python3 -m app.jobs.cli --help`
+   exits successfully. Dispatch tests mock job execution; no database job ran.
+2. Correctness lint triage completed October 3, 2026: the fresh scan found 152
+   findings; all three undefined-name findings were repaired (ingestion batch
+   annotations and the evidence builder's integer helper). The focused Ruff
+   correctness check and 47 relevant tests passed. The remaining 149 style,
+   modernization and reviewed maintenance findings are not fixed or suppressed;
+   full lint remains unclean. See `audit/DISCREPANCY_REPORT.md`.
+3. Frontend test runner configured locally October 3, 2026: `npm test` discovers
+   `app/**/*.test.mts` using native Node tests/type stripping (Node >=24.12).
+   All 9 tests pass; typecheck, ESLint and production build pass. One stale
+   null-versus-omitted attribution expectation was corrected to the existing
+   serialized contract, and blank-email rejection was added. No product
+   behavior was changed; browser/live-backend coverage remains separate.
+4. Local API verification: 50 selected public/admin contract tests passed
+   using mocked services under the prescribed Stage 21 configuration. The full
+   suite now passes 754 tests with the existing isolated Stage 21 database.
+   Owner-approved migrations `0067`–`0080` are applied to its public schema and
+   no migrations remain pending. Forward repair `0080` fixes all 12 affected
+   relation-scoped constraint guards; regression coverage verifies cross-schema
+   replay and idempotence. Historical migrations through `0079` are unchanged.
+   A subsequent read-only seeded baseline replay completed eight county/year
+   cases: five manual-review-required, one supported-with-review and two
+   unsupported; the missing-account control was blocked. Median/evidence
+   consistency and unsupported safe-value withholding were verified. One
+   fallback replay took 33.35 seconds. A later eight-subject, 24-replay full-pool simple-rerank comparison
+   verified governance fallback: seven low-benefit cases and one case blocked
+   for severe similarity deterioration all retained the baseline. The 317
+   included-comp evidence rows were handed off for analyst review. These small
+   diagnostic slices do not verify persisted job-chain or production readiness;
+   see `audit/DISCREPANCY_REPORT.md`.
+5. Plan public instant-quote integration, final packet generation and filing
+   separately. Customer accounts, agreements, e-sign, billing and payment
+   foundations or gaps remain as classified above.
 
-## Update Rules
+CLI, correctness lint and frontend test-runner repairs are owner-approved in
+that order. CLI repair, correctness lint triage and frontend runner setup are
+complete. The owner authorized committing and pushing these changes to
+`repo-stabilization`. The architecture
+ledger rebaseline does not imply that other authority documents have been
+rewritten or that consolidated-schema maintenance has been settled.
 
-Update this file whenever a change does any of the following:
-- adds, removes, or materially changes a public route
-- adds, removes, or materially changes an admin route
-- changes current county/property support scope
-- moves a subsystem from `Partial` to `Implemented`
-- explicitly defers, supersedes, or replaces an existing subsystem
-- adds a major new workflow surface, job family, or operator capability
+## Maintenance rules
 
-Do not update this file for:
-- minor refactors that do not change repo-visible capability
-- speculative future design
-- roadmap-only ideas not yet evidenced in code
+Update this ledger when routes, county support, migrations, job operability,
+workflow integration or governance status materially change. Each status change
+must cite executable repository evidence and describe its integration boundary.
+A table, test file, runbook or registered stub alone is insufficient evidence
+of a completed workflow. Record which checks actually ran and their limitations.
 
-## Verification Checklist
+Keep future intent in approved design/product documents. Do not promote governed
+work, infer production readiness, mark evidence historical, or remove paths
+solely because a document or implementation is old. Record separately approved
+scope and owners when those decisions exist.
 
-Before marking any item `Implemented`, confirm at least one of:
-- route exists and is wired
-- service is used by a wired route/job
-- migration/schema support exists and is consumed
-- test coverage exists for the contract
-- runbook/doc accurately reflects the current workflow
+## Change log
 
-If those checks are not met, mark the item `Partial` or `Deferred`.
+- `2026-10-03`: Added and applied local forward migration `0080` to repair
+  schema-scoped unequal-roll constraint replay; 754 Python tests pass. Historical
+  migration files are unchanged. The owner authorized preservation on
+  `repo-stabilization`.
 
-## Change Log
+- `2026-10-03`: Configured the frontend test runner; 9 tests, typecheck, lint
+  and build passed. Verified 50 mocked public/admin API contract tests, then
+  the full 753-test Python suite with the isolated Stage 21 database.
 
-- `2026-04-24`: implemented the protected admin lead reporting surface (`/admin/leads`) with duplicate review, raw event drill-down, and operator runbook coverage
-- `2026-04-22`: tightened the public parcel payload contract to exclude tax-assignment debug metadata and added repo-native Stage 2 / Stage 3 / Stage 5 contract docs
-- `2026-04-20`: rebuilt the file as a repo-reality status ledger with evidence-backed subsystem rows, route inventories, and maintenance rules
+- `2026-10-03`: Repaired three undefined-name lint findings; 47 focused tests
+  and a focused Ruff correctness check passed. Full lint retains 149 findings.
+
+- `2026-10-03`: Repaired job CLI argument registration and dispatch; verified
+  26 CLI regression tests and module help. No job implementation was changed.
+
+- `2026-10-03`: Reverified repository status through migration `0079` against
+  `a5ca4cc`; applied the nine owner-approved decisions, separated governed
+  unequal-roll tooling and schema/stub foundations from integrated workflows,
+  documented the blocked CLI and verification limits, and removed the temporary
+  rebaselining warning.
+- `2026-04-24`: Added protected admin lead reporting status and evidence.
+- `2026-04-22`: Updated public parcel payload and contract documentation.
+- `2026-04-20`: Established the implementation-status ledger.

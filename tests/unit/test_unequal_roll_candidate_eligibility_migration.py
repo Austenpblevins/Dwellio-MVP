@@ -45,7 +45,7 @@ def test_unequal_roll_candidate_eligibility_migration_uses_env_driven_stage21_db
     assert "55442" in database_url
 
 
-def test_unequal_roll_candidate_eligibility_migration_applies_in_isolated_schema(
+def test_unequal_roll_candidate_eligibility_with_forward_repair_applies_in_isolated_schema(
     monkeypatch,
 ) -> None:
     migration_0067 = (MIGRATIONS_DIR / "0067_unequal_roll_mvp_foundation.sql").read_text(
@@ -75,6 +75,11 @@ def test_unequal_roll_candidate_eligibility_migration_applies_in_isolated_schema
             cursor.execute(migration_0068)
             cursor.execute(migration_0069)
             cursor.execute(
+                (
+                    MIGRATIONS_DIR / "0080_unequal_roll_schema_scoped_constraint_repair.sql"
+                ).read_text(encoding="utf-8")
+            )
+            cursor.execute(
                 """
                 SELECT column_name
                 FROM information_schema.columns
@@ -92,7 +97,7 @@ def test_unequal_roll_candidate_eligibility_migration_applies_in_isolated_schema
                 WHERE conrelid = %s::regclass
                 ORDER BY conname
                 """,
-                (f'{schema_name}.unequal_roll_candidates',),
+                (f"{schema_name}.unequal_roll_candidates",),
             )
             constraint_defs = [row[0] for row in cursor.fetchall()]
 
