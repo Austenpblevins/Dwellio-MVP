@@ -144,8 +144,10 @@ County characteristic and unequal-roll migrations add foundations and tooling,
 not automatic product availability.
 
 Remediation, validation, rollout and audit evidence must be retained and indexed.
-The first Human Review Gate is resolved. No path-specific cleanup approval has
-been given, and no historical migration or experiment is superseded here.
+The first Human Review Gate is resolved. The owner subsequently approved
+deletion of two tracked Finder metadata files and the no-op unit placeholder
+test; those paths were deleted. Optional archival remains pending,
+and no historical migration or experiment is superseded here.
 
 ## Outstanding work and verification limits
 
@@ -172,7 +174,16 @@ been given, and no historical migration or experiment is superseded here.
    no migrations remain pending. Forward repair `0080` fixes all 12 affected
    relation-scoped constraint guards; regression coverage verifies cross-schema
    replay and idempotence. Historical migrations through `0079` are unchanged.
-   Seeded end-to-end workflows remain outside this test verification.
+   A subsequent read-only seeded baseline replay completed eight county/year
+   cases: five manual-review-required, one supported-with-review and two
+   unsupported; the missing-account control was blocked. Median/evidence
+   consistency and unsupported safe-value withholding were verified. One
+   fallback replay took 33.35 seconds. A later eight-subject, 24-replay full-pool simple-rerank comparison
+   verified governance fallback: seven low-benefit cases and one case blocked
+   for severe similarity deterioration all retained the baseline. The 317
+   included-comp evidence rows were handed off for analyst review. These small
+   diagnostic slices do not verify persisted job-chain or production readiness;
+   see `audit/DISCREPANCY_REPORT.md`.
 5. Plan public instant-quote integration, final packet generation and filing
    separately. Customer accounts, agreements, e-sign, billing and payment
    foundations or gaps remain as classified above.

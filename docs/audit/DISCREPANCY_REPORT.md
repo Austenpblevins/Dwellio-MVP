@@ -163,3 +163,47 @@ no shared-database changes, new branch, commit or push occurred. Repository
 changes, including the new migration, were initially kept local. The owner
 subsequently authorized reviewing, committing and pushing them to the existing
 `repo-stabilization` branch.
+
+
+## Seeded unequal-roll baseline verification — October 3, 2026
+
+Executed source-backed no-persist replay in explicit read-only transactions
+against isolated `stage21_dev` on port `55442`, using `similarity_top_100`.
+This is a non-random diagnostic slice: Harris `0411050000081`,
+`0642370000003` and Fort Bend `0226-00-000-0010-906`,
+`0044-00-000-0280-901`, each requested for 2025 and 2026, plus one
+nonexistent-account negative control. No subject overrides or fabricated comps
+were used. Seed coverage includes 2025/2026 snapshots for both counties.
+
+All eight real-account replays completed: five `manual_review_required`, one
+`supported_with_review` and two `unsupported`. All completed outputs contained
+review evidence and stability metrics. Independently checked requested/served
+year agreement, adjusted-value median arithmetic (within rounding tolerance),
+included-comp evidence counts, nonnegative reductions when present, and withheld
+safe value/reduction for unsupported cases. The missing-account control returned
+`subject_not_found`. Five cases requiring manual review are not auto-approved
+merely because replay returned values.
+
+Seven completed within approximately 1.2–3.1 seconds. Fort Bend
+`0044-00-000-0280-901` for 2026 hit the initial 30-second timeout; an explicit
+retry using the existing 120-second profile completed in 33.35 seconds with
+county fallback and `unsupported` status. Its slow discovery remains a runtime
+concern rather than a new authorization to optimize code.
+
+The four unequal-roll persistence tables were checked after replay and all
+remained empty; every replay transaction was read-only and rolled back.
+This does not verify the persisted job chain, simple governed rerank comparison,
+analyst acceptance, final PDF generation, production integration, or representative
+county-wide performance. Classification remains `GOVERNED_NOT_PRODUCTION`.
+No cleanup, new branch, commit or push was performed in this verification.
+
+
+## Approved minimal cleanup — October 3, 2026
+
+After owner approval, deleted exactly `.DS_Store`, `app/.DS_Store` and
+`tests/unit/test_unit_placeholder.py`. The last file contained only `assert True`;
+no behavioral coverage was removed. `.gitignore` already excludes Finder
+metadata. The meaningful integration fixture-inventory test remains intact.
+Optional archival of the legacy architecture overview remains pending; all
+historical documents, migrations and governance/remediation evidence are retained.
+No new branch, commit or push was made.
