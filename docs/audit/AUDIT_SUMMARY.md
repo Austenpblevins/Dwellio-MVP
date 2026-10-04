@@ -33,8 +33,23 @@ and audit only.
    the inspected API or web application. It remains classified
    `GOVERNED_NOT_PRODUCTION` pending a separately approved integration project.
 
+## Human review outcome — October 3, 2026
+
+The project owner approved all nine recommendations. The decision record is
+in [HUMAN_REVIEW_QUEUE.md](HUMAN_REVIEW_QUEUE.md#approved-decisions--october-3-2026).
+The first Human Review Gate is resolved. Approval does not repair the CLI,
+verify the architecture ledger, establish production readiness, or authorize
+cleanup.
+
 ## Next boundary
 
-Review `HUMAN_REVIEW_QUEUE.md` before any cleanup, code repair, schema change,
-or product-work decision. Commit, push, and pull-request creation are
-intentionally out of scope until this audit content is reviewed.
+Rebaseline `docs/architecture-state.md` against code and migrations using the
+approved authority hierarchy and capability classifications. Follow with
+separate changes for the CLI repair, correctness-related lint, and frontend
+test runner, in that order. Retain evidence and require path-specific approval
+before archival or deletion. Public instant-quote integration, final packet
+PDF generation, and county filing remain separate future projects.
+
+The audit and this decision record are authorized for commit and push on
+`repo-stabilization`. This update records decisions only; no application,
+schema, or production behavior changes are included.

@@ -12,4 +12,15 @@ rewrite anything.
 | `sql/dwellio_full_schema.sql` | It may be a useful schema artifact, but its relationship to the migration sequence is not established by this audit. | Determine owner, refresh method, and authoritative status. |
 | Evidence and remediation artifacts | Validation, rollout, and remediation evidence is spread through docs and scripts. | Define retention, indexing, and supersession rules before any archival. |
 
-No candidate in this file is to be acted on without separate approval.
+## Review outcome — October 3, 2026
+
+The first Human Review Gate is resolved; see
+[the approved decisions](HUMAN_REVIEW_QUEUE.md#approved-decisions--october-3-2026).
+The narrow CLI repair is authorized as a separate tested change. The authority
+hierarchy is approved, the implementation ledger needs rebaselining, packet
+stubs are to be retained and labeled, and the consolidated schema remains an
+unverified reference. Evidence is to be retained and indexed.
+
+These decisions do not authorize deletion, movement, or archival of any path.
+Path-specific cleanup approval remains required. No cleanup or code repair
+is performed in this decision-recording change.

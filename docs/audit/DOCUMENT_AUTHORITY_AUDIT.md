@@ -20,16 +20,25 @@ summaries, and code/migration truth are distributed across several document
 families. The stale `architecture-state.md` migration reference demonstrates
 the risk of treating any one narrative ledger as self-validating.
 
-## Temporary rule during rebaseline
+## Approved authority hierarchy — October 3, 2026
 
-Until a human approves a durable hierarchy:
+The project owner approved separating implementation reality from future
+product/design intent:
 
-1. code and applied migration files are evidence of repository implementation;
-2. `docs/source_of_truth/` and approved precedence documents guide intended
-   design;
-3. `docs/architecture-state.md` is a provisional implementation-status ledger;
-4. final summaries, runbooks, and task artifacts are supporting evidence, not
-   unilateral authority.
+1. Code and ordered migrations supply evidence of repository implementation.
+2. `docs/architecture-state.md` records current implementation status. It
+   remains provisional until reverified against that evidence.
+3. Approved product/design documents, including individually confirmed
+   `docs/source_of_truth/` material, describe intended design and future work.
+4. Runbooks describe operational procedures; historical/final summaries and
+   audit artifacts provide supporting evidence.
 
-This rule does not replace existing governance; it makes the ambiguity explicit
-for the rebaseline review.
+Migrations are schema implementation authority. The consolidated
+`sql/dwellio_full_schema.sql` remains an unverified reference pending origin
+and synchronization checks. Repository evidence does not establish deployed
+database state.
+
+This approval resolves the hierarchy decision, but does not itself rebaseline,
+relabel, supersede, or archive other documents. Maintenance ownership and
+refresh processes still need to be established where unspecified. See
+[the full decision record](HUMAN_REVIEW_QUEUE.md#approved-decisions--october-3-2026).
