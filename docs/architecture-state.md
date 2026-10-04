@@ -151,9 +151,12 @@ been given, and no historical migration or experiment is superseded here.
    account flags and the obsolete dispatch block. All 26 tests in
    `tests/unit/test_jobs_cli.py` pass, and `python3 -m app.jobs.cli --help`
    exits successfully. Dispatch tests mock job execution; no database job ran.
-2. Triage correctness-related lint separately. The ingestion service still has
-   `ImportBatchRecord` annotations without a corresponding import; historical
-   lint counts are not a fresh lint result.
+2. Correctness lint triage completed October 3, 2026: the fresh scan found 152
+   findings; all three undefined-name findings were repaired (ingestion batch
+   annotations and the evidence builder's integer helper). The focused Ruff
+   correctness check and 47 relevant tests passed. The remaining 149 style,
+   modernization and reviewed maintenance findings are not fixed or suppressed;
+   full lint remains unclean. See `audit/DISCREPANCY_REPORT.md`.
 3. Configure and verify the frontend test runner separately. Three `.test.mts`
    files exist under `apps/web/app/_lib/`, but `apps/web/package.json` has no
    test script. Presence of test files does not establish an executable suite.
@@ -164,8 +167,8 @@ been given, and no historical migration or experiment is superseded here.
    foundations or gaps remain as classified above.
 
 CLI, correctness lint and frontend test-runner repairs are owner-approved in
-that order. CLI repair is complete; correctness lint and frontend test-runner
-work remain outstanding. The architecture
+that order. CLI repair and correctness lint triage are complete; frontend
+test-runner work remains outstanding. The architecture
 ledger rebaseline does not imply that other authority documents have been
 rewritten or that consolidated-schema maintenance has been settled.
 
@@ -183,6 +186,9 @@ solely because a document or implementation is old. Record separately approved
 scope and owners when those decisions exist.
 
 ## Change log
+
+- `2026-10-03`: Repaired three undefined-name lint findings; 47 focused tests
+  and a focused Ruff correctness check passed. Full lint retains 149 findings.
 
 - `2026-10-03`: Repaired job CLI argument registration and dispatch; verified
   26 CLI regression tests and module help. No job implementation was changed.

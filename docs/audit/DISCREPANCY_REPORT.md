@@ -42,3 +42,34 @@ documents need an approved hierarchy and ownership/refresh policy.
   integration was not established.
 - Schema concepts for agreements and invoices do not establish onboarding,
   e-sign, billing, payment, or filing workflows.
+
+
+## Correctness-related lint triage — October 3, 2026
+
+A fresh `python3 -m ruff check app infra tests --output-format json` scan found
+152 findings. The correctness repair resolves all three `F821` findings:
+
+- Import `ImportBatchRecord` from the ingestion repository so both publish-control
+  method annotations resolve. A regression test evaluates both method type hints.
+- Define the evidence builder's missing `_as_int` helper. The subject-context
+  path previously raised `NameError` for any returned subject row. Regression
+  tests cover integer/string years, missing values and invalid values using a
+  mocked database connection. Invalid optional values produce `None`, matching
+  this script's forgiving float conversion convention.
+
+Verification: 47 focused tests passed across ingestion service/repository,
+unequal-roll review evidence and the evidence-builder regression suite.
+The focused Ruff correctness selection passed. No live database was contacted.
+
+The remaining 149 findings are retained for separately scoped maintenance:
+61 import-order, 55 Python modernization (`UP017`, `UP034`, `UP037`, `UP035`),
+11 mixed indentation, 8 unused imports, 6 module import placement, 3 unused
+locals, 2 lambda-assignment, 2 constant-getattr and 1 non-strict-zip findings.
+The mixed tabs occur inside SQL strings rather than Python control-flow
+indentation. The tab-file loader explicitly pads short rows and its existing
+`zip()` ignores surplus fields; no source contract establishing strict row
+width was found. Unused locals were reviewed without evidence supporting a
+behavior change. None of those findings is silently fixed or suppressed here.
+
+Correctness lint triage is complete within this scope; full lint is not clean.
+Frontend test-runner configuration remains the next approved repair.

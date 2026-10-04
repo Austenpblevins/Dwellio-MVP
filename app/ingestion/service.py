@@ -10,7 +10,7 @@ from app.county_adapters.common.base import AcquiredDataset, CountyAdapter
 from app.db.connection import get_connection
 from app.ingestion.archive import read_raw_archive, write_raw_archive
 from app.ingestion.registry import get_adapter
-from app.ingestion.repository import IngestionRepository
+from app.ingestion.repository import ImportBatchRecord, IngestionRepository
 from app.ingestion.source_registry import get_source_registry_entry
 from app.services.tax_assignment import build_tax_assignments
 from app.utils.hashing import sha256_text

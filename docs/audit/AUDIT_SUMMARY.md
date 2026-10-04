@@ -54,8 +54,11 @@ remain outstanding. No application changes were made.
 
 The separately approved CLI repair is complete: 26 regression tests pass
 and module help succeeds. Job dispatch was mocked and no database job ran.
-Next are separate changes for correctness-related lint and the frontend test
-runner, in that order. Retain evidence and require path-specific approval
+Correctness lint triage is also complete: all three undefined-name findings
+were repaired, 47 focused tests passed, and the focused Ruff correctness check
+passed. Full lint still has 149 reviewed maintenance/style findings; see
+[DISCREPANCY_REPORT.md](DISCREPANCY_REPORT.md#correctness-related-lint-triage--october-3-2026).
+The frontend test runner is the next separately approved repair. Retain evidence and require path-specific approval
 before archival or deletion. Public instant-quote integration, final packet
 PDF generation, and county filing remain separate future projects.
 
