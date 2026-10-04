@@ -10,8 +10,9 @@ evidence. Historical summaries do not override current repository evidence.
 - Last verified: `2026-10-03`, by Codex.
 - Repository baseline inspected: `a5ca4cc3e2cbeaabaedd173ffc92256660b291b0`
   on `repo-stabilization`; application baseline is PR #62 merge `7cce266`.
-- Latest migration: `0079_unequal_roll_final_value_logic.sql`.
-- Scope: static repository verification, not deployment or launch readiness.
+- Latest migration: `0080_unequal_roll_schema_scoped_constraint_repair.sql`
+  (forward repair applied to isolated Stage 21 database).
+- Scope: repository review and local test verification, not production launch readiness.
 - Owner decisions: [approved Human Review Queue](audit/HUMAN_REVIEW_QUEUE.md#approved-decisions--october-3-2026).
 - Verification performed: router mounting and handler source review; API/service
   call-chain review; public web client and page inventory; migration and service
@@ -45,7 +46,7 @@ successful operation against live data or production approval.
 | Service modules | 60 | `app/services/*.py`, excluding `__init__.py`. |
 | Registered jobs | 17 | Entries in `app/jobs/cli.py:JOB_REGISTRY`; registration does not establish implementation or CLI operability. |
 | Operational scripts | 48 | Audit baseline: 46 Python script modules and two shell launchers, excluding package/readme files. |
-| SQL migrations | 77 | Files in `app/db/migrations/*.sql`, ending at `0079`; numbering has gaps. |
+| SQL migrations | 78 | Files in `app/db/migrations/*.sql`, ending at forward repair `0080`; numbering has gaps. |
 | Frontend pages | 19 | `page.tsx` files below `apps/web/app/`. |
 
 See [Active System Index](audit/ACTIVE_SYSTEM_INDEX.md) for the baseline counting
@@ -131,7 +132,8 @@ not customer accounts, final PDFs or county submission.
 ## Schema and governance boundaries
 
 Ordered migrations are the authoritative repository schema implementation
-record. There are 77 files through `0079`, not 79 sequential files.
+record. There are 78 files through migration `0080`; numbering has gaps.
+The original audit baseline counted 77 files through `0079`.
 `sql/dwellio_full_schema.sql` remains an unverified reference; generation,
 synchronization and maintenance ownership have not been established.
 
@@ -157,18 +159,28 @@ been given, and no historical migration or experiment is superseded here.
    correctness check and 47 relevant tests passed. The remaining 149 style,
    modernization and reviewed maintenance findings are not fixed or suppressed;
    full lint remains unclean. See `audit/DISCREPANCY_REPORT.md`.
-3. Configure and verify the frontend test runner separately. Three `.test.mts`
-   files exist under `apps/web/app/_lib/`, but `apps/web/package.json` has no
-   test script. Presence of test files does not establish an executable suite.
-4. Verify runtime/API and database behavior in the appropriate isolated
-   development environment. This rebaseline contacted no database.
+3. Frontend test runner configured locally October 3, 2026: `npm test` discovers
+   `app/**/*.test.mts` using native Node tests/type stripping (Node >=24.12).
+   All 9 tests pass; typecheck, ESLint and production build pass. One stale
+   null-versus-omitted attribution expectation was corrected to the existing
+   serialized contract, and blank-email rejection was added. No product
+   behavior was changed; browser/live-backend coverage remains separate.
+4. Local API verification: 50 selected public/admin contract tests passed
+   using mocked services under the prescribed Stage 21 configuration. The full
+   suite now passes 754 tests with the existing isolated Stage 21 database.
+   Owner-approved migrations `0067`–`0080` are applied to its public schema and
+   no migrations remain pending. Forward repair `0080` fixes all 12 affected
+   relation-scoped constraint guards; regression coverage verifies cross-schema
+   replay and idempotence. Historical migrations through `0079` are unchanged.
+   Seeded end-to-end workflows remain outside this test verification.
 5. Plan public instant-quote integration, final packet generation and filing
    separately. Customer accounts, agreements, e-sign, billing and payment
    foundations or gaps remain as classified above.
 
 CLI, correctness lint and frontend test-runner repairs are owner-approved in
-that order. CLI repair and correctness lint triage are complete; frontend
-test-runner work remains outstanding. The architecture
+that order. CLI repair, correctness lint triage and frontend runner setup are
+complete. The owner authorized committing and pushing these changes to
+`repo-stabilization`. The architecture
 ledger rebaseline does not imply that other authority documents have been
 rewritten or that consolidated-schema maintenance has been settled.
 
@@ -186,6 +198,15 @@ solely because a document or implementation is old. Record separately approved
 scope and owners when those decisions exist.
 
 ## Change log
+
+- `2026-10-03`: Added and applied local forward migration `0080` to repair
+  schema-scoped unequal-roll constraint replay; 754 Python tests pass. Historical
+  migration files are unchanged. The owner authorized preservation on
+  `repo-stabilization`.
+
+- `2026-10-03`: Configured the frontend test runner; 9 tests, typecheck, lint
+  and build passed. Verified 50 mocked public/admin API contract tests, then
+  the full 753-test Python suite with the isolated Stage 21 database.
 
 - `2026-10-03`: Repaired three undefined-name lint findings; 47 focused tests
   and a focused Ruff correctness check passed. Full lint retains 149 findings.

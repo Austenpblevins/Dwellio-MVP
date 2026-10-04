@@ -58,10 +58,28 @@ Correctness lint triage is also complete: all three undefined-name findings
 were repaired, 47 focused tests passed, and the focused Ruff correctness check
 passed. Full lint still has 149 reviewed maintenance/style findings; see
 [DISCREPANCY_REPORT.md](DISCREPANCY_REPORT.md#correctness-related-lint-triage--october-3-2026).
-The frontend test runner is the next separately approved repair. Retain evidence and require path-specific approval
-before archival or deletion. Public instant-quote integration, final packet
-PDF generation, and county filing remain separate future projects.
+Frontend test-runner setup is complete: 9 native Node tests, TypeScript checking,
+ESLint and production build pass. No additional runner dependency was added.
+Stale optional-attribution and CLI tuple expectations were aligned with existing
+behavior; blank-email rejection coverage was added.
 
-The audit and this decision record are authorized for commit and push on
-`repo-stabilization`. This update records decisions only; no application,
-schema, or production behavior changes are included.
+The full Python suite passes **754 tests** with the isolated Stage 21 database,
+including temporary-schema migration checks. Migrations `0067`–`0080` were
+applied to `stage21_dev` on port `55442` with owner authorization. No migrations
+remain pending. Forward repair `0080` resolves the cross-schema constraint-name
+collision revealed after applying `0079`, covering all 12 affected constraints
+without changing historical SQL. Seeded end-to-end workflows remain unverified.
+See [DISCREPANCY_REPORT.md](DISCREPANCY_REPORT.md#replay-issue-resolved-by-forward-repair--october-3-2026)
+for the verification history and repair evidence.
+
+## Preservation and remaining boundaries
+
+The owner authorized reviewing, committing and pushing the frontend setup,
+verification changes and replay repair to the existing `repo-stabilization`
+branch. No new branch is needed. These changes do not approve production rollout
+or deployment to a shared database.
+
+Retain evidence and require path-specific approval before archival or deletion.
+Public instant-quote integration, final packet PDF generation and county filing
+remain separately scoped future projects. Full Python lint retains the reviewed
+maintenance/style backlog described above.
