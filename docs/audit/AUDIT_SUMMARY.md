@@ -20,7 +20,8 @@ and audit only.
 1. The registered job CLI has duplicate argument registration and fails during
    parser construction. It is not repaired here.
 2. `docs/architecture-state.md` is stale relative to migration `0079`; it now
-   carries a temporary `REBASELINING / NOT YET VERIFIED` warning.
+   carried a temporary `REBASELINING / NOT YET VERIFIED` warning at the audit
+   baseline; the October 3 rebaseline below replaces that warning.
 3. Documentation authority overlaps across status, source-of-truth, architecture,
    runbook, and summary documents.
 4. Packet review foundations exist, but the refresh and final packet/PDF
@@ -43,8 +44,14 @@ cleanup.
 
 ## Next boundary
 
-Rebaseline `docs/architecture-state.md` against code and migrations using the
-approved authority hierarchy and capability classifications. Follow with
+The implementation ledger was rebaselined on October 3, 2026 against repository
+commit `a5ca4cc` through migration `0079`, using the approved authority hierarchy
+and capability classifications. See [architecture-state.md](../architecture-state.md)
+for evidence and verification limits. Static review and isolated parser
+construction were performed; runtime, database, lint and frontend execution
+remain outstanding. No application changes were made.
+
+Follow with
 separate changes for the CLI repair, correctness-related lint, and frontend
 test runner, in that order. Retain evidence and require path-specific approval
 before archival or deletion. Public instant-quote integration, final packet
